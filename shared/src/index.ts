@@ -2,3 +2,5 @@ export * from './types.js';
 export * from './concepts.js';
 export * from './simulate.js';
 export * from './compatibility.js';
+export * from './scenarios.js';
+export * from './diff.js';

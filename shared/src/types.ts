@@ -178,6 +178,16 @@ export interface Problem {
   custom?: boolean;
 }
 
+/** Machine-checkable thresholds a design must clear for a scenario to pass. */
+export interface ScenarioPass {
+  /** Highest tolerable share of offered traffic dropped, in percent (1 = 1%). */
+  maxDroppedPct?: number;
+  /** Worst acceptable p99 across synchronous flows, ms. */
+  maxP99Ms?: number;
+  /** When true, no flow may end the run broken. */
+  noBrokenFlows?: boolean;
+}
+
 /** A dynamic load/chaos scenario: ramp traffic, kill components, watch it break. */
 export interface LoadScenario {
   id: string;
@@ -191,6 +201,8 @@ export interface LoadScenario {
   thirdPartyLatencyMs?: number;
   /** What a passing design must do. Shown after the run. */
   passCriteria: string;
+  /** Structured gates; when absent, sensible defaults apply (see scenarios.ts). */
+  pass?: ScenarioPass;
 }
 
 export type ProblemSummary = Pick<

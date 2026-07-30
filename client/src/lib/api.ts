@@ -86,6 +86,16 @@ export const api = {
 
   mastery: () => req<MasteryEntry[]>('/mastery'),
   stats: () => req<Stats>('/stats'),
+  reviewQueue: () =>
+    req<{
+      due: { concept: string; name: string; group: string; ema: number; overdueDays: number; intervalDays: number }[];
+      drillConcepts: string[];
+    }>('/review-queue'),
+  socratic: (body: { problemId: string; graph: GraphDSL; question: string; answer: string }) =>
+    req<{ verdict: 'strong' | 'partial' | 'miss'; feedback: string; concept_scores: Record<string, number> }>(
+      '/socratic',
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
 
   settings: () => req<SettingsView>('/settings'),
   saveSettings: (body: { provider: string; baseUrl?: string; model: string; apiKey?: string }) =>

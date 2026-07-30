@@ -5,10 +5,15 @@ import { api } from '../lib/api';
 export function Dashboard() {
   const [mastery, setMastery] = useState<MasteryEntry[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [dueCount, setDueCount] = useState<number | null>(null);
 
   useEffect(() => {
     void api.mastery().then(setMastery).catch(() => setMastery([]));
     void api.stats().then(setStats).catch(() => setStats(null));
+    void api
+      .reviewQueue()
+      .then((q) => setDueCount(q.due.length))
+      .catch(() => setDueCount(null));
   }, []);
 
   const groupAvg = CONCEPT_GROUPS.map((g) => {
@@ -37,6 +42,7 @@ export function Dashboard() {
           label="Concepts practised"
           value={`${practised.length}/${mastery.length}`}
         />
+        <Tile label="Due for review" value={dueCount === null ? '–' : String(dueCount)} />
       </div>
 
       <div className="index-grid">

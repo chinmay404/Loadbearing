@@ -1,4 +1,4 @@
-import type { GraphDSL, Problem, SimResult, TopologyFinding } from '@loadbearing/shared';
+import type { GraphDSL, Problem, ScenarioVerdict, SimResult, TopologyFinding } from '@loadbearing/shared';
 import { CONCEPT_CARDS } from '@loadbearing/shared';
 
 const GRADER_PERSONA = `You are a staff engineer running a rigorous architecture design review. You have shipped
@@ -259,16 +259,43 @@ them, and spend your findings on what a rule engine cannot judge — whether the
 the numbers, where the trade-offs are wrong, and what a reviewer would push back on.`;
 }
 
+function renderGates(gates: ScenarioVerdict[]): string {
+  if (gates.length === 0) return '';
+  const lines = gates
+    .map(
+      (g) =>
+        `  - ${g.name}: ${g.pass ? 'PASS' : 'FAIL'} — ${g.reasons.join(' ')}` +
+        ` (dropped ${g.metrics.droppedPct.toFixed(1)}%, worst p99 ${Math.round(g.metrics.worstP99Ms)}ms${
+          g.metrics.brokenFlows.length ? `, broken: ${g.metrics.brokenFlows.join(', ')}` : ''
+        })`,
+    )
+    .join('\n');
+  return `SCENARIO GATES (the capacity model ran every load scenario against this design — these results are facts)
+${lines}`;
+}
+
+function renderChanges(changes: string[]): string {
+  if (changes.length === 0) {
+    return `WHAT CHANGED SINCE THE PREVIOUS ROUND
+Nothing — the design is identical to the last submission. If the twist demanded a change, say so plainly.`;
+  }
+  return `WHAT CHANGED SINCE THE PREVIOUS ROUND (computed diff — judge whether these changes actually address the twist)
+${changes.map((l) => `  ${l}`).join('\n')}`;
+}
+
 export interface ScoringPromptInput {
   problem: Problem;
   graph: GraphDSL;
   sim?: SimResult;
   checks?: TopologyFinding[];
+  gates?: ScenarioVerdict[];
+  /** renderDiffLines output vs the previous round's graph. */
+  changes?: string[];
   twist?: { text: string; previousOverall: number };
 }
 
 export function buildScoringPrompt(input: ScoringPromptInput): { system: string; user: string } {
-  const { problem, graph, sim, checks, twist } = input;
+  const { problem, graph, sim, checks, gates, changes, twist } = input;
 
   // Ordered for provider-side prefix caching (DeepSeek/Groq/OpenAI cache by
   // exact prefix; Anthropic via cache_control): everything identical across
@@ -301,7 +328,9 @@ ${twistBlock}
 === THE LEARNER'S DESIGN ===
 ${renderGraph(graph)}
 ${sim ? `\n${renderSim(sim)}\n` : ''}
+${gates && gates.length ? `\n${renderGates(gates)}\n` : ''}
 ${checks ? `\n${renderChecks(checks)}\n` : ''}
+${twist && changes !== undefined ? `\n${renderChanges(changes)}\n` : ''}
 Review this design now. Output only the JSON object.`;
 
   return { system, user };
@@ -360,6 +389,59 @@ ${renderGraph(graph)}
 ${selectionBlock}
 === THE LEARNER ASKS ===
 ${question}`;
+
+  return { system, user };
+}
+
+/**
+ * Grades the learner's WRITTEN answer to one of the review's follow-up
+ * questions. This is where the Socratic loop closes: the question forced them
+ * to think, and this tells them whether the thinking was right.
+ */
+export function buildSocraticPrompt(
+  problem: Problem,
+  graph: GraphDSL,
+  question: string,
+  answer: string,
+): { system: string; user: string } {
+  const system = `You grade a learner's written answer to a follow-up question from an architecture design
+review. Judge the ANSWER, not the design — the design already got its review. Be exact about what they
+got right and what they missed; an answer that sounds fluent but dodges the mechanism is a miss.
+
+Verdicts:
+- "strong": names the actual mechanism and its consequence correctly. Minor wording slips are fine.
+- "partial": right direction, but a load-bearing piece is missing or fuzzy — say which piece.
+- "miss": wrong mechanism, wrong consequence, or a non-answer.
+
+Reply with ONLY a JSON object:
+{
+  "verdict": "strong" | "partial" | "miss",
+  "feedback": "<=80 words. What was right, what was missing, and the one thing to remember. Never restate the full solution.>",
+  "concept_scores": { "<concept-id>": <0.0-1.0> }
+}
+concept_scores: score ONLY the concepts this question actually tests (1-3 of them), using ids from this
+taxonomy verbatim:
+${CONCEPT_CARDS.map((c) => c.id).join(', ')}`;
+
+  const user = `PROBLEM: ${problem.title} (level ${problem.level})
+${problem.prompt}
+
+Key numbers: ${Object.entries(problem.nonFunctional)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(', ')}
+
+THEIR DESIGN (context for the question):
+${renderGraph(graph)}
+
+THE QUESTION THEY WERE ASKED:
+${question}
+
+THEIR WRITTEN ANSWER:
+"""
+${answer}
+"""
+
+Grade the answer now. Output only the JSON object.`;
 
   return { system, user };
 }

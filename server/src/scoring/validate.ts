@@ -164,6 +164,25 @@ export function validateScore(raw: unknown, graph: GraphDSL): ScoreResult {
   };
 }
 
+export interface SocraticGrade {
+  verdict: 'strong' | 'partial' | 'miss';
+  feedback: string;
+  concept_scores: Record<string, number>;
+}
+
+export function validateSocratic(raw: unknown): SocraticGrade {
+  if (typeof raw !== 'object' || raw === null) throw new ScoreShapeError(['grade was not an object']);
+  const o = raw as Record<string, unknown>;
+  const verdict = (['strong', 'partial', 'miss'] as const).includes(o.verdict as 'strong')
+    ? (o.verdict as SocraticGrade['verdict'])
+    : 'partial';
+  const concept_scores: Record<string, number> = {};
+  for (const [k, v] of Object.entries((o.concept_scores ?? {}) as Record<string, unknown>)) {
+    if (CONCEPT_SET.has(k)) concept_scores[k] = num(v, 0, 1, 0);
+  }
+  return { verdict, feedback: str(o.feedback, 'No feedback returned.'), concept_scores };
+}
+
 export function validateCritique(raw: unknown, graph: GraphDSL): CritiqueResponse {
   if (typeof raw !== 'object' || raw === null) throw new ScoreShapeError(['critique was not an object']);
   const o = raw as Record<string, unknown>;

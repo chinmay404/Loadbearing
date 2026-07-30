@@ -7,6 +7,7 @@ import { validateProblem } from './validate.js';
 import { buildProblemGenPrompt } from '../scoring/prompt.js';
 import { completeJson } from '../llm/adapter.js';
 import { loadLlmConfig } from '../llm/settings.js';
+import { registerReferenceRoutes } from './reference.js';
 
 export const problemRoutes = new Hono();
 
@@ -165,3 +166,5 @@ problemRoutes.delete('/problems/:id', (c) => {
   db().prepare('DELETE FROM problems_custom WHERE id = ?').run(id);
   return c.json({ ok: true });
 });
+
+registerReferenceRoutes(problemRoutes);

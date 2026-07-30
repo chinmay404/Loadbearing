@@ -1,12 +1,19 @@
 import { Hono } from 'hono';
-import { checkTopology, normalizeScore, simulate } from '@loadbearing/shared';
+import {
+  checkTopology,
+  diffGraphs,
+  evaluateAllScenarios,
+  normalizeScore,
+  renderDiffLines,
+  simulate,
+} from '@loadbearing/shared';
 import type { Attempt, GraphDSL, ScoreResult, SimConfig } from '@loadbearing/shared';
 import { db, upsertMastery } from '../db.js';
 import { cachedCompleteJson } from '../llm/cache.js';
 import { loadLlmConfig } from '../llm/settings.js';
 import { findProblem } from '../problems/routes.js';
-import { buildCritiquePrompt, buildScoringPrompt } from './prompt.js';
-import { sanitizeGraph, validateCritique, validateScore } from './validate.js';
+import { buildCritiquePrompt, buildScoringPrompt, buildSocraticPrompt } from './prompt.js';
+import { sanitizeGraph, validateCritique, validateScore, validateSocratic } from './validate.js';
 
 export const scoringRoutes = new Hono();
 
@@ -77,9 +84,34 @@ scoringRoutes.post('/attempts', async (c) => {
   // The rule engine is free and certain; run it so the model spends its judgement
   // on what rules cannot decide.
   const checks = checkTopology(graph);
-  const { system, user } = buildScoringPrompt({ problem, graph, sim, checks, twist });
+
+  // Every load scenario becomes a pass/fail fact the grader must respect.
+  let gates: ReturnType<typeof evaluateAllScenarios> = [];
+  try {
+    gates = evaluateAllScenarios(graph, problem);
+  } catch {
+    gates = [];
+  }
+
+  // On a twist round, hand the grader the exact diff so it judges the
+  // adaptation itself, not just the design that resulted.
+  let changes: string[] | undefined;
+  if (twist) {
+    const prev = db()
+      .prepare('SELECT graph_json FROM attempts WHERE problem_id = ? ORDER BY id DESC LIMIT 1')
+      .get(problem.id) as { graph_json: string } | undefined;
+    if (prev) {
+      try {
+        changes = renderDiffLines(diffGraphs(JSON.parse(prev.graph_json) as GraphDSL, graph));
+      } catch {
+        changes = undefined;
+      }
+    }
+  }
+
+  const { system, user } = buildScoringPrompt({ problem, graph, sim, checks, gates, changes, twist });
   const { value: raw, cached } = await cachedCompleteJson<unknown>(loadLlmConfig(db()), system, user, {
-    maxTokens: 8000,
+    maxTokens: 16000,
     temperature: 0.2,
   });
   const score = validateScore(raw, graph);
@@ -142,7 +174,7 @@ scoringRoutes.post('/critique', async (c) => {
   );
   const { system, user } = buildCritiquePrompt(problem, graph, question, selectedNodeIds);
   const { value: raw } = await cachedCompleteJson<unknown>(loadLlmConfig(db()), system, user, {
-    maxTokens: 2000,
+    maxTokens: 4000,
     temperature: 0.4,
   });
   const critique = validateCritique(raw, graph);
@@ -152,6 +184,49 @@ scoringRoutes.post('/critique', async (c) => {
   critique.suggested_additions = graph.nodes.length === 0 ? [] : critique.suggested_additions.slice(0, 1);
   if (graph.nodes.length === 0) critique.canvas_markup = [];
   return c.json(critique);
+});
+
+/**
+ * Grade a written answer to one of the review's Socratic questions. This is
+ * the second half of the learning loop: the review asked, the learner thought,
+ * this says whether the thinking held — and mastery moves accordingly.
+ */
+scoringRoutes.post('/socratic', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    problemId?: string;
+    graph?: unknown;
+    question?: string;
+    answer?: string;
+  };
+  const problem = findProblem(String(body.problemId ?? ''));
+  if (!problem) return c.json({ error: { code: 'not_found', message: 'Unknown problem id' } }, 404);
+  const question = String(body.question ?? '').trim();
+  const answer = String(body.answer ?? '').trim();
+  if (!question || answer.length < 10) {
+    return c.json(
+      {
+        error: {
+          code: 'bad_request',
+          message: 'Write your answer first.',
+          hint: 'A sentence or two naming the mechanism — this is graded on substance, not length.',
+        },
+      },
+      400,
+    );
+  }
+
+  const graph = sanitizeGraph(body.graph);
+  const { system, user } = buildSocraticPrompt(problem, graph, question, answer);
+  const { value: raw } = await cachedCompleteJson<unknown>(loadLlmConfig(db()), system, user, {
+    maxTokens: 2500,
+    temperature: 0.2,
+  });
+  const graded = validateSocratic(raw);
+
+  for (const [concept, value] of Object.entries(graded.concept_scores)) {
+    upsertMastery(db(), concept, value);
+  }
+  return c.json(graded);
 });
 
 /** Run the deterministic simulator without spending a token. */

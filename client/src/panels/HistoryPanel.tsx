@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { diffGraphs, renderDiffLines } from '@loadbearing/shared';
 import type { Attempt } from '@loadbearing/shared';
 import { api } from '../lib/api';
 import { useApp } from '../state/appStore';
@@ -31,7 +32,7 @@ export function HistoryPanel() {
       <p className="faint" style={{ fontSize: 12, marginTop: 0 }}>
         {attempts.length} attempt{attempts.length > 1 ? 's' : ''} on this problem.
       </p>
-      {attempts.map((a) => (
+      {attempts.map((a, i) => (
         <div className="card" key={a.id}>
           <div className="row">
             <span className="grow mono faint" style={{ fontSize: 11 }}>
@@ -54,6 +55,43 @@ export function HistoryPanel() {
               <span className="chip fail">{a.score.critical_failures.length} failures</span>
             )}
           </div>
+          {/* attempts arrive newest-first, so the "previous" round is the next row down */}
+          {i + 1 < attempts.length &&
+            (() => {
+              const prev = attempts[i + 1]!;
+              const lines = renderDiffLines(diffGraphs(prev.graph, a.graph));
+              const delta = a.overall - prev.overall;
+              return (
+                <details className="disclose">
+                  <summary>
+                    changed vs round {prev.round} ({delta >= 0 ? '+' : ''}
+                    {delta} points)
+                  </summary>
+                  {lines.length === 0 ? (
+                    <p className="faint" style={{ fontSize: 11.5 }}>
+                      Identical design — the score moved on grading alone.
+                    </p>
+                  ) : (
+                    <ul className="list-reset mono" style={{ fontSize: 11, marginTop: 4 }}>
+                      {lines.map((l, j) => (
+                        <li
+                          key={j}
+                          style={{
+                            color: l.startsWith('+')
+                              ? 'var(--pass)'
+                              : l.startsWith('−') || l.startsWith('-')
+                                ? 'var(--fail)'
+                                : 'var(--graphite)',
+                          }}
+                        >
+                          {l}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </details>
+              );
+            })()}
         </div>
       ))}
     </div>

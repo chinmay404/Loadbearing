@@ -46,6 +46,11 @@ pick a provider and paste a key (see below).
    together. A client wired straight into Postgres, a queue nobody consumes, a replication edge into
    a cache, an LLM with no guardrail or spend ceiling, a load balancer with one backend — caught while
    you draw, before a model is ever asked for an opinion.
+4½. **Scenario gates.** Every load scenario on the sheet is a machine-checked pass/fail gate,
+   evaluated live by the capacity model as you draw — "TV spot spike: FAIL — 34% of traffic dropped
+   (gate: at most 1%)". Making them green costs nothing, and the grader receives the gate results as
+   facts it must respect.
+
 5. **Submit for review.** The grader scores six dimensions (requirements, scalability, reliability,
    data & consistency, security, cost & simplicity — overengineering loses points too), names the
    concrete failures ("a client retry on POST /charge with no idempotency key charges twice"), finds
@@ -53,9 +58,19 @@ pick a provider and paste a key (see below).
    times the load, and asks Socratic questions before it will show you a model answer. It also
    **draws on your canvas**: markers pinned to your components, plus ghost nodes you can accept
    with one click.
+5½. **Answer the follow-up questions.** The review's Socratic questions have answer boxes: write a
+   sentence or two naming the mechanism, and the grader marks it strong / partial / miss with feedback
+   — and it moves your concept mastery, so dodging the questions shows on the dashboard. You can also
+   open the model answer **as a diagram** and watch it carry the same load your design just took.
+
 6. **Take the twist.** A constraint changes — the payment provider's p99 jumps to 4s, traffic goes
    20×, a region dies — and you adapt the same diagram for round two, graded on the adaptation.
-7. **Watch mastery build.** Every review scores the concepts it saw; a per-concept exponential moving
+6½. **Round diffs.** On a twist round the grader receives the exact computed diff of what you changed,
+   so it judges the adaptation itself — and History shows the diff and the score delta between rounds.
+
+7. **Watch mastery build.** Concepts go stale on a spaced-repetition clock (strong ones rest 14 days,
+   weak ones a single day); overdue concepts surface as a "Due for review" strip with a one-click
+   **Start today's drill** that generates a problem around your three most overdue. Every review scores the concepts it saw; a per-concept exponential moving
    average feeds a radar and heatmap, and "Train my weakness" generates a fresh problem aimed at your
    three weakest concepts. Any attempt exports as a Markdown post-mortem (with a Mermaid diagram) into
    your Obsidian vault.

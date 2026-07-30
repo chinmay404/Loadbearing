@@ -1,12 +1,31 @@
-import { DESIGN_CHECKLIST } from '@loadbearing/shared';
+import { useMemo } from 'react';
+import { DESIGN_CHECKLIST, evaluateAllScenarios } from '@loadbearing/shared';
 import { useApp } from '../state/appStore';
+import { useCanvas } from '../state/canvasStore';
 
 export function BriefPanel() {
   const problem = useApp((s) => s.problem);
   const round = useApp((s) => s.round);
   const twist = useApp((s) => s.activeTwist);
   const score = useApp((s) => s.score);
+  const nodes = useCanvas((s) => s.nodes);
+  const edges = useCanvas((s) => s.edges);
+  const flows = useCanvas((s) => s.flows);
+  const toGraph = useCanvas((s) => s.toGraph);
+
+  // Live pass/fail per scenario — deterministic and free, recomputed as you draw.
+  const gates = useMemo(() => {
+    if (!problem) return new Map<string, ReturnType<typeof evaluateAllScenarios>[number]>();
+    try {
+      return new Map(evaluateAllScenarios(toGraph(), problem).map((g) => [g.scenarioId, g]));
+    } catch {
+      return new Map<string, ReturnType<typeof evaluateAllScenarios>[number]>();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [problem, nodes, edges, flows, toGraph]);
+
   if (!problem) return null;
+  const passCount = [...gates.values()].filter((g) => g.pass).length;
 
   return (
     <div>
@@ -82,28 +101,55 @@ export function BriefPanel() {
         </details>
       )}
 
-      <details className="disclose">
-        <summary>Load scenarios you can run before submitting</summary>
-        {problem.scenarios.map((s) => (
-          <div className="card" key={s.id}>
-            <h4>{s.name}</h4>
-            <p className="muted" style={{ fontSize: 12 }}>
-              {s.description}
-            </p>
-            <div className="row wrap" style={{ gap: 4 }}>
-              <span className="chip">×{s.rpsMultiplier} load</span>
-              {(s.killNodes ?? []).map((k) => (
-                <span className="chip fail" key={k}>
-                  kill {k}
-                </span>
-              ))}
-              {s.thirdPartyLatencyMs ? <span className="chip load">+{s.thirdPartyLatencyMs}ms 3rd-party</span> : null}
+      <details className="disclose" open={flows.length > 0}>
+        <summary>
+          Scenario gates · {passCount}/{problem.scenarios.length} passing
+        </summary>
+        {flows.length === 0 && (
+          <p className="faint" style={{ fontSize: 11.5 }}>
+            Gates evaluate live once you declare a flow — they are checked by the capacity model, not by
+            the grader, so making them green costs nothing.
+          </p>
+        )}
+        {problem.scenarios.map((s) => {
+          const g = gates.get(s.id);
+          return (
+            <div
+              className={`card ${g ? (g.pass ? 'ok-card' : 'sev-high') : ''}`}
+              key={s.id}
+            >
+              <div className="row">
+                <h4 className="grow">{s.name}</h4>
+                {g && flows.length > 0 && (
+                  <span className={`chip ${g.pass ? 'pass' : 'fail'}`}>{g.pass ? 'PASS' : 'FAIL'}</span>
+                )}
+              </div>
+              <p className="muted" style={{ fontSize: 12 }}>
+                {s.description}
+              </p>
+              <div className="row wrap" style={{ gap: 4 }}>
+                <span className="chip">×{s.rpsMultiplier} load</span>
+                {(s.killNodes ?? []).map((k) => (
+                  <span className="chip fail" key={k}>
+                    kill {k}
+                  </span>
+                ))}
+                {s.thirdPartyLatencyMs ? <span className="chip load">+{s.thirdPartyLatencyMs}ms 3rd-party</span> : null}
+              </div>
+              {g && flows.length > 0 ? (
+                <ul className="list-reset faint" style={{ fontSize: 11.5, margin: '6px 0 0' }}>
+                  {g.reasons.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="faint" style={{ fontSize: 11.5, margin: '6px 0 0' }}>
+                  Pass: {s.passCriteria}
+                </p>
+              )}
             </div>
-            <p className="faint" style={{ fontSize: 11.5, margin: '6px 0 0' }}>
-              Pass: {s.passCriteria}
-            </p>
-          </div>
-        ))}
+          );
+        })}
       </details>
     </div>
   );

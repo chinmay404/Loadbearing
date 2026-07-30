@@ -5,6 +5,7 @@ import { useCanvas } from '../state/canvasStore';
 import { api, ApiError } from '../lib/api';
 import { copyText, downloadText, toDrawio, toMermaid } from '../lib/diagram';
 import { IconArchive, IconTwist } from '../ui/UiIcons';
+import { RefDesignModal } from './RefDesignModal';
 
 const DIM_LABEL: Record<DimensionKey, string> = {
   requirements: 'Requirements met',
@@ -28,6 +29,7 @@ export function FeedbackPanel() {
   const toGraph = useCanvas((s) => s.toGraph);
   const toDoc = useCanvas((s) => s.toDoc);
   const [busy, setBusy] = useState<string | null>(null);
+  const [refOpen, setRefOpen] = useState(false);
 
   if (submitting) {
     return (
@@ -299,15 +301,10 @@ export function FeedbackPanel() {
 
       {score.socratic_questions.length > 0 && (
         <>
-          <span className="section-label">Answer these before you peek</span>
-          <ol className="list-reset" style={{ fontSize: 12.5 }}>
-            {score.socratic_questions.map((q, i) => (
-              <li key={i} style={{ marginBottom: 5 }}>
-                {q}
-              </li>
-            ))}
-          </ol>
-          <p className="stencil">work them through in the ask tab</p>
+          <span className="section-label">Answer these — they count toward mastery</span>
+          {score.socratic_questions.map((q, i) => (
+            <SocraticQuestion key={`${attemptId}-${i}`} question={q} problemId={problem?.id ?? ''} />
+          ))}
         </>
       )}
 
@@ -368,9 +365,13 @@ export function FeedbackPanel() {
             <p className="muted" style={{ fontSize: 12.5, whiteSpace: 'pre-wrap', margin: 0 }}>
               {score.model_answer_summary}
             </p>
+            <button style={{ marginTop: 8 }} onClick={() => setRefOpen(true)} title="Generate the reference as an actual diagram and see how it holds under this problem's load">
+              Open as a diagram
+            </button>
           </div>
         </details>
       )}
+      {refOpen && problem && <RefDesignModal problem={problem} onClose={() => setRefOpen(false)} />}
 
       {Object.keys(score.concept_scores).length > 0 && (
         <details className="disclose">
@@ -385,6 +386,81 @@ export function FeedbackPanel() {
               ))}
           </div>
         </details>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The question forced the thinking; this grades it. A written answer is the
+ * cheapest interview practice there is — and it moves concept mastery, so
+ * dodging the questions shows up on the dashboard.
+ */
+function SocraticQuestion({ question, problemId }: { question: string; problemId: string }) {
+  const toGraph = useCanvas((s) => s.toGraph);
+  const setError = useApp((s) => s.setError);
+  const [answer, setAnswer] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [grade, setGrade] = useState<{
+    verdict: 'strong' | 'partial' | 'miss';
+    feedback: string;
+    concept_scores: Record<string, number>;
+  } | null>(null);
+
+  const check = async () => {
+    if (!problemId || answer.trim().length < 10) return;
+    try {
+      setBusy(true);
+      setGrade(await api.socratic({ problemId, graph: toGraph(), question, answer }));
+    } catch (e) {
+      const err = e as ApiError;
+      setError({ message: err.message, hint: err.hint });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card">
+      <p style={{ fontSize: 12.5, margin: '0 0 6px' }}>{question}</p>
+      {grade === null ? (
+        <>
+          <textarea
+            rows={2}
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+            placeholder="Name the mechanism and its consequence — a sentence or two is enough."
+          />
+          <div className="row" style={{ marginTop: 6 }}>
+            <button onClick={() => void check()} disabled={busy || answer.trim().length < 10}>
+              {busy ? <span className="spinner" /> : null} Check my answer
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="muted" style={{ fontSize: 12, margin: '0 0 5px', whiteSpace: 'pre-wrap' }}>
+            {answer}
+          </p>
+          <div className="row wrap" style={{ gap: 4 }}>
+            <span className={`chip ${grade.verdict === 'strong' ? 'pass' : grade.verdict === 'partial' ? 'load' : 'fail'}`}>
+              {grade.verdict}
+            </span>
+            {Object.entries(grade.concept_scores).map(([k, v]) => (
+              <span className="chip" key={k}>
+                {k} {Math.round(v * 100)}%
+              </span>
+            ))}
+          </div>
+          <p className="muted" style={{ fontSize: 12, margin: '6px 0 0' }}>
+            {grade.feedback}
+          </p>
+          {grade.verdict !== 'strong' && (
+            <button className="ghost" style={{ marginTop: 5 }} onClick={() => setGrade(null)}>
+              Try again
+            </button>
+          )}
+        </>
       )}
     </div>
   );

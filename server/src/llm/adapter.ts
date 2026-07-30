@@ -235,6 +235,16 @@ function openAiText(data: any): string {
   // out mid-thought. The answer is usually still recoverable from the reasoning.
   if (!text) text = flatten(message?.reasoning ?? message?.reasoning_content);
 
+  // A reply cut off mid-answer is worse than no reply: the JSON salvager will
+  // happily rescue a fragment of it, and a fragment grades as garbage. Fail loudly.
+  if (text && choices[0]?.finish_reason === 'length') {
+    throw new LlmHttpError(
+      502,
+      'The model hit its token limit mid-answer, so the reply is truncated.',
+      'Reasoning models spend most of the budget thinking. Raise the limit, or pick a non-reasoning model (llama-3.3-70b-versatile on Groq works well) for grading.',
+    );
+  }
+
   if (!text) {
     const finish = choices[0]?.finish_reason;
     const cut = finish === 'length';

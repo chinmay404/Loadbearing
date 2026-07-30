@@ -24,13 +24,23 @@ export function ProblemBrowser() {
   const [done, setDone] = useState<Record<string, number>>({});
   const [ownOpen, setOwnOpen] = useState(false);
   const [brief, setBrief] = useState('');
+  const [queue, setQueue] = useState<{
+    due: { concept: string; name: string; ema: number; overdueDays: number }[];
+    drillConcepts: string[];
+  } | null>(null);
 
   useEffect(() => {
     void (async () => {
       try {
-        const [p, m, attempts] = await Promise.all([api.problems(), api.mastery(), api.attempts()]);
+        const [p, m, attempts, rq] = await Promise.all([
+          api.problems(),
+          api.mastery(),
+          api.attempts(),
+          api.reviewQueue().catch(() => null),
+        ]);
         setProblems(p);
         setMastery(m);
+        setQueue(rq);
         const best: Record<string, number> = {};
         for (const a of attempts) best[a.problemId] = Math.max(best[a.problemId] ?? 0, a.overall);
         setDone(best);
@@ -140,6 +150,51 @@ export function ProblemBrowser() {
               {busy === 'own' ? <span className="spinner" /> : null} Build the sheet
             </button>
             <span className="stencil">{brief.trim().length} characters</span>
+          </div>
+        </div>
+      )}
+
+      {queue && queue.due.length > 0 && (
+        <div className="card" style={{ marginBottom: 14, borderLeft: '2px solid var(--load)' }}>
+          <div className="row wrap">
+            <div className="grow">
+              <h4>
+                Due for review — {queue.due.length} concept{queue.due.length > 1 ? 's' : ''} going stale
+              </h4>
+              <div className="row wrap" style={{ gap: 3, marginTop: 6 }}>
+                {queue.due.map((d) => (
+                  <span
+                    className={`chip ${d.ema < 0.4 ? 'fail' : 'load'}`}
+                    key={d.concept}
+                    title={`${Math.round(d.ema * 100)}% mastery · ${d.overdueDays === 0 ? 'due today' : `${d.overdueDays}d overdue`}`}
+                  >
+                    {d.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <button
+              className="primary"
+              disabled={busy === 'gen'}
+              onClick={() =>
+                void (async () => {
+                  try {
+                    setBusy('gen');
+                    const p = await api.generateProblem({ concepts: queue.drillConcepts });
+                    setProblems(await api.problems());
+                    openProblem(p);
+                  } catch (e) {
+                    const err = e as ApiError;
+                    setError({ message: err.message, hint: err.hint });
+                  } finally {
+                    setBusy(null);
+                  }
+                })()
+              }
+              title={`A ~10 minute drill built around: ${queue.drillConcepts.join(', ')}`}
+            >
+              {busy === 'gen' ? <span className="spinner" /> : <IconTarget size={15} />} Start today's drill
+            </button>
           </div>
         </div>
       )}
