@@ -84,16 +84,14 @@ export function App() {
 
   if (!username) {
     return (
-      <div className="shell">
-        <main className="main">
-          {authChecked ? (
-            <SignInPanel />
-          ) : (
-            <div className="sheet">
-              <p className="faint">Connecting…</p>
-            </div>
-          )}
-        </main>
+      <div className="gate">
+        {authChecked ? (
+          <SignInPanel />
+        ) : (
+          <p className="faint" style={{ marginTop: '10vh' }}>
+            Connecting…
+          </p>
+        )}
       </div>
     );
   }

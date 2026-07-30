@@ -196,6 +196,17 @@ input[type='checkbox'] {
   height: 100%;
 }
 
+/* Signed out there is no rail, so the two-column shell would squeeze the panel
+   into the 52px it reserves. The gate is its own full-width layout. */
+.gate {
+  height: 100%;
+  overflow: auto;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  padding: 6vh 20px 40px;
+}
+
 .rail {
   background: var(--ink-2);
   border-right: 1px solid var(--rule);
