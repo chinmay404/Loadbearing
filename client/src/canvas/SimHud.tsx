@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef } from 'react';
-import { simulate } from '@archdojo/shared';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { simulate } from '@loadbearing/shared';
 import { useCanvas } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
+import { api, ApiError } from '../lib/api';
 import { IconPlay, IconStop } from '../ui/UiIcons';
 
 /**
@@ -20,15 +21,36 @@ export function SimHud() {
   const flows = useCanvas((s) => s.flows);
   const toGraph = useCanvas((s) => s.toGraph);
   const problem = useApp((s) => s.problem);
+  const setError = useApp((s) => s.setError);
+  const simSource = useCanvas((s) => s.simSource);
+  const [verifying, setVerifying] = useState(false);
   const timer = useRef(0);
 
   const run = useCallback(() => {
     try {
-      setSimResult(simulate(toGraph(), config));
+      setSimResult(simulate(toGraph(), config), 'local');
     } catch {
       setSimResult(null);
     }
   }, [config, setSimResult, toGraph]);
+
+  /**
+   * The same engine runs in both places (it lives in the shared package), but a
+   * capacity claim you are about to defend should come from the server, not from
+   * whatever JavaScript happens to be loaded in this tab.
+   */
+  const verifyOnServer = useCallback(async () => {
+    try {
+      setVerifying(true);
+      const authoritative = await api.simulate({ graph: toGraph(), config });
+      setSimResult(authoritative, 'server');
+    } catch (e) {
+      const err = e as ApiError;
+      setError({ message: err.message, hint: err.hint });
+    } finally {
+      setVerifying(false);
+    }
+  }, [config, setSimResult, toGraph, setError]);
 
   useEffect(() => {
     if (!running) {
@@ -96,6 +118,17 @@ export function SimHud() {
             aria-label="Extra third-party latency"
           />
         </div>
+
+        <button
+          onClick={() => void verifyOnServer()}
+          disabled={verifying}
+          title="Recompute every component's numbers on the server and replace the live estimate with the authoritative result"
+        >
+          {verifying ? <span className="spinner" /> : null} Verify on server
+        </button>
+        <span className={`chip ${simSource === 'server' ? 'pass' : ''}`} title={simSource === 'server' ? 'These numbers came from the backend engine.' : 'Computed in the browser for a smooth slider; identical engine.'}>
+          {simSource === 'server' ? 'server-computed' : 'live estimate'}
+        </span>
 
         {result && (
           <>

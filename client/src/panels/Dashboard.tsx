@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CONCEPT_GROUPS, type MasteryEntry, type Stats } from '@archdojo/shared';
+import { CONCEPT_GROUPS, type MasteryEntry, type Stats } from '@loadbearing/shared';
 import { api } from '../lib/api';
 
 export function Dashboard() {
@@ -149,14 +149,14 @@ function Radar({ data }: { data: { group: string; value: number | null; covered:
           key={f}
           points={data.map((_, i) => pt(i, f)).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ')}
           fill="none"
-          stroke="#262b38"
+          stroke="#322e29"
         />
       ))}
       {data.map((_, i) => {
         const [x, y] = pt(i, 1);
-        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="#262b38" />;
+        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="#322e29" />;
       })}
-      <polygon points={poly} fill="rgb(94 234 212 / 0.18)" stroke="#5eead4" strokeWidth={1.5} />
+      <polygon points={poly} fill="rgb(207 163 73 / 0.18)" stroke="#cfa349" strokeWidth={1.5} />
       {data.map((d, i) => {
         const [x, y] = pt(i, 1.19);
         return (
@@ -165,7 +165,7 @@ function Radar({ data }: { data: { group: string; value: number | null; covered:
             x={x}
             y={y}
             fontSize={7.5}
-            fill={d.value === null ? '#6b7488' : '#9aa3b5'}
+            fill={d.value === null ? '#6b7488' : '#a09a90'}
             textAnchor={x < cx - 8 ? 'end' : x > cx + 8 ? 'start' : 'middle'}
             dominantBaseline="middle"
           >
@@ -187,10 +187,10 @@ function Trend({ points }: { points: number[] }) {
     .join(' ');
   return (
     <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%' }}>
-      <line x1={0} y1={h - (80 / max) * h} x2={w} y2={h - (80 / max) * h} stroke="#1c6b52" strokeDasharray="3 3" />
-      <path d={d} fill="none" stroke="#5eead4" strokeWidth={2} />
+      <line x1={0} y1={h - (80 / max) * h} x2={w} y2={h - (80 / max) * h} stroke="#4a6b34" strokeDasharray="3 3" />
+      <path d={d} fill="none" stroke="#cfa349" strokeWidth={2} />
       {points.map((p, i) => (
-        <circle key={i} cx={i * step} cy={h - (p / max) * h} r={2.5} fill="#5eead4" />
+        <circle key={i} cx={i * step} cy={h - (p / max) * h} r={2.5} fill="#cfa349" />
       ))}
     </svg>
   );

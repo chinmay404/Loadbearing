@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { MasteryEntry, ProblemSummary } from '@archdojo/shared';
+import type { MasteryEntry, ProblemSummary } from '@loadbearing/shared';
 import { api, ApiError } from '../lib/api';
 import { useApp } from '../state/appStore';
 import { IconPlus, IconTarget } from '../ui/UiIcons';

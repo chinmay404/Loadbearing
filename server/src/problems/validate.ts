@@ -1,5 +1,5 @@
-import { CONCEPTS } from '@archdojo/shared';
-import type { LoadScenario, Problem } from '@archdojo/shared';
+import { CONCEPTS } from '@loadbearing/shared';
+import type { LoadScenario, Problem } from '@loadbearing/shared';
 
 const CONCEPT_SET = new Set<string>(CONCEPTS);
 

@@ -18,7 +18,7 @@ app.onError((err, c) => {
   const e = err as Error & { status?: number; hint?: string; problems?: string[]; raw?: string };
   const status = typeof e.status === 'number' && e.status >= 400 && e.status < 600 ? e.status : 500;
   const code = e.name === 'LlmJsonError' ? 'llm_bad_json' : e.name === 'LlmHttpError' ? 'llm_http' : e.name;
-  console.error(`[archdojo] ${code}: ${e.message}`);
+  console.error(`[loadbearing] ${code}: ${e.message}`);
   return c.json(
     {
       error: {
@@ -46,7 +46,7 @@ app.route('/api', exportRoutes);
 
 const port = Number(process.env.PORT ?? 8787);
 serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) => {
-  console.log(`[archdojo] server on http://127.0.0.1:${info.port}`);
+  console.log(`[loadbearing] server on http://127.0.0.1:${info.port}`);
 });
 
 export { app };

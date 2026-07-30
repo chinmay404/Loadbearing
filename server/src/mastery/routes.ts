@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
-import { CONCEPT_CARDS } from '@archdojo/shared';
-import type { MasteryEntry, Stats } from '@archdojo/shared';
+import { CONCEPT_CARDS } from '@loadbearing/shared';
+import type { MasteryEntry, Stats } from '@loadbearing/shared';
 import { db } from '../db.js';
 
 export const masteryRoutes = new Hono();

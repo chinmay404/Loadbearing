@@ -29,6 +29,14 @@ export const IconSheets = ({ size }: P) => (
   </S>
 );
 
+export const IconCompose = ({ size }: P) => (
+  <S size={size}>
+    <path d="M4 6h9M4 10.5h6M4 15h8" />
+    <path d="M15 15.5 18.5 12l2 2-3.5 3.5-2.5.6Z" />
+    <path d="M13.5 19.5H20" />
+  </S>
+);
+
 export const IconDrafting = ({ size }: P) => (
   <S size={size}>
     <path d="M4 20 12 4l8 16" />

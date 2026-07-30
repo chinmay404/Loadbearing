@@ -7,11 +7,13 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  type Connection,
   type EdgeTypes,
   type NodeTypes,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import type { ArchNodeType } from '@archdojo/shared';
+import { checkConnection } from '@loadbearing/shared';
+import type { ArchNodeType } from '@loadbearing/shared';
 import { ArchNode } from './ArchNode';
 import { StickyNode } from './StickyNode';
 import { ArchEdge } from './ArchEdge';
@@ -22,6 +24,7 @@ import { SimHud } from './SimHud';
 import { TitleBlock } from './TitleBlock';
 import { QuickAdd } from './QuickAdd';
 import { useCanvas } from '../state/canvasStore';
+import { useApp } from '../state/appStore';
 
 const nodeTypes: NodeTypes = { arch: ArchNode, sticky: StickyNode };
 const edgeTypes: EdgeTypes = { arch: ArchEdge };
@@ -30,6 +33,9 @@ function CanvasInner() {
   const wrap = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
   const setViewportCenter = useCanvas((s) => s.setViewportCenter);
+  const edgeKind = useCanvas((s) => s.edgeKind);
+  const toGraph = useCanvas((s) => s.toGraph);
+  const setNotice = useApp((s) => s.setNotice);
   const nodes = useCanvas((s) => s.nodes);
   const edges = useCanvas((s) => s.edges);
   const onNodesChange = useCanvas((s) => s.onNodesChange);
@@ -69,7 +75,7 @@ function CanvasInner() {
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      const type = e.dataTransfer.getData('application/archdojo-node') as ArchNodeType;
+      const type = e.dataTransfer.getData('application/loadbearing-node') as ArchNodeType;
       if (!type) return;
       const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       addArchNode(type, { x: position.x - 80, y: position.y - 30 });
@@ -90,6 +96,24 @@ function CanvasInner() {
     syncCenter();
   }, [syncCenter]);
 
+  /**
+   * Teach at the moment of the mistake. The connection is still made — being told
+   * why it is wrong beats being blocked and left guessing — but the reason surfaces
+   * immediately instead of waiting for the Checks tab.
+   */
+  const onConnectChecked = useCallback(
+    (c: Connection) => {
+      onConnect(c);
+      const graph = toGraph();
+      const from = graph.nodes.find((n) => n.id === c.source);
+      const to = graph.nodes.find((n) => n.id === c.target);
+      if (!from || !to) return;
+      const worst = checkConnection(from, to, edgeKind).find((f) => f.severity === 'error');
+      if (worst) setNotice(`${worst.message} — ${worst.fix}`);
+    },
+    [onConnect, toGraph, edgeKind, setNotice],
+  );
+
   const onPaneClick = useCallback(
     (e: React.MouseEvent) => {
       if (tool !== 'sticky') return;
@@ -109,7 +133,7 @@ function CanvasInner() {
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
+        onConnect={onConnectChecked}
         onDrop={onDrop}
         onDragOver={(e) => {
           e.preventDefault();
@@ -129,15 +153,15 @@ function CanvasInner() {
         proOptions={{ hideAttribution: true }}
       >
         {/* Blueprint ruling: a fine grid inside a coarse one, like drafting paper. */}
-        <Background id="fine" variant={BackgroundVariant.Lines} gap={16} lineWidth={0.4} color="#161c26" />
-        <Background id="coarse" variant={BackgroundVariant.Lines} gap={96} lineWidth={0.6} color="#1d2632" />
+        <Background id="fine" variant={BackgroundVariant.Lines} gap={16} lineWidth={0.4} color="#1d1b18" />
+        <Background id="coarse" variant={BackgroundVariant.Lines} gap={96} lineWidth={0.6} color="#272320" />
         <Controls showInteractive={false} position="top-right" />
         <MiniMap
           pannable
           zoomable
-          style={{ background: '#141922', border: '1px solid #26303d', borderRadius: 2 }}
-          maskColor="rgb(14 17 22 / 0.72)"
-          nodeColor="#2b3644"
+          style={{ background: '#1a1917', border: '1px solid #322e29', borderRadius: 2 }}
+          maskColor="rgb(18 17 16 / 0.72)"
+          nodeColor="#3a352f"
         />
       </ReactFlow>
       <FlowParticles />

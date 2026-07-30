@@ -1,8 +1,8 @@
-// The ArchDojo problem bank. Pure data: 25 system-design problems across six
+// The Loadbearing problem bank. Pure data: 25 system-design problems across six
 // levels, from single-service fundamentals to distributed and AI-platform work.
-// Every `concepts` entry is an id from CONCEPT_CARDS in @archdojo/shared.
+// Every `concepts` entry is an id from CONCEPT_CARDS in @loadbearing/shared.
 
-import type { Problem } from '@archdojo/shared';
+import type { Problem } from '@loadbearing/shared';
 
 export const PROBLEM_BANK: Problem[] = [
   // ------------------------------------------------------------------ L1 ----

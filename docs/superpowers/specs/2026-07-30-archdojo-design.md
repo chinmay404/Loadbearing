@@ -1,4 +1,4 @@
-# ArchDojo — design spec
+# Loadbearing — design spec
 
 **Date:** 2026-07-30
 **Status:** Approved direction ("propose a solution then start development"); hybrid canvas, pluggable LLM providers, local persistence chosen by the user.
@@ -42,7 +42,7 @@ because browser→LLM calls are CORS-blocked for several target providers.
 ## Repository layout
 
 ```
-archdojo/
+loadbearing/
   package.json          # npm workspaces: client, server; `npm run dev` runs both
   client/               # Vite React TS
     src/
@@ -57,7 +57,7 @@ archdojo/
       llm/              # provider adapters + JSON-repair
       scoring/          # prompt builders, rubric, score parsing
       problems/         # seed bank JSON + generation
-  data/                 # archdojo.sqlite (gitignored)
+  data/                 # loadbearing.sqlite (gitignored)
   docs/superpowers/specs/
 ```
 
@@ -195,7 +195,7 @@ settings(key PRIMARY KEY, value)
 - "Train weakness": picks/generates a problem weighted toward lowest-EMA concepts.
 - Obsidian export (button per attempt): markdown post-mortem (problem, final score,
   critical failures, what I learned) written to
-  `D:\Obsidian_notes_206\Notes\ArchDojo\` — append-only, new file per attempt,
+  `D:\Obsidian_notes_206\Notes\Loadbearing\` — append-only, new file per attempt,
   respecting Brain hard rules.
 
 ## Error handling

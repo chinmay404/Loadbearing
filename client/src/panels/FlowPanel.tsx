@@ -1,4 +1,4 @@
-import type { FlowKind } from '@archdojo/shared';
+import type { FlowKind } from '@loadbearing/shared';
 import { FLOW_KINDS, useCanvas, type ArchNodeData } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
 

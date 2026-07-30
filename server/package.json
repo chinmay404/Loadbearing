@@ -1,5 +1,5 @@
 {
-  "name": "@archdojo/server",
+  "name": "@loadbearing/server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@archdojo/shared": "*",
+    "@loadbearing/shared": "*",
     "@hono/node-server": "^1.13.7",
     "hono": "^4.6.14"
   },

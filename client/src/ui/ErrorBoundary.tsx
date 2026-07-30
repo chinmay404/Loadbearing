@@ -23,7 +23,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error(`[archdojo] ${this.props.area} failed`, error, info.componentStack);
+    console.error(`[loadbearing] ${this.props.area} failed`, error, info.componentStack);
   }
 
   render() {

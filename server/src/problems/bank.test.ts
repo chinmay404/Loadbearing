@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONCEPTS } from '@archdojo/shared';
+import { CONCEPTS } from '@loadbearing/shared';
 import { PROBLEM_BANK, PROBLEM_BY_ID } from './bank.js';
 import { auditSeedProblem, validateProblem } from './validate.js';
 

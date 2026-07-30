@@ -21,7 +21,7 @@ import type {
   SimConfig,
   SimResult,
   SuggestedAddition,
-} from '@archdojo/shared';
+} from '@loadbearing/shared';
 import { NODE_SPEC } from '../canvas/nodeCatalog';
 
 export type Tool = 'select' | 'pen' | 'eraser' | 'sticky';
@@ -61,6 +61,8 @@ interface CanvasState extends Snapshot {
   simResult: SimResult | null;
   simConfig: SimConfig;
   simRunning: boolean;
+  /** Which engine produced simResult: the local copy, or the server's. */
+  simSource: 'local' | 'server';
   markup: CanvasMarkup[];
   viewportCenter: { x: number; y: number };
   past: Snapshot[];
@@ -106,7 +108,7 @@ interface CanvasState extends Snapshot {
   addGhosts: (suggestions: SuggestedAddition[]) => void;
   acceptGhost: (id: string) => void;
   rejectGhost: (id: string) => void;
-  setSimResult: (r: SimResult | null) => void;
+  setSimResult: (r: SimResult | null, source?: 'local' | 'server') => void;
   setSimConfig: (patch: Partial<SimConfig>) => void;
   setSimRunning: (v: boolean) => void;
   toggleKillNode: (id: string) => void;
@@ -144,10 +146,11 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   problemId: null,
   tool: 'select',
   edgeKind: 'sync',
-  penColor: '#5eead4',
+  penColor: '#cfa349',
   simResult: null,
   simConfig: { rpsMultiplier: 1, killNodeIds: [], thirdPartyLatencyMs: 0 },
   simRunning: false,
+  simSource: 'local',
   markup: [],
   viewportCenter: { x: 300, y: 200 },
   past: [],
@@ -475,7 +478,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       edges: s.edges.filter((e) => e.source !== id && e.target !== id),
     })),
 
-  setSimResult: (simResult) => set({ simResult }),
+  setSimResult: (simResult, source = 'local') => set({ simResult, simSource: source }),
   setSimConfig: (patch) => set((s) => ({ simConfig: { ...s.simConfig, ...patch } })),
   setSimRunning: (simRunning) => set({ simRunning }),
 

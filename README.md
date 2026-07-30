@@ -1,4 +1,4 @@
-# ArchDojo
+# Loadbearing
 
 Learn software architecture the only way it sticks: by drawing designs against hard problems and
 having them torn apart. A local web app — your machine, your data, your choice of grader model.
@@ -15,6 +15,10 @@ pick a provider and paste a key (see below).
 
 ## The loop
 
+0. **Or write your own sheet.** *Compose a sheet* takes a scenario in your words plus the constraints
+   you are actually under — team size, budget, compliance, the numbers you know — and turns it into a
+   problem with a rubric, twists and load scenarios. Use it to drill a topic, or to have a system you
+   really run reviewed against its real numbers.
 1. **Pick a problem.** 25 hand-written problems across six levels — from caching a read-heavy API up
    to multi-region active-active data, exactly-once billing, cell-based tenant isolation and AI
    systems (RAG with eval gates, agent sandboxing, LLM cost control). Each one carries real numbers
@@ -32,6 +36,16 @@ pick a provider and paste a key (see below).
    components: utilization, queueing latency, drops, queue depth, monthly cost. Drag the load slider
    to 50×. Kill a component and watch flows re-route through redundant siblings — or break. Kill the
    cache and watch the whole read volume land on your database. No tokens spent; it all runs locally.
+
+   Every component **shows its arithmetic** in the Inspector — capacity as *per-replica × replicas*,
+   utilization as *arriving ÷ capacity*, latency as *service time ÷ (1 − utilization)*, and exactly
+   how much traffic is being shed. **Verify on server** recomputes the whole run in the backend so a
+   number you are about to defend does not depend on whatever is loaded in your browser tab.
+
+   The **Checks** tab is separate and free: deterministic structural review of how components fit
+   together. A client wired straight into Postgres, a queue nobody consumes, a replication edge into
+   a cache, an LLM with no guardrail or spend ceiling, a load balancer with one backend — caught while
+   you draw, before a model is ever asked for an opinion.
 5. **Submit for review.** The grader scores six dimensions (requirements, scalability, reliability,
    data & consistency, security, cost & simplicity — overengineering loses points too), names the
    concrete failures ("a client retry on POST /charge with no idempotency key charges twice"), finds
@@ -55,7 +69,7 @@ pick a provider and paste a key (see below).
   decision, alternatives weighed and why they lose, consequences per component, a risk table with
   mitigations, and the at-10× note. Straight into your vault, or copied for a PR description.
 - **Take the diagram with you.** Copy as Mermaid for a README or PR, or download `.drawio` with
-  positions intact for people who do not have ArchDojo.
+  positions intact for people who do not have Loadbearing.
 - **Ctrl+K** to add any component by name — faster than hunting a palette of sixty.
 
 ## Bring your own model
@@ -78,7 +92,7 @@ The simulator, mastery tracking and design reference cost nothing.
 Prefer not to store a key at all? Environment variables win over anything saved in the app:
 
 ```bash
-ARCHDOJO_PROVIDER=openai-compatible ARCHDOJO_BASE_URL=https://api.groq.com/openai/v1 ARCHDOJO_MODEL=llama-3.3-70b-versatile ARCHDOJO_API_KEY=your-key npm run dev
+LOADBEARING_PROVIDER=openai-compatible LOADBEARING_BASE_URL=https://api.groq.com/openai/v1 LOADBEARING_MODEL=llama-3.3-70b-versatile LOADBEARING_API_KEY=your-key npm run dev
 ```
 
 ## Design reference
@@ -93,7 +107,7 @@ grader scores against, so studying it is studying the rubric.
 shared/     types, the concept taxonomy, and the simulation engine (pure, 28 tests)
 server/     Hono API: problem bank, scoring prompts, LLM adapters, SQLite, vault export
 client/     Vite + React + React Flow canvas, panels, dashboard
-data/       archdojo.sqlite  (gitignored — your attempts and mastery live here)
+data/       loadbearing.sqlite  (gitignored — your attempts and mastery live here)
 docs/       the design spec and implementation plan
 ```
 

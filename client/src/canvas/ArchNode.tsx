@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import { Handle, NodeResizer, Position, type NodeProps, type Node } from '@xyflow/react';
-import type { SimNodeResult } from '@archdojo/shared';
+import type { SimNodeResult } from '@loadbearing/shared';
 import { NODE_ICONS } from './icons';
 import { NODE_SPEC } from './nodeCatalog';
 import { useCanvas, type ArchNodeData } from '../state/canvasStore';
@@ -40,7 +40,7 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
   if (data.archType === 'group') {
     return (
       <>
-        <NodeResizer minWidth={180} minHeight={120} isVisible={selected} color="#818cf8" />
+        <NodeResizer minWidth={180} minHeight={120} isVisible={selected} color="#b07ca8" />
         <div className="group-node" style={{ width: '100%', height: '100%' }}>
           <div className="glabel">
             {editing ? (

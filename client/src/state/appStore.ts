@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import type { Problem, ProblemSummary, ScoreResult, SimResult } from '@archdojo/shared';
+import type { Problem, ProblemSummary, ScoreResult, SimResult } from '@loadbearing/shared';
 
-export type View = 'problems' | 'workspace' | 'dashboard' | 'reference' | 'settings';
-export type LeftTab = 'brief' | 'palette' | 'flows' | 'inspect';
+export type View = 'problems' | 'compose' | 'workspace' | 'dashboard' | 'reference' | 'settings';
+export type LeftTab = 'brief' | 'palette' | 'flows' | 'inspect' | 'checks';
 export type RightTab = 'feedback' | 'ask' | 'history';
 
 interface AppState {
@@ -22,6 +22,8 @@ interface AppState {
   notice: string | null;
   serverUp: boolean;
   llmConfigured: boolean;
+  /** True when the server is forcing the offline stub, so reviews are not real. */
+  stubMode: boolean;
 
   setView: (v: View) => void;
   setLeftTab: (t: LeftTab) => void;
@@ -33,7 +35,7 @@ interface AppState {
   setSubmitting: (v: boolean) => void;
   setError: (e: { message: string; hint?: string } | null) => void;
   setNotice: (n: string | null) => void;
-  setHealth: (h: { serverUp: boolean; llmConfigured: boolean }) => void;
+  setHealth: (h: { serverUp: boolean; llmConfigured: boolean; stubMode: boolean }) => void;
 }
 
 export const useApp = create<AppState>((set) => ({
@@ -53,6 +55,7 @@ export const useApp = create<AppState>((set) => ({
   notice: null,
   serverUp: false,
   llmConfigured: false,
+  stubMode: false,
 
   setView: (view) => set({ view }),
   setLeftTab: (leftTab) => set({ leftTab }),
@@ -89,5 +92,5 @@ export const useApp = create<AppState>((set) => ({
   setSubmitting: (submitting) => set({ submitting }),
   setError: (error) => set({ error, submitting: false }),
   setNotice: (notice) => set({ notice }),
-  setHealth: ({ serverUp, llmConfigured }) => set({ serverUp, llmConfigured }),
+  setHealth: ({ serverUp, llmConfigured, stubMode }) => set({ serverUp, llmConfigured, stubMode }),
 }));

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LlmConfig } from '@archdojo/shared';
+import type { LlmConfig } from '@loadbearing/shared';
 import { complete, completeJson, LlmHttpError } from './adapter.js';
 import { LlmJsonError } from './json.js';
 

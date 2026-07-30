@@ -1,5 +1,5 @@
-import { CONCEPTS, DIMENSION_KEYS, ARCH_NODE_TYPES } from '@archdojo/shared';
-import type { ScoreResult, GraphDSL, CritiqueResponse } from '@archdojo/shared';
+import { CONCEPTS, DIMENSION_KEYS, ARCH_NODE_TYPES } from '@loadbearing/shared';
+import type { ScoreResult, GraphDSL, CritiqueResponse } from '@loadbearing/shared';
 
 export class ScoreShapeError extends Error {
   constructor(public problems: string[]) {

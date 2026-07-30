@@ -1,32 +1,35 @@
 /*
- * ArchDojo — a drafting table, not a dashboard.
+ * A drafting table, not a dashboard.
  *
- * Two temperatures with strict jobs: blueprint cyan says "structure", amber and
- * vermilion are reserved for load and failure so a hot component reads instantly.
- * Every quantity is set in monospace with tabular figures; every label is
+ * Warm neutral charcoal throughout — no blue anywhere. Brass carries the chrome
+ * (selection, focus, the active tab) and colour is reserved for state, so green,
+ * amber and vermilion only ever mean healthy, loaded and failing. That way a hot
+ * component is legible at a glance instead of competing with the furniture.
+ *
+ * Every quantity is set in monospace with tabular figures; every field label is
  * engineering stencil. Hairlines instead of shadows, 2px radius instead of pills.
  */
 
 :root {
-  --ink: #0e1116;
-  --ink-2: #141922;
-  --ink-3: #1b222d;
-  --ink-4: #232c39;
-  --rule: #26303d;
-  --rule-2: #35435600;
+  --ink: #121110;
+  --ink-2: #1a1917;
+  --ink-3: #23211e;
+  --ink-4: #2d2a26;
+  --rule: #322e29;
+  --rule-2: #423d36;
 
-  --chalk: #e6eaf0;
-  --graphite: #8d9aac;
-  --pencil: #626f80;
+  --chalk: #ede9e1;
+  --graphite: #a09a90;
+  --pencil: #726c63;
 
-  --blueprint: #4fb8e8;
-  --blueprint-dim: #1d3b4d;
-  --load: #f2a93b;
-  --fail: #e5605f;
-  --pass: #59c08b;
-  --violet: #9b8cf0;
+  --brass: #cfa349;
+  --brass-dim: #3a2f16;
+  --load: #e2913c;
+  --fail: #d9534b;
+  --pass: #7ba75f;
+  --plum: #b07ca8;
 
-  --sheet: 'Segoe UI Variable Text', 'Segoe UI', Inter, system-ui, -apple-system, sans-serif;
+  --sheet-font: 'Segoe UI Variable Text', 'Segoe UI', Inter, system-ui, -apple-system, sans-serif;
   --display: 'Segoe UI Variable Display', 'Segoe UI Semibold', 'Segoe UI', Inter, system-ui, sans-serif;
   --mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'SF Mono', ui-monospace, monospace;
 
@@ -48,7 +51,7 @@ body,
 body {
   background: var(--ink);
   color: var(--chalk);
-  font: 13.5px/1.55 var(--sheet);
+  font: 13.5px/1.55 var(--sheet-font);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
@@ -89,7 +92,7 @@ h4 {
 /* ---------------------------------------------------------------- controls -- */
 
 button {
-  font: 500 12.5px/1.4 var(--sheet);
+  font: 500 12.5px/1.4 var(--sheet-font);
   color: var(--chalk);
   background: var(--ink-3);
   border: 1px solid var(--rule);
@@ -103,10 +106,10 @@ button {
 }
 button:hover:not(:disabled) {
   background: var(--ink-4);
-  border-color: #3d4b5e;
+  border-color: #4e4841;
 }
 button:focus-visible {
-  outline: 1px solid var(--blueprint);
+  outline: 1px solid var(--brass);
   outline-offset: 1px;
 }
 button:disabled {
@@ -114,14 +117,14 @@ button:disabled {
   cursor: not-allowed;
 }
 button.primary {
-  background: var(--blueprint-dim);
-  border-color: #2f6f8f;
-  color: #bfe9fb;
+  background: var(--brass-dim);
+  border-color: #7a6026;
+  color: #f0d79a;
   font-weight: 600;
 }
 button.primary:hover:not(:disabled) {
-  background: #24506a;
-  border-color: var(--blueprint);
+  background: #443715;
+  border-color: var(--brass);
 }
 button.ghost {
   background: transparent;
@@ -133,22 +136,22 @@ button.ghost:hover:not(:disabled) {
   color: var(--chalk);
 }
 button.on {
-  background: var(--blueprint-dim);
-  border-color: #2f6f8f;
-  color: #bfe9fb;
+  background: var(--brass-dim);
+  border-color: #7a6026;
+  color: #f0d79a;
 }
 button.danger.on {
-  background: #3a1b1c;
-  border-color: #7d3634;
-  color: #f6b3b2;
+  background: #3a1e1a;
+  border-color: #8a4038;
+  color: #f3bdb5;
 }
 
 input,
 select,
 textarea {
-  font: 12.5px/1.5 var(--sheet);
+  font: 12.5px/1.5 var(--sheet-font);
   color: var(--chalk);
-  background: #0a0d12;
+  background: #100f0d;
   border: 1px solid var(--rule);
   border-radius: var(--r);
   padding: 5px 8px;
@@ -158,16 +161,16 @@ input:focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: var(--blueprint);
-  background: #0c1117;
+  border-color: var(--brass);
+  background: #171512;
 }
 input::placeholder,
 textarea::placeholder {
-  color: #4e5a6b;
+  color: #6a6459;
 }
 textarea {
   resize: vertical;
-  font-family: var(--sheet);
+  font-family: var(--sheet-font);
 }
 label {
   display: block;
@@ -177,12 +180,12 @@ input[type='range'] {
   padding: 0;
   border: none;
   background: transparent;
-  accent-color: var(--blueprint);
+  accent-color: var(--brass);
   height: 16px;
 }
 input[type='checkbox'] {
   width: auto;
-  accent-color: var(--blueprint);
+  accent-color: var(--brass);
 }
 
 /* ------------------------------------------------------------------ shell -- */
@@ -206,8 +209,8 @@ input[type='checkbox'] {
   font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.1em;
-  color: var(--blueprint);
-  border: 1px solid var(--blueprint-dim);
+  color: var(--brass);
+  border: 1px solid var(--brass-dim);
   border-radius: var(--r);
   padding: 3px 4px;
   margin-bottom: 10px;
@@ -226,9 +229,9 @@ input[type='checkbox'] {
   background: var(--ink-3);
 }
 .rail button.active {
-  color: var(--blueprint);
-  background: #101d26;
-  border-color: #1f3f52;
+  color: var(--brass);
+  background: #241d0f;
+  border-color: #4d3f1c;
 }
 .rail .spacer {
   flex: 1;
@@ -289,7 +292,7 @@ input[type='checkbox'] {
   align-items: center;
   gap: 7px;
   flex-shrink: 0;
-  background: #111620;
+  background: #1c1a17;
 }
 .pane-body {
   overflow: auto;
@@ -301,7 +304,7 @@ input[type='checkbox'] {
   display: flex;
   border-bottom: 1px solid var(--rule);
   flex-shrink: 0;
-  background: #111620;
+  background: #1c1a17;
 }
 .pane-tabs button {
   flex: 1;
@@ -322,9 +325,9 @@ input[type='checkbox'] {
   background: transparent;
 }
 .pane-tabs button.active {
-  color: var(--blueprint);
-  border-bottom-color: var(--blueprint);
-  background: #101922;
+  color: var(--brass);
+  border-bottom-color: var(--brass);
+  background: #1c1a15;
 }
 
 .canvas-wrap {
@@ -343,7 +346,7 @@ input[type='checkbox'] {
   left: 12px;
   bottom: 12px;
   z-index: 6;
-  background: rgb(14 17 22 / 0.94);
+  background: rgb(18 17 16 / 0.94);
   border: 1px solid var(--rule);
   border-radius: var(--r);
   font-family: var(--mono);
@@ -363,7 +366,7 @@ input[type='checkbox'] {
   font-size: 8px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: #4e5a6b;
+  color: #6a6459;
   display: block;
 }
 .title-block .v {
@@ -407,7 +410,7 @@ input[type='checkbox'] {
 }
 
 .card {
-  background: #111620;
+  background: #1c1a17;
   border: 1px solid var(--rule);
   border-radius: var(--r);
   padding: 10px 11px;
@@ -440,26 +443,26 @@ input[type='checkbox'] {
   font-size: 10px;
   padding: 1px 5px;
   border-radius: var(--r);
-  background: #0f141c;
+  background: #181613;
   border: 1px solid var(--rule);
   color: var(--graphite);
   white-space: nowrap;
 }
 .chip.pass {
-  border-color: #2b5c47;
+  border-color: #4a6b34;
   color: var(--pass);
 }
 .chip.fail {
-  border-color: #6d3231;
+  border-color: #7a3a33;
   color: var(--fail);
 }
 .chip.load {
-  border-color: #6b4f1c;
+  border-color: #7a5b1e;
   color: var(--load);
 }
 .chip.spec {
-  border-color: #2a4d63;
-  color: #9ed3ee;
+  border-color: #6b5623;
+  color: #e8ca8d;
 }
 
 .lvl {
@@ -474,17 +477,17 @@ input[type='checkbox'] {
 .lvl.l1,
 .lvl.l2 {
   color: var(--pass);
-  border-color: #2b5c47;
+  border-color: #4a6b34;
 }
 .lvl.l3,
 .lvl.l4 {
   color: var(--load);
-  border-color: #6b4f1c;
+  border-color: #7a5b1e;
 }
 .lvl.l5,
 .lvl.l6 {
   color: var(--fail);
-  border-color: #6d3231;
+  border-color: #7a3a33;
 }
 
 .sev-high {
@@ -494,7 +497,7 @@ input[type='checkbox'] {
   border-left: 2px solid var(--load);
 }
 .sev-low {
-  border-left: 2px solid var(--blueprint);
+  border-left: 2px solid var(--brass);
 }
 .ok-card {
   border-left: 2px solid var(--pass);
@@ -509,24 +512,24 @@ input[type='checkbox'] {
   margin-bottom: 9px;
 }
 .banner.error {
-  background: #1a1113;
-  border-color: #6d3231;
-  color: #f3bebd;
+  background: #1e1412;
+  border-color: #7a3a33;
+  color: #f0c3bd;
 }
 .banner.info {
-  background: #0f1720;
-  border-color: #2a4d63;
-  color: #b9dcee;
+  background: #1d1a14;
+  border-color: #6b5623;
+  color: #f0dcae;
 }
 .banner.warnb {
-  background: #1a1610;
-  border-color: #6b4f1c;
-  color: #f4d9a4;
+  background: #1f1911;
+  border-color: #7a5b1e;
+  color: #f2d6a0;
 }
 
 .bar {
   height: 3px;
-  background: #0a0d12;
+  background: #100f0d;
   border: 1px solid var(--rule);
   border-radius: 0;
   overflow: hidden;
@@ -534,7 +537,7 @@ input[type='checkbox'] {
 .bar > span {
   display: block;
   height: 100%;
-  background: var(--blueprint);
+  background: var(--brass);
   transition: width 0.25s ease, background 0.25s ease;
 }
 
@@ -559,7 +562,7 @@ details.disclose > summary {
   margin-top: 10px;
 }
 details.disclose > summary:hover {
-  color: var(--blueprint);
+  color: var(--brass);
 }
 details.disclose[open] > summary {
   color: var(--graphite);
@@ -569,7 +572,7 @@ details.disclose[open] > summary {
   width: 11px;
   height: 11px;
   border: 1.5px solid var(--rule);
-  border-top-color: var(--blueprint);
+  border-top-color: var(--brass);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
   display: inline-block;
@@ -608,7 +611,7 @@ details.disclose[open] > summary {
   padding: 5px 6px;
   border-radius: var(--r);
   border: 1px solid transparent;
-  background: #10151d;
+  background: #1a1815;
   cursor: grab;
   font-size: 11.5px;
   user-select: none;
@@ -620,7 +623,7 @@ details.disclose[open] > summary {
   background: var(--ink-3);
 }
 .palette-item:focus-visible {
-  outline: 1px solid var(--blueprint);
+  outline: 1px solid var(--brass);
   outline-offset: 1px;
 }
 .palette-item span {
@@ -637,8 +640,8 @@ details.disclose[open] > summary {
 /* ------------------------------------------------------------------ nodes -- */
 
 .arch-node {
-  --node-color: var(--blueprint);
-  background: #131924;
+  --node-color: var(--brass);
+  background: #1e1c19;
   border: 1px solid var(--rule);
   border-top: 2px solid var(--node-color);
   border-radius: var(--r);
@@ -649,8 +652,8 @@ details.disclose[open] > summary {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .arch-node.selected {
-  border-color: var(--blueprint);
-  box-shadow: 0 0 0 1px var(--blueprint);
+  border-color: var(--brass);
+  box-shadow: 0 0 0 1px var(--brass);
 }
 .arch-node .head {
   display: flex;
@@ -683,7 +686,7 @@ details.disclose[open] > summary {
   font-size: 8.5px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #4e5a6b;
+  color: #6a6459;
 }
 .arch-node .annot {
   margin-top: 4px;
@@ -737,7 +740,7 @@ details.disclose[open] > summary {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   font-size: 9px;
-  color: #4e5a6b;
+  color: #6a6459;
   display: flex;
   justify-content: space-between;
   margin-top: 2px;
@@ -745,7 +748,7 @@ details.disclose[open] > summary {
 
 .arch-node.ghost {
   border-style: dashed;
-  border-color: var(--violet);
+  border-color: var(--plum);
   background: #14131f;
 }
 .ghost-actions {
@@ -786,7 +789,7 @@ details.disclose[open] > summary {
   color: #1d1403;
 }
 .pin.missing {
-  background: var(--violet);
+  background: var(--plum);
   color: #0f0d1e;
 }
 .pin.good {
@@ -794,20 +797,20 @@ details.disclose[open] > summary {
   color: #04150e;
 }
 .pin.question {
-  background: var(--blueprint);
+  background: var(--brass);
   color: #04121a;
 }
 
 .sticky-node {
-  background: #2a2410;
-  border: 1px solid #55491c;
-  border-top: 2px solid #8a7524;
+  background: #2b2412;
+  border: 1px solid #5c4d1e;
+  border-top: 2px solid #96802a;
   border-radius: var(--r);
   padding: 6px 7px;
   min-width: 150px;
   min-height: 70px;
   font-size: 11.5px;
-  color: #f0dfa8;
+  color: #f2e2ab;
 }
 .sticky-node textarea {
   background: transparent;
@@ -824,7 +827,7 @@ details.disclose[open] > summary {
 .group-node {
   border: 1px dashed var(--rule);
   border-radius: var(--r);
-  background: rgb(79 184 232 / 0.03);
+  background: rgb(207 163 73 / 0.03);
   min-width: 220px;
   min-height: 160px;
 }
@@ -838,7 +841,7 @@ details.disclose[open] > summary {
   font-size: 9.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--blueprint);
+  color: var(--brass);
 }
 
 /* -------------------------------------------------------------- overlays --- */
@@ -850,7 +853,7 @@ details.disclose[open] > summary {
   transform: translateX(-50%);
   display: flex;
   gap: 1px;
-  background: rgb(14 17 22 / 0.94);
+  background: rgb(18 17 16 / 0.94);
   border: 1px solid var(--rule);
   border-radius: var(--r);
   padding: 3px;
@@ -873,9 +876,9 @@ details.disclose[open] > summary {
   color: var(--chalk);
 }
 .toolbar button.on {
-  background: var(--blueprint-dim);
-  border-color: #2f6f8f;
-  color: #bfe9fb;
+  background: var(--brass-dim);
+  border-color: #7a6026;
+  color: #f0d79a;
 }
 .toolbar .edge-glyph {
   font-family: var(--mono);
@@ -889,7 +892,7 @@ details.disclose[open] > summary {
   left: 12px;
   right: 12px;
   z-index: 6;
-  background: rgb(14 17 22 / 0.96);
+  background: rgb(18 17 16 / 0.96);
   border: 1px solid var(--rule);
   border-radius: var(--r);
   backdrop-filter: blur(6px);
@@ -980,18 +983,18 @@ details.disclose[open] > summary {
   padding: 10px 11px;
   border-radius: var(--r);
   border: 1px solid var(--rule);
-  background: #111620;
+  background: #1c1a17;
   display: block;
   width: 100%;
   position: relative;
   transition: border-color 0.12s, background 0.12s;
 }
 .plate:hover {
-  border-color: #3d4b5e;
+  border-color: #4e4841;
   background: var(--ink-3);
 }
 .plate.active {
-  border-color: var(--blueprint);
+  border-color: var(--brass);
 }
 .plate .t {
   font-family: var(--display);
@@ -1119,7 +1122,7 @@ details.disclose[open] > summary {
 /* ------------------------------------------------------------- dashboard --- */
 
 .tile {
-  background: #111620;
+  background: #1c1a17;
   border: 1px solid var(--rule);
   border-radius: var(--r);
   padding: 10px 11px;
@@ -1139,7 +1142,7 @@ details.disclose[open] > summary {
 }
 .heat i {
   aspect-ratio: 1;
-  background: #0a0d12;
+  background: #100f0d;
   border: 1px solid var(--rule);
   cursor: help;
 }
@@ -1147,7 +1150,7 @@ details.disclose[open] > summary {
 /* ------------------------------------------------------------- reference --- */
 
 .ref-card {
-  border-left: 2px solid var(--violet);
+  border-left: 2px solid var(--plum);
 }
 .ref-card dl {
   margin: 5px 0 0;
@@ -1158,7 +1161,7 @@ details.disclose[open] > summary {
   font-size: 8.5px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #4e5a6b;
+  color: #6a6459;
   margin-top: 5px;
 }
 .ref-card dd {
@@ -1181,13 +1184,13 @@ details.disclose[open] > summary {
   word-break: break-word;
 }
 .msg.me {
-  background: #0f1720;
-  border: 1px solid #2a4d63;
+  background: #1d1a14;
+  border: 1px solid #6b5623;
   border-left-width: 2px;
   align-self: stretch;
 }
 .msg.ai {
-  background: #111620;
+  background: #1c1a17;
   border: 1px solid var(--rule);
 }
 
@@ -1200,11 +1203,11 @@ details.disclose[open] > summary {
   width: 6px;
   height: 6px;
   border-radius: 1px;
-  background: #3a4657;
+  background: #4a453d;
   border: 1px solid var(--ink);
 }
 .react-flow__handle:hover {
-  background: var(--blueprint);
+  background: var(--brass);
 }
 .react-flow__edge-text {
   font-family: var(--mono);
@@ -1234,4 +1237,75 @@ details.disclose[open] > summary {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+/* ------------------------------------------------------- the arithmetic ---- */
+/* The simulator's numbers only teach if you can see the sum behind them. */
+
+table.mathwork {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  margin-top: 3px;
+}
+table.mathwork td {
+  padding: 3px 4px;
+  border-top: 1px solid var(--rule);
+  vertical-align: top;
+}
+table.mathwork td.k {
+  color: var(--pencil);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 8.5px;
+  white-space: nowrap;
+  width: 1%;
+  padding-top: 5px;
+}
+table.mathwork td.w {
+  color: var(--graphite);
+}
+table.mathwork td.r {
+  color: var(--chalk);
+  text-align: right;
+  white-space: nowrap;
+  width: 1%;
+}
+
+/* --------------------------------------------------------- compatibility --- */
+
+.finding {
+  border-left: 2px solid var(--rule);
+  background: #1c1a17;
+  border-radius: var(--r);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+.finding.error {
+  border-left-color: var(--fail);
+}
+.finding.warning {
+  border-left-color: var(--load);
+}
+.finding.info {
+  border-left-color: var(--brass);
+}
+.finding .msg {
+  font-size: 12.5px;
+}
+.finding .fix {
+  font-size: 11.5px;
+  color: var(--graphite);
+  margin-top: 4px;
+}
+.finding .fix::before {
+  content: 'instead ';
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--pencil);
+  margin-right: 5px;
 }

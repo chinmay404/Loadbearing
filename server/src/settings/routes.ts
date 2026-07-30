@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { LlmProvider } from '@archdojo/shared';
+import type { LlmProvider } from '@loadbearing/shared';
 import { db } from '../db.js';
 import { complete } from '../llm/adapter.js';
 import { loadLlmConfig, saveLlmConfig, viewSettings } from '../llm/settings.js';
@@ -34,11 +34,13 @@ settingsRoutes.put('/settings', async (c) => {
 
 settingsRoutes.post('/settings/test', async (c) => {
   try {
+    // Generous budget: reasoning models spend most of it thinking before the
+    // first visible token, and a 16-token cap makes them look broken.
     const reply = await complete(
       loadLlmConfig(db()),
       'You are a connectivity probe. Reply with exactly one word.',
       'Reply with the word pong.',
-      { maxTokens: 16, timeoutMs: 30000 },
+      { maxTokens: 1024, timeoutMs: 60000 },
     );
     return c.json({ ok: true, reply: reply.trim().slice(0, 100) });
   } catch (err) {

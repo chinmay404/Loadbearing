@@ -142,7 +142,7 @@ export function QuickAdd() {
         position: 'absolute',
         inset: 0,
         zIndex: 20,
-        background: 'rgb(8 10 14 / 0.6)',
+        background: 'rgb(10 9 8 / 0.6)',
         display: 'grid',
         placeItems: 'start center',
         paddingTop: '12vh',

@@ -1,5 +1,5 @@
 // SQLite via Node's built-in node:sqlite — no native build step on Windows.
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createRequire } from 'node:module';
 
@@ -12,7 +12,20 @@ export type Db = InstanceType<typeof DatabaseSync>;
 
 const MASTERY_ALPHA = 0.3; // ema = (1-alpha)*old + alpha*new
 
-export function getDb(path = 'data/archdojo.sqlite'): Db {
+export const DB_PATH = 'data/loadbearing.sqlite';
+/** What the file was called before the app was renamed. */
+const LEGACY_DB_PATH = 'data/archdojo.sqlite';
+
+export function getDb(path = DB_PATH): Db {
+  // Carry an existing history across the rename rather than silently starting
+  // fresh: attempts and concept mastery are the whole point of keeping a file.
+  if (path === DB_PATH && !existsSync(path) && existsSync(LEGACY_DB_PATH)) {
+    renameSync(LEGACY_DB_PATH, path);
+    for (const suffix of ['-wal', '-shm']) {
+      if (existsSync(LEGACY_DB_PATH + suffix)) renameSync(LEGACY_DB_PATH + suffix, path + suffix);
+    }
+    console.log(`[loadbearing] carried your history over from ${LEGACY_DB_PATH}`);
+  }
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL');
@@ -91,6 +104,6 @@ export function setSetting(db: Db, key: string, value: string): void {
 
 let singleton: Db | null = null;
 export function db(): Db {
-  if (!singleton) singleton = getDb(process.env.ARCHDOJO_DB ?? 'data/archdojo.sqlite');
+  if (!singleton) singleton = getDb(process.env.LOADBEARING_DB ?? DB_PATH);
   return singleton;
 }

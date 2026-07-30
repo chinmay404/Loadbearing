@@ -1,5 +1,5 @@
-import type { GraphDSL, Problem, SimResult } from '@archdojo/shared';
-import { CONCEPT_CARDS } from '@archdojo/shared';
+import type { GraphDSL, Problem, SimResult, TopologyFinding } from '@loadbearing/shared';
+import { CONCEPT_CARDS } from '@loadbearing/shared';
 
 const GRADER_PERSONA = `You are a staff engineer running a rigorous architecture design review. You have shipped
 systems at scale and you have been burned by every shortcut in the book. You are honest, specific,
@@ -240,15 +240,35 @@ Model findings:
 ${sim.findings.map((f) => `  - ${f}`).join('\n') || '  (none)'}`;
 }
 
+function renderChecks(findings: TopologyFinding[]): string {
+  if (findings.length === 0) {
+    return `STRUCTURAL CHECKS
+A deterministic rule engine found nothing wrong with how the components are wired. That is a
+genuine positive — say so if it is deserved, but it says nothing about whether the design meets
+the requirements.`;
+  }
+  const lines = findings
+    .slice(0, 14)
+    .map((f) => `  - [${f.severity}] ${f.rule}: ${f.message}`)
+    .join('\n');
+  return `STRUCTURAL CHECKS (a deterministic rule engine already ran — these are facts about the wiring, not opinions)
+${lines}
+
+Do not simply restate these. They are the floor, not the review: assume the learner can already see
+them, and spend your findings on what a rule engine cannot judge — whether the design actually meets
+the numbers, where the trade-offs are wrong, and what a reviewer would push back on.`;
+}
+
 export interface ScoringPromptInput {
   problem: Problem;
   graph: GraphDSL;
   sim?: SimResult;
+  checks?: TopologyFinding[];
   twist?: { text: string; previousOverall: number };
 }
 
 export function buildScoringPrompt(input: ScoringPromptInput): { system: string; user: string } {
-  const { problem, graph, sim, twist } = input;
+  const { problem, graph, sim, checks, twist } = input;
 
   const system = `${GRADER_PERSONA}
 
@@ -277,6 +297,7 @@ ${twistBlock}
 === THE LEARNER'S DESIGN ===
 ${renderGraph(graph)}
 ${sim ? `\n${renderSim(sim)}\n` : ''}
+${checks ? `\n${renderChecks(checks)}\n` : ''}
 Review this design now. Output only the JSON object.`;
 
   return { system, user };

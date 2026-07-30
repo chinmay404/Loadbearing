@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CONCEPT_CARDS, CONCEPT_GROUPS, DESIGN_CHECKLIST } from '@archdojo/shared';
+import { CONCEPT_CARDS, CONCEPT_GROUPS, DESIGN_CHECKLIST } from '@loadbearing/shared';
 
 export function ReferencePanel() {
   const [q, setQ] = useState('');

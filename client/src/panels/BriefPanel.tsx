@@ -1,4 +1,4 @@
-import { DESIGN_CHECKLIST } from '@archdojo/shared';
+import { DESIGN_CHECKLIST } from '@loadbearing/shared';
 import { useApp } from '../state/appStore';
 
 export function BriefPanel() {

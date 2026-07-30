@@ -2,7 +2,7 @@
 // Feather/Lucide house style: 24x24 grid, 1.6 stroke, currentColor, no fills,
 // no text glyphs, no randomness. Each icon must stay legible at 18px.
 import type { JSX, ReactNode } from 'react';
-import type { ArchNodeType } from '@archdojo/shared';
+import type { ArchNodeType } from '@loadbearing/shared';
 
 /** The one and only <svg> shell — keeps every icon on the same optical grid. */
 function Glyph({ size = 18, children }: { size?: number; children: ReactNode }): JSX.Element {
@@ -160,6 +160,28 @@ export const NODE_ICONS: Record<ArchNodeType, (props: { size?: number }) => JSX.
     </Glyph>
   ),
 
+  /** A globe with a branching arrow leaving it — same name, nearest region. */
+  geo_router: ({ size }) => (
+    <Glyph size={size}>
+      <circle cx="9" cy="9" r="6.5" />
+      <path d="M2.5 9h13" />
+      <ellipse cx="9" cy="9" rx="2.8" ry="6.5" />
+      <path d="M9 15.5v3.5h11" />
+      <path d="M17.8 16.8 20.8 19l-3 2.2" />
+    </Glyph>
+  ),
+
+  /** A battlemented tower plus a key — the one guarded door for human access. */
+  bastion: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M7 21V4h1.8v1.6h1.8V4h1.8v1.6h1.8V4H15v17" />
+      <path d="M4.5 21.2h13" />
+      <path d="M9.5 12h3M9.5 15.5h3" />
+      <circle cx="19.2" cy="9.5" r="2.1" />
+      <path d="M19.2 11.6v6.4M19.2 15.2h2" />
+    </Glyph>
+  ),
+
   // ---------- Compute ----------
 
   /** Hexagon with a port in the middle and wires on both sides. */
@@ -236,6 +258,26 @@ export const NODE_ICONS: Record<ArchNodeType, (props: { size?: number }) => JSX.
       <path d="M20 12.5V19a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6.5" />
       <path d="M15 3.5h5.5V9" />
       <path d="M20.5 3.5 12.5 11.5" />
+    </Glyph>
+  ),
+
+  /** Five inbound wires squeezed into two outbound ones. */
+  connection_pooler: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M2.5 3.5h4M2.5 7.5h4M2.5 12h4M2.5 16.5h4M2.5 20.5h4" />
+      <path d="M6.5 3.5 11.5 10M6.5 7.5 11.5 10.6M6.5 12h5M6.5 16.5 11.5 13.4M6.5 20.5 11.5 14" />
+      <rect x="11.5" y="8.5" width="3.5" height="7" rx="1.2" />
+      <path d="M15 11h6.5M15 13h6.5" />
+    </Glyph>
+  ),
+
+  /** A container with a smaller helper container clipped to its flank. */
+  sidecar: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="2.5" y="5" width="12.5" height="14" rx="2" />
+      <path d="M6 9.5h6M6 13h6M6 16h3.5" />
+      <rect x="15" y="8.5" width="6.5" height="7" rx="1.5" />
+      <path d="M17 12h2.5" />
     </Glyph>
   ),
 
@@ -357,6 +399,69 @@ export const NODE_ICONS: Record<ArchNodeType, (props: { size?: number }) => JSX.
     </Glyph>
   ),
 
+  /** A cylinder with a two-way switch in front — writes left, reads right. */
+  db_proxy: ({ size }) => (
+    <Glyph size={size}>
+      <ellipse cx="8" cy="5" rx="5.5" ry="2.2" />
+      <path d="M2.5 5v8a5.5 2.2 0 0 0 11 0V5" />
+      <path d="M13.5 10.5h6m-2.2-2.2 2.2 2.2-2.2 2.2" />
+      <path d="M19.5 16.5h-6m2.2-2.2-2.2 2.2 2.2 2.2" />
+    </Glyph>
+  ),
+
+  /** Three cylinder slices side by side — one logical store, three partitions. */
+  sharded_cluster: ({ size }) => (
+    <Glyph size={size}>
+      <ellipse cx="4.5" cy="7" rx="3" ry="1.5" />
+      <path d="M1.5 7v9a3 1.5 0 0 0 6 0V7" />
+      <ellipse cx="12" cy="7" rx="3" ry="1.5" />
+      <path d="M9 7v9a3 1.5 0 0 0 6 0V7" />
+      <ellipse cx="19.5" cy="7" rx="3" ry="1.5" />
+      <path d="M16.5 7v9a3 1.5 0 0 0 6 0V7" />
+    </Glyph>
+  ),
+
+  /** A table with a bolt beside it — the join was paid for in advance. */
+  materialized_view: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="2.5" y="4.5" width="12" height="13" rx="1.5" />
+      <path d="M2.5 8.5h12M6.5 8.5v9M10.5 4.5v13" />
+      <path d="M20.2 7 16 13.4h2.6l-.9 4.2 3.8-6.2h-2.5z" />
+    </Glyph>
+  ),
+
+  /** A crumb-speckled disc with a clock — state that belongs to one login. */
+  session_store: ({ size }) => (
+    <Glyph size={size}>
+      <circle cx="10" cy="10.5" r="7.5" />
+      <path d="M7.5 7.5h.01M12.5 8h.01M9 13h.01M13.5 12.5h.01M11 10.5h.01" />
+      <circle cx="18" cy="18" r="4" />
+      <path d="M18 15.6V18l1.8 1.1" />
+    </Glyph>
+  ),
+
+  /** A tape drum with an archive arrow pointing down into the shelf. */
+  backup_store: ({ size }) => (
+    <Glyph size={size}>
+      <ellipse cx="9" cy="5.5" rx="6.5" ry="2.5" />
+      <path d="M2.5 5.5v10a6.5 2.5 0 0 0 13 0v-10" />
+      <path d="M2.5 10.5a6.5 2.5 0 0 0 13 0" />
+      <path d="M19 3.5v10m-2.6-2.6L19 13.5l2.6-2.6" />
+      <path d="M15.5 17.5h7" />
+    </Glyph>
+  ),
+
+  /** A bound book with a chain link — entries you append and can never edit. */
+  ledger_db: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M3 4.5a2 2 0 0 1 2-2h9v11H5a2 2 0 0 0-2 2z" />
+      <path d="M5 2.5v13" />
+      <path d="M7.5 6.5h4M7.5 9.5h4" />
+      <rect x="14" y="12" width="6" height="4.2" rx="2.1" />
+      <rect x="16.5" y="15.5" width="6" height="4.2" rx="2.1" />
+    </Glyph>
+  ),
+
   // ---------- Async ----------
 
   /** Discrete messages lined up FIFO, one leaving the tail. */
@@ -440,6 +545,114 @@ export const NODE_ICONS: Record<ArchNodeType, (props: { size?: number }) => JSX.
       <path d="M19.8 12a7.8 7.8 0 0 1-13.3 5.5" />
       <path d="M9.6 18.2 6.4 17.6 7 14.4" />
       <rect x="9.8" y="9.8" width="4.4" height="4.4" rx="1" />
+    </Glyph>
+  ),
+
+  /** An event leaving its box toward a hook — signed delivery to someone else. */
+  webhook_dispatcher: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="1.8" y="6" width="9" height="12" rx="1.8" />
+      <path d="M4.6 10h3.4M4.6 14h3.4" />
+      <path d="M10.8 12h4.6m-2.2-2.2 2.2 2.2-2.2 2.2" />
+      <path d="M21.6 6v7.4a2.8 2.8 0 0 1-5.6 0V11.8" />
+    </Glyph>
+  ),
+
+  /** A record plus a delta, streaming out — every change, as it happens. */
+  change_feed: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M2.5 2.5h6.5l3 3v9.5H2.5z" />
+      <path d="M9 2.5V5.5h3" />
+      <path d="M5 9h4.5M5 12h3" />
+      <path d="M17.5 5 21.5 12h-8z" />
+      <path d="M12.5 19.5h7m-2.5-2.5 2.5 2.5-2.5 2.5" />
+    </Glyph>
+  ),
+
+  /** A calendar grid with a play arrow — the nightly window, started on cue. */
+  batch_scheduler: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="2.5" y="4.5" width="14" height="15" rx="2" />
+      <path d="M2.5 9h14" />
+      <path d="M6.5 2.5v4M12.5 2.5v4" />
+      <path d="M6 12h2M11 12h2M6 16h2M11 16h2" />
+      <path d="M17.5 12.5 22 15.5l-4.5 3z" />
+    </Glyph>
+  ),
+
+  // ---------- Integration ----------
+
+  /** A card passing between the posts of a gate. */
+  payment_gateway: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M4 3v18M20 3v18" />
+      <rect x="6.5" y="8.5" width="11" height="7" rx="1.5" />
+      <path d="M6.5 11.5h11" />
+      <path d="M9 13.8h2.5" />
+    </Glyph>
+  ),
+
+  /** An envelope with a send arrow. */
+  email_provider: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="2" y="5.5" width="14" height="11" rx="1.8" />
+      <path d="M2 7.5 9 12l7-4.5" />
+      <path d="M14 20h7.5m-2.6-2.6 2.6 2.6-2.6 2.6" />
+    </Glyph>
+  ),
+
+  /** A handset with a message bubble beside it. */
+  sms_provider: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="2" y="2.5" width="10" height="19" rx="2.5" />
+      <path d="M4.8 5h4.4M6 19.3h2" />
+      <rect x="12.5" y="7" width="9.5" height="8" rx="2" />
+      <path d="M15.5 15v3l3.2-3" />
+      <path d="M15 10.8h4.5" />
+    </Glyph>
+  ),
+
+  /** A bell with two arcs radiating off it. */
+  push_service: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M7 15.5V10a4.5 4.5 0 0 1 9 0v5.5h1.5v1.5H5.5v-1.5z" />
+      <path d="M9.8 17v.9a1.7 1.7 0 0 0 3.4 0V17" />
+      <path d="M18.5 8a6 6 0 0 1 0 8" />
+      <path d="M20.5 6a9 9 0 0 1 0 12" />
+    </Glyph>
+  ),
+
+  /** A badge with a face on it and a tick beside it — someone else vouched. */
+  identity_provider: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="3" y="2.5" width="12" height="17" rx="2" />
+      <path d="M5.5 2.5v17" />
+      <circle cx="10.2" cy="8.5" r="2.4" />
+      <path d="M7.2 15a3 3 0 0 1 6 0" />
+      <path d="M15.5 17.5 18 20 22 15.5" />
+    </Glyph>
+  ),
+
+  // ---------- Media ----------
+
+  /** A sprocketed film frame turning into a smaller one. */
+  transcoder: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="2" y="4.5" width="10" height="13" rx="1.2" />
+      <path d="M2 7.5h2M2 11h2M2 14.5h2M10 7.5h2M10 11h2M10 14.5h2" />
+      <path d="M13 11h3.2m-1.4-1.4 1.4 1.4-1.4 1.4" />
+      <rect x="17" y="8" width="5.5" height="7" rx="1" />
+      <path d="M17 9.6h1M17 13.4h1" />
+    </Glyph>
+  ),
+
+  /** A play triangle broadcasting signal arcs. */
+  media_streamer: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M4 5.5 13 11.5 4 17.5z" />
+      <path d="M16 8.5a5 5 0 0 1 0 6" />
+      <path d="M18.8 6a8.5 8.5 0 0 1 0 11" />
+      <path d="M2 20.5h11" />
     </Glyph>
   ),
 
@@ -540,6 +753,27 @@ export const NODE_ICONS: Record<ArchNodeType, (props: { size?: number }) => JSX.
       <path d="M11.4 10.5h3.4m-1.4-1.4 1.6 1.4-1.6 1.4" />
       <rect x="15" y="7" width="7" height="7" rx="1.8" />
       <path d="M18.5 8.8l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7z" />
+    </Glyph>
+  ),
+
+  /** A rating star dropped in a tray, filed into a stack of records. */
+  feedback_store: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M7.5 3.2 9 7 13 7.2 9.9 9.8 10.9 13.7 7.5 11.5 4.1 13.7 5.1 9.8 2 7.2 6 7z" />
+      <path d="M1.8 15.8h11.4v1.9a1.7 1.7 0 0 1-1.7 1.7H3.5a1.7 1.7 0 0 1-1.7-1.7z" />
+      <path d="M14.2 11.5h3.4m-1.5-1.5 1.5 1.5-1.5 1.5" />
+      <path d="M18.6 7h3.6M18.6 11.5h3.6M18.6 16h3.6" />
+    </Glyph>
+  ),
+
+  /** One arrow split into two flasks — the same question asked two ways. */
+  experiment_platform: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M1.8 12h3.6" />
+      <path d="M5.4 12 9 7.2h2.2M5.4 12 9 16.8h2.2" />
+      <path d="M14 3h3.2v3l3 5.5H11l3-5.5z" />
+      <path d="M14 13.5h3.2v3l3 5.5H11l3-5.5z" />
+      <path d="M12.8 8.5h5.6M12.1 20h7" />
     </Glyph>
   ),
 

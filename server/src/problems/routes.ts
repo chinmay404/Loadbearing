@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
-import { CONCEPTS, CONCEPT_CARDS } from '@archdojo/shared';
-import type { Problem, ProblemSummary } from '@archdojo/shared';
+import { CONCEPTS, CONCEPT_CARDS } from '@loadbearing/shared';
+import type { Problem, ProblemSummary } from '@loadbearing/shared';
 import { db } from '../db.js';
 import { PROBLEM_BANK } from './bank.js';
 import { validateProblem } from './validate.js';
@@ -97,15 +97,24 @@ problemRoutes.post('/problems/generate', async (c) => {
  * rubric, so the review that follows judges YOUR system against YOUR numbers.
  */
 problemRoutes.post('/problems/from-brief', async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as { brief?: string; level?: number };
+  const body = (await c.req.json().catch(() => ({}))) as {
+    brief?: string;
+    constraints?: string;
+    scale?: string;
+    focus?: string[];
+    level?: number;
+    /** 'own' = review my real system · 'exercise' = turn this scenario into a drill */
+    mode?: 'own' | 'exercise';
+    harder?: boolean;
+  };
   const brief = String(body.brief ?? '').trim();
   if (brief.length < 40) {
     return c.json(
       {
         error: {
           code: 'bad_request',
-          message: 'Describe the system in a few sentences first.',
-          hint: 'What does it do, roughly how much traffic and data, and what are the hard constraints?',
+          message: 'Describe the scenario in a few sentences first.',
+          hint: 'What does the system do, roughly how much traffic and data, and what are the hard constraints?',
         },
       },
       400,
@@ -113,16 +122,32 @@ problemRoutes.post('/problems/from-brief', async (c) => {
   }
 
   const level = Math.max(1, Math.min(6, Math.round(body.level ?? 4)));
-  const { system } = buildProblemGenPrompt(level, []);
-  const user = `A senior engineer wants their OWN system reviewed. Turn this description into a problem
-sheet, preserving every fact they gave — do not invent a different system. Where they left a number
-unstated, infer a plausible one and keep it modest. The rubric concepts must be the ones this system's
-correctness actually depends on. Set "domain" from their description and make the title name their system.
+  const focus = (body.focus ?? []).filter((f) => typeof f === 'string' && f.trim() !== '');
+  const constraints = String(body.constraints ?? '').trim();
+  const scale = String(body.scale ?? '').trim();
+  const mode = body.mode === 'exercise' ? 'exercise' : 'own';
 
-Their description:
+  const { system } = buildProblemGenPrompt(level, focus);
+
+  const framing =
+    mode === 'own'
+      ? `A senior engineer wants their OWN system reviewed. Preserve every fact they gave — do not
+invent a different system. Set "domain" from their description and make the title name their system.`
+      : `Turn this scenario into a training exercise. Keep the scenario's domain and its shape, but you
+may sharpen the numbers and add the tensions that make it a genuine design problem.`;
+
+  const user = `${framing}
+
+Where a number is missing, infer a plausible one and keep it modest — never inflate. The rubric
+concepts must be the ones this system's correctness actually depends on.
+${body.harder ? '\nMake it harder than the description suggests: add one constraint that forces a real trade-off, and say so in the prompt.\n' : ''}
+Scenario:
 """
 ${brief}
-"""`;
+"""
+${scale ? `\nScale and traffic they gave (respect these exactly where stated):\n"""\n${scale}\n"""` : ''}
+${constraints ? `\nHard constraints they are under (these decide what counts as overengineering):\n"""\n${constraints}\n"""` : ''}
+${focus.length ? `\nThe answer must demonstrate these concepts, so build the problem around them: ${focus.join(', ')}` : ''}`;
 
   const raw = await completeJson<unknown>(loadLlmConfig(db()), system, user, {
     maxTokens: 4000,

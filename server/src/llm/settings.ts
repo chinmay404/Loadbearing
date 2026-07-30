@@ -2,7 +2,7 @@
 // module in exactly two shapes: the full value inside an LlmConfig (server-side
 // only) or masked for display. Never both.
 
-import type { LlmConfig, LlmProvider } from '@archdojo/shared';
+import type { LlmConfig, LlmProvider } from '@loadbearing/shared';
 import { getSetting, setSetting, type Db } from '../db.js';
 
 const KEY = {
@@ -32,7 +32,7 @@ export interface SaveLlmInput {
 /**
  * Full config for the adapter. Resolution order, most specific first:
  *   1. `FAKE_LLM=1` — offline stub, for dev and CI.
- *   2. `ARCHDOJO_API_KEY` (+ optional PROVIDER / MODEL / BASE_URL) — env wins, so a
+ *   2. `LOADBEARING_API_KEY` (+ optional PROVIDER / MODEL / BASE_URL) — env wins, so a
  *      key can be supplied per-run and never touch the database or a backup.
  *   3. the settings table, written from the UI.
  */
@@ -48,21 +48,21 @@ export function loadLlmConfig(db: Db): LlmConfig {
     apiKey: getSetting(db, KEY.apiKey) ?? DEFAULTS.apiKey,
   };
 
-  const envKey = process.env.ARCHDOJO_API_KEY;
+  const envKey = process.env.LOADBEARING_API_KEY;
   if (!envKey) return stored;
 
-  const envProvider = process.env.ARCHDOJO_PROVIDER;
+  const envProvider = process.env.LOADBEARING_PROVIDER;
   return {
     provider: PROVIDERS.includes(envProvider as LlmProvider) ? (envProvider as LlmProvider) : stored.provider,
-    baseUrl: process.env.ARCHDOJO_BASE_URL ?? stored.baseUrl,
-    model: process.env.ARCHDOJO_MODEL ?? stored.model,
+    baseUrl: process.env.LOADBEARING_BASE_URL ?? stored.baseUrl,
+    model: process.env.LOADBEARING_MODEL ?? stored.model,
     apiKey: envKey,
   };
 }
 
 /** True when a key is coming from the environment rather than the database. */
 export function keyFromEnv(): boolean {
-  return Boolean(process.env.ARCHDOJO_API_KEY);
+  return Boolean(process.env.LOADBEARING_API_KEY);
 }
 
 export function saveLlmConfig(db: Db, input: SaveLlmInput): void {

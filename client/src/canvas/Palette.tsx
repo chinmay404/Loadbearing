@@ -50,7 +50,7 @@ export function Palette() {
                     }}
                     draggable
                     onDragStart={(e) => {
-                      e.dataTransfer.setData('application/archdojo-node', spec.type);
+                      e.dataTransfer.setData('application/loadbearing-node', spec.type);
                       e.dataTransfer.effectAllowed = 'move';
                     }}
                   >

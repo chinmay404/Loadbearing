@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { normalizeScore } from '@archdojo/shared';
-import type { Attempt, GraphDSL, Problem, ScoreResult } from '@archdojo/shared';
+import { normalizeScore } from '@loadbearing/shared';
+import type { Attempt, GraphDSL, Problem, ScoreResult } from '@loadbearing/shared';
 import { db } from '../db.js';
 import { findProblem } from '../problems/routes.js';
 
 export const exportRoutes = new Hono();
 
-const VAULT_DIR = process.env.ARCHDOJO_EXPORT_DIR ?? 'D:\\Obsidian_notes_206\\Notes\\ArchDojo';
+const VAULT_DIR = process.env.LOADBEARING_EXPORT_DIR ?? 'D:\\Obsidian_notes_206\\Notes\\Loadbearing';
 
 function mermaid(graph: GraphDSL): string {
   const safe = (s: string) => s.replace(/["\n]/g, ' ').trim();
@@ -44,7 +44,7 @@ function markdown(attempt: Attempt, problemTitle: string, level: number): string
     : '- no flows declared';
 
   return `---
-tags: [archdojo, architecture, system-design]
+tags: [loadbearing, architecture, system-design]
 problem: ${attempt.problemId}
 level: ${level}
 score: ${attempt.overall}
@@ -52,7 +52,7 @@ round: ${attempt.round}
 date: ${attempt.createdAt}
 ---
 
-# ArchDojo — ${problemTitle} (${attempt.overall}/100)
+# Loadbearing — ${problemTitle} (${attempt.overall}/100)
 
 Round ${attempt.round}${attempt.twistText ? ` · twist: ${attempt.twistText}` : ''}
 
@@ -125,7 +125,7 @@ function adr(attempt: Attempt, problem: Problem | undefined, title: string): str
     .join('\n');
 
   return `---
-tags: [archdojo, adr, architecture]
+tags: [loadbearing, adr, architecture]
 adr: ${attempt.problemId}-r${attempt.round}
 status: ${status}
 score: ${attempt.overall}
@@ -264,7 +264,7 @@ exportRoutes.post('/export/:attemptId', (c) => {
   mkdirSync(VAULT_DIR, { recursive: true });
   const date = attempt.createdAt.slice(0, 10);
   const slug = attempt.problemId.replace(/[^a-z0-9-]/gi, '-');
-  const kind = format === 'adr' ? 'ADR' : 'ArchDojo';
+  const kind = format === 'adr' ? 'ADR' : 'Loadbearing';
   let file = join(VAULT_DIR, `${date} ${kind} ${slug} r${attempt.round}.md`);
   let n = 2;
   while (existsSync(file)) {

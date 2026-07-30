@@ -1,4 +1,4 @@
-import type { CanvasDoc, GraphDSL } from '@archdojo/shared';
+import type { CanvasDoc, GraphDSL } from '@loadbearing/shared';
 
 const clean = (s: string) => s.replace(/["\n]/g, ' ').trim();
 
@@ -40,7 +40,7 @@ const esc = (s: string) =>
 
 /**
  * draw.io / diagrams.net XML, so the drawing can be hand-arranged and shared with
- * people who do not have ArchDojo. Positions are kept, which is the whole point.
+ * people who do not have Loadbearing. Positions are kept, which is the whole point.
  */
 export function toDrawio(doc: CanvasDoc): string {
   const cells: string[] = [];
@@ -50,8 +50,8 @@ export function toDrawio(doc: CanvasDoc): string {
     const label = esc(`${n.label}\n[${n.type}]${n.annotation ? `\n${n.annotation}` : ''}`);
     const style =
       n.type === 'group'
-        ? 'rounded=0;dashed=1;fillColor=none;strokeColor=#8D9AAC;verticalAlign=top;'
-        : 'rounded=1;whiteSpace=wrap;html=1;fillColor=#141922;strokeColor=#4FB8E8;fontColor=#E6EAF0;align=left;spacingLeft=6;';
+        ? 'rounded=0;dashed=1;fillColor=none;strokeColor=#A09A90;verticalAlign=top;'
+        : 'rounded=1;whiteSpace=wrap;html=1;fillColor=#1a1917;strokeColor=#CFA349;fontColor=#EDE9E1;align=left;spacingLeft=6;';
     cells.push(
       `        <mxCell id="${esc(n.id)}" value="${label}" style="${style}" vertex="1" parent="1">\n` +
         `          <mxGeometry x="${Math.round(n.position.x)}" y="${Math.round(n.position.y)}" width="${w}" height="${h}" as="geometry" />\n` +
@@ -68,10 +68,10 @@ export function toDrawio(doc: CanvasDoc): string {
   for (const e of doc.edges) {
     const style =
       e.kind === 'sync'
-        ? 'edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#8D9AAC;'
+        ? 'edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#A09A90;'
         : e.kind === 'async'
-          ? 'edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;strokeColor=#59C08B;'
-          : 'edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;dashPattern=1 3;strokeColor=#9B8CF0;';
+          ? 'edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;strokeColor=#7BA75F;'
+          : 'edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;dashPattern=1 3;strokeColor=#B07CA8;';
     cells.push(
       `        <mxCell id="${esc(e.id)}" value="${esc(e.label)}" style="${style}" edge="1" parent="1" source="${esc(e.from)}" target="${esc(e.to)}">\n` +
         `          <mxGeometry relative="1" as="geometry" />\n` +
@@ -79,9 +79,9 @@ export function toDrawio(doc: CanvasDoc): string {
     );
   }
 
-  return `<mxfile host="ArchDojo">
+  return `<mxfile host="Loadbearing">
   <diagram name="Architecture">
-    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" background="#0E1116">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" background="#121110">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />

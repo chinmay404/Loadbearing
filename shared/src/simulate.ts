@@ -36,6 +36,7 @@ export const DEFAULT_CAPACITY: Record<ArchNodeType, number> = {
   // Edge / routing tier: cheap, in-memory, absurdly fast.
   cdn: 200_000,
   dns: 100_000,
+  geo_router: 100_000,
   load_balancer: 50_000,
   api_gateway: 20_000,
   rate_limiter: 40_000,
@@ -44,14 +45,18 @@ export const DEFAULT_CAPACITY: Record<ArchNodeType, number> = {
   waf: 40_000,
   reverse_proxy: 40_000,
   service_mesh: 30_000,
+  sidecar: 30_000,
   // Caches and pipes.
   cache: 80_000,
   queue: 20_000,
   stream: 30_000,
   event_bus: 25_000,
   dead_letter_queue: 20_000,
+  change_feed: 8_000,
+  webhook_dispatcher: 2_000,
   prompt_cache: 50_000,
   feature_flags: 50_000,
+  connection_pooler: 20_000,
   // Compute: this is where real designs actually run out of room.
   service: 500,
   monolith: 800,
@@ -60,6 +65,7 @@ export const DEFAULT_CAPACITY: Record<ArchNodeType, number> = {
   vm: 300,
   worker: 300,
   scheduler: 1_000,
+  batch_scheduler: 500,
   auth: 2_000,
   eval_gate: 500,
   bff: 400,
@@ -68,9 +74,12 @@ export const DEFAULT_CAPACITY: Record<ArchNodeType, number> = {
   saga_orchestrator: 400,
   // Control planes: they orchestrate, they do not sit on the request path.
   container_platform: 50_000,
+  bastion: 50,
   // Storage.
   sql_db: 3_000,
   read_replica: 3_000,
+  db_proxy: 15_000,
+  sharded_cluster: 12_000,
   nosql_db: 8_000,
   search_index: 2_000,
   blob_store: 5_000,
@@ -78,6 +87,11 @@ export const DEFAULT_CAPACITY: Record<ArchNodeType, number> = {
   timeseries_db: 5_000,
   graph_db: 1_500,
   feature_store: 3_000,
+  materialized_view: 8_000,
+  session_store: 40_000,
+  ledger_db: 1_500,
+  feedback_store: 3_000,
+  experiment_platform: 20_000,
   // Analytical stores: built for scans and columns, not for per-request reads.
   data_warehouse: 50,
   olap_db: 200,
@@ -91,8 +105,17 @@ export const DEFAULT_CAPACITY: Record<ArchNodeType, number> = {
   // Batch and pipelines: measured in jobs, not in requests per second.
   batch_job: 50,
   ci_cd: 10,
+  backup_store: 20,
+  transcoder: 5,
+  // Media origin: request-cheap, bandwidth-expensive.
+  media_streamer: 20_000,
   // Anything you do not own, and the expensive new stuff.
   third_party: 200,
+  payment_gateway: 150,
+  email_provider: 500,
+  sms_provider: 200,
+  push_service: 5_000,
+  identity_provider: 1_000,
   llm: 20,
   embedding_svc: 100,
   model_router: 5_000,
@@ -108,6 +131,7 @@ export const DEFAULT_LATENCY: Record<ArchNodeType, number> = {
   group: 0,
   cdn: 15,
   dns: 20,
+  geo_router: 20,
   load_balancer: 2,
   api_gateway: 5,
   rate_limiter: 1,
@@ -116,13 +140,17 @@ export const DEFAULT_LATENCY: Record<ArchNodeType, number> = {
   waf: 3,
   reverse_proxy: 2,
   service_mesh: 1,
+  sidecar: 1,
   cache: 1,
   queue: 3,
   stream: 3,
   event_bus: 4,
   dead_letter_queue: 3,
+  change_feed: 20,
+  webhook_dispatcher: 60,
   prompt_cache: 2,
   feature_flags: 1,
+  connection_pooler: 1,
   service: 40,
   monolith: 60,
   serverless_fn: 50,
@@ -130,6 +158,7 @@ export const DEFAULT_LATENCY: Record<ArchNodeType, number> = {
   vm: 50,
   worker: 50,
   scheduler: 5,
+  batch_scheduler: 10,
   auth: 20,
   eval_gate: 200,
   bff: 45,
@@ -137,8 +166,11 @@ export const DEFAULT_LATENCY: Record<ArchNodeType, number> = {
   workflow_engine: 30,
   saga_orchestrator: 40,
   container_platform: 1,
+  bastion: 30,
   sql_db: 8,
   read_replica: 8,
+  db_proxy: 2,
+  sharded_cluster: 8,
   nosql_db: 5,
   search_index: 25,
   blob_store: 30,
@@ -146,6 +178,11 @@ export const DEFAULT_LATENCY: Record<ArchNodeType, number> = {
   timeseries_db: 10,
   graph_db: 20,
   feature_store: 15,
+  materialized_view: 4,
+  session_store: 2,
+  ledger_db: 12,
+  feedback_store: 10,
+  experiment_platform: 3,
   data_warehouse: 2_000,
   olap_db: 500,
   data_lake: 1_000,
@@ -156,7 +193,15 @@ export const DEFAULT_LATENCY: Record<ArchNodeType, number> = {
   secrets_manager: 5,
   batch_job: 5_000,
   ci_cd: 60_000,
+  backup_store: 2_000,
+  transcoder: 20_000,
+  media_streamer: 25,
   third_party: 250,
+  payment_gateway: 450,
+  email_provider: 300,
+  sms_provider: 500,
+  push_service: 150,
+  identity_provider: 220,
   llm: 1_200,
   embedding_svc: 80,
   model_router: 5,
@@ -172,6 +217,7 @@ export const DEFAULT_COST: Record<ArchNodeType, number> = {
   group: 0,
   cdn: 50,
   dns: 5,
+  geo_router: 10,
   load_balancer: 25,
   api_gateway: 40,
   rate_limiter: 20,
@@ -180,13 +226,17 @@ export const DEFAULT_COST: Record<ArchNodeType, number> = {
   waf: 45,
   reverse_proxy: 20,
   service_mesh: 65,
+  sidecar: 10,
   cache: 80,
   queue: 40,
   stream: 90,
   event_bus: 45,
   dead_letter_queue: 10,
+  change_feed: 45,
+  webhook_dispatcher: 35,
   prompt_cache: 35,
   feature_flags: 25,
+  connection_pooler: 20,
   service: 60,
   monolith: 120,
   serverless_fn: 20,
@@ -194,6 +244,7 @@ export const DEFAULT_COST: Record<ArchNodeType, number> = {
   vm: 70,
   worker: 45,
   scheduler: 10,
+  batch_scheduler: 15,
   auth: 40,
   eval_gate: 30,
   bff: 55,
@@ -201,8 +252,11 @@ export const DEFAULT_COST: Record<ArchNodeType, number> = {
   workflow_engine: 90,
   saga_orchestrator: 55,
   container_platform: 75,
+  bastion: 15,
   sql_db: 200,
   read_replica: 150,
+  db_proxy: 30,
+  sharded_cluster: 400,
   nosql_db: 150,
   search_index: 120,
   blob_store: 25,
@@ -210,6 +264,11 @@ export const DEFAULT_COST: Record<ArchNodeType, number> = {
   timeseries_db: 110,
   graph_db: 180,
   feature_store: 130,
+  materialized_view: 40,
+  session_store: 50,
+  ledger_db: 250,
+  feedback_store: 30,
+  experiment_platform: 60,
   data_warehouse: 400,
   olap_db: 250,
   data_lake: 60,
@@ -220,7 +279,15 @@ export const DEFAULT_COST: Record<ArchNodeType, number> = {
   secrets_manager: 20,
   batch_job: 25,
   ci_cd: 50,
+  backup_store: 40,
+  transcoder: 150,
+  media_streamer: 120,
   third_party: 100,
+  payment_gateway: 0,
+  email_provider: 25,
+  sms_provider: 40,
+  push_service: 20,
+  identity_provider: 30,
   llm: 300,
   embedding_svc: 70,
   model_router: 30,
@@ -247,12 +314,18 @@ export const REDUNDANT_SIBLING_CAPACITY_SHARE = 0.5;
 const MAX_FINDINGS = 8;
 const EPSILON = 1e-9;
 
-/** Buffers whose real constraint is consumer drain rate, not their own capacity. */
+/**
+ * Buffers whose real constraint is consumer drain rate, not their own capacity.
+ * A change feed's lag and a webhook dispatcher's pending-delivery backlog are the
+ * same lesson as a queue's: the producer is fine, the drain is what fails.
+ */
 const QUEUE_TYPES: ReadonlySet<ArchNodeType> = new Set([
   'queue',
   'stream',
   'event_bus',
   'dead_letter_queue',
+  'change_feed',
+  'webhook_dispatcher',
 ]);
 const DATASTORE_TYPES: ReadonlySet<ArchNodeType> = new Set([
   'sql_db',
@@ -262,6 +335,9 @@ const DATASTORE_TYPES: ReadonlySet<ArchNodeType> = new Set([
   'vector_db',
   'timeseries_db',
   'graph_db',
+  'sharded_cluster',
+  'materialized_view',
+  'ledger_db',
 ]);
 /** Losing a zone loses these unless they are spread across AZs. */
 const STATEFUL_TYPES: ReadonlySet<ArchNodeType> = new Set([
@@ -283,17 +359,40 @@ const STATEFUL_TYPES: ReadonlySet<ArchNodeType> = new Set([
   'dead_letter_queue',
   'cache',
   'prompt_cache',
+  'sharded_cluster',
+  'materialized_view',
+  'session_store',
+  'ledger_db',
+  'backup_store',
+  'change_feed',
+  'feedback_store',
 ]);
 /** Nodes that absorb traffic like a cache unless told otherwise. */
 const CACHE_TYPES: ReadonlySet<ArchNodeType> = new Set(['cache', 'prompt_cache']);
 /**
+ * Dependencies you call but do not run. A chaos scenario's third-party latency
+ * lands on all of them (a slow PSP is exactly the failure mode being modelled),
+ * and finding #5 treats them as slow dependencies on the synchronous path.
+ */
+const EXTERNAL_DEPENDENCY_TYPES: ReadonlySet<ArchNodeType> = new Set([
+  'third_party',
+  'llm',
+  'payment_gateway',
+  'email_provider',
+  'sms_provider',
+  'push_service',
+  'identity_provider',
+]);
+/**
  * Stand-ins beyond an identical twin: a read replica keeps reads alive when its
- * primary dies (and the primary keeps serving when a replica dies).
+ * primary dies (and the primary keeps serving when a replica dies), and a sharded
+ * cluster is the same data as the single-box store it replaced.
  */
 const REPLICA_SUBSTITUTES: ReadonlyMap<ArchNodeType, ReadonlySet<ArchNodeType>> = new Map([
-  ['sql_db', new Set<ArchNodeType>(['read_replica'])],
-  ['nosql_db', new Set<ArchNodeType>(['read_replica'])],
+  ['sql_db', new Set<ArchNodeType>(['read_replica', 'sharded_cluster'])],
+  ['nosql_db', new Set<ArchNodeType>(['read_replica', 'sharded_cluster'])],
   ['read_replica', new Set<ArchNodeType>(['sql_db', 'nosql_db'])],
+  ['sharded_cluster', new Set<ArchNodeType>(['sql_db', 'nosql_db'])],
 ]);
 
 function canSubstitute(killedType: ArchNodeType, candidateType: ArchNodeType): boolean {
@@ -388,8 +487,9 @@ function costOf(node: GraphNode): number {
 function baseLatencyOf(node: GraphNode, config: SimConfig): number {
   const explicit = node.attrs?.latencyMs;
   const base = typeof explicit === 'number' ? explicit : (DEFAULT_LATENCY[node.type] ?? 20);
-  const injected =
-    node.type === 'third_party' || node.type === 'llm' ? (config.thirdPartyLatencyMs ?? 0) : 0;
+  const injected = EXTERNAL_DEPENDENCY_TYPES.has(node.type)
+    ? (config.thirdPartyLatencyMs ?? 0)
+    : 0;
   return Math.max(0, base) + Math.max(0, injected);
 }
 
@@ -802,7 +902,7 @@ function buildFindings(args: {
   for (const plan of plans) {
     if (!SYNCHRONOUS_FLOW_KINDS.has(plan.flow.kind)) continue;
     for (const step of plan.steps) {
-      if (step.node.type !== 'third_party' && step.node.type !== 'llm') continue;
+      if (!EXTERNAL_DEPENDENCY_TYPES.has(step.node.type)) continue;
       const nc = computed.get(step.node.id);
       if (!nc || nc.latency < SLOW_DEPENDENCY_MS) continue;
       const key = `${step.node.id}|${plan.flow.id}`;

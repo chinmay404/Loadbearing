@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { LlmProvider, SettingsView } from '@archdojo/shared';
+import type { LlmProvider, SettingsView } from '@loadbearing/shared';
 import { api, ApiError } from '../lib/api';
 
 interface Preset {
@@ -78,7 +78,7 @@ export function SettingsPanel() {
     <div className="sheet" style={{ maxWidth: 660 }}>
       <h1>Grader model</h1>
       <p className="faint" style={{ fontSize: 12.5, marginTop: -8 }}>
-        ArchDojo talks to whichever model you park here. The key is stored locally in your SQLite file and
+        Loadbearing talks to whichever model you park here. The key is stored locally in your SQLite file and
         never leaves your machine except in calls to the provider you chose.
       </p>
 
@@ -168,10 +168,10 @@ export function SettingsPanel() {
           className="mono"
           style={{ margin: '6px 0 0', padding: '7px 9px', background: '#0a0d12', border: '1px solid var(--rule)', fontSize: 11, overflowX: 'auto' }}
         >
-{`ARCHDOJO_PROVIDER=openai-compatible
-ARCHDOJO_BASE_URL=https://api.groq.com/openai/v1
-ARCHDOJO_MODEL=llama-3.3-70b-versatile
-ARCHDOJO_API_KEY=…`}
+{`LOADBEARING_PROVIDER=openai-compatible
+LOADBEARING_BASE_URL=https://api.groq.com/openai/v1
+LOADBEARING_MODEL=llama-3.3-70b-versatile
+LOADBEARING_API_KEY=…`}
         </pre>
       </div>
     </div>

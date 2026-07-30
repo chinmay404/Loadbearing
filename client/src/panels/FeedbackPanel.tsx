@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { DimensionKey } from '@archdojo/shared';
+import type { DimensionKey } from '@loadbearing/shared';
 import { useApp } from '../state/appStore';
 import { useCanvas } from '../state/canvasStore';
 import { api, ApiError } from '../lib/api';

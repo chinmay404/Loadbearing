@@ -3,10 +3,10 @@ import { useNodes, useViewport, type Node } from '@xyflow/react';
 import { useCanvas } from '../state/canvasStore';
 
 const KIND_COLOR: Record<string, string> = {
-  read: '#60a5fa',
-  write: '#f472b6',
-  async: '#34d399',
-  admin: '#fbbf24',
+  read: '#cfa349',
+  write: '#c9703f',
+  async: '#7ba75f',
+  admin: '#e2913c',
 };
 
 /**
@@ -54,7 +54,7 @@ export function FlowParticles() {
           const fr = sim?.flows.find((f) => f.flowId === flow.id);
           const broken = fr?.broken ?? false;
           const health = fr && fr.offeredRps > 0 ? fr.completedRps / fr.offeredRps : 1;
-          const color = broken ? '#f87171' : KIND_COLOR[flow.kind] ?? '#60a5fa';
+          const color = broken ? '#d9534b' : KIND_COLOR[flow.kind] ?? '#cfa349';
           const count = Math.max(2, Math.min(9, Math.round(3 + health * 5)));
           const speed = broken ? 0.25 : 0.35 + health * 0.35;
 

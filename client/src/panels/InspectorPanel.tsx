@@ -1,7 +1,8 @@
-import type { NodeAttrs } from '@archdojo/shared';
+import type { NodeAttrs } from '@loadbearing/shared';
 import { NODE_SPEC } from '../canvas/nodeCatalog';
 import { useCanvas, type ArchNodeData } from '../state/canvasStore';
 import { IconSkull } from '../ui/UiIcons';
+import { explainNode } from '../lib/mathExplain';
 
 const FIELD_LABEL: Record<keyof NodeAttrs, string> = {
   capacityRps: 'Capacity (rps per replica)',
@@ -101,24 +102,40 @@ export function InspectorPanel() {
                   </div>
                 );
               })}
-              {sim && (
-                <div className="row wrap" style={{ gap: 4, marginTop: 6 }}>
-                  {(() => {
-                    const r = sim.nodes.find((x) => x.nodeId === n.id);
-                    if (!r) return null;
-                    return (
-                      <>
+              {sim &&
+                (() => {
+                  const r = sim.nodes.find((x) => x.nodeId === n.id);
+                  if (!r) return null;
+                  const perReplica = data.attrs?.capacityRps ?? spec.defaults.capacityRps ?? 0;
+                  const replicas = data.attrs?.replicas ?? spec.defaults.replicas ?? 1;
+                  const baseLatency = data.attrs?.latencyMs ?? spec.defaults.latencyMs ?? 0;
+                  return (
+                    <>
+                      <div className="row wrap" style={{ gap: 4, marginTop: 8 }}>
                         <span className={`chip ${r.state === 'ok' ? 'pass' : r.state === 'warn' ? 'load' : 'fail'}`}>
                           {r.state}
                         </span>
                         <span className="chip">{Math.round(r.incomingRps)} rps in</span>
                         <span className="chip">{Math.round(r.latencyMs)}ms</span>
                         {r.queueDepth > 0 && <span className="chip load">queue {Math.round(r.queueDepth)}</span>}
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
+                      </div>
+                      <details className="disclose" open>
+                        <summary>the arithmetic</summary>
+                        <table className="mathwork">
+                          <tbody>
+                            {explainNode(r, perReplica, replicas, baseLatency).map((l) => (
+                              <tr key={l.label}>
+                                <td className="k">{l.label}</td>
+                                <td className="w">{l.work}</td>
+                                <td className="r">{l.result}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </details>
+                    </>
+                  );
+                })()}
             </div>
           );
         })}

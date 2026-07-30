@@ -1,4 +1,4 @@
-import type { EdgeKind } from '@archdojo/shared';
+import type { EdgeKind } from '@loadbearing/shared';
 import { useCanvas } from '../state/canvasStore';
 import {
   IconErase,

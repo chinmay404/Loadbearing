@@ -2,7 +2,7 @@
 // (Anthropic Messages, OpenAI chat/completions) plus a `fake` provider so tests
 // and offline dev never touch the network.
 
-import type { LlmConfig } from '@archdojo/shared';
+import type { LlmConfig } from '@loadbearing/shared';
 import { fakeResponseFor } from './fake.js';
 import { extractJson, LlmJsonError } from './json.js';
 
@@ -215,18 +215,33 @@ function openAiText(data: any): string {
       'Unexpected provider error.',
     );
   }
-  const content = choices[0]?.message?.content;
-  const text =
-    typeof content === 'string'
-      ? content
-      : Array.isArray(content)
-        ? content.map((p: any) => (typeof p === 'string' ? p : String(p?.text ?? ''))).join('')
+  const message = choices[0]?.message;
+  const content = message?.content;
+  const flatten = (v: any): string =>
+    typeof v === 'string'
+      ? v
+      : Array.isArray(v)
+        ? v.map((p: any) => (typeof p === 'string' ? p : String(p?.text ?? ''))).join('')
         : '';
+
+  let text = flatten(content);
+
+  // Reasoning models (Groq's gpt-oss, DeepSeek R1, and friends) put their thinking
+  // in a separate field and can return an empty `content` when the token budget ran
+  // out mid-thought. The answer is usually still recoverable from the reasoning.
+  if (!text) text = flatten(message?.reasoning ?? message?.reasoning_content);
+
   if (!text) {
+    const finish = choices[0]?.finish_reason;
+    const cut = finish === 'length';
     throw new LlmHttpError(
       502,
-      'The provider returned an empty message. Response shape was unexpected.',
-      'Unexpected provider error.',
+      cut
+        ? 'The model used its whole token budget before answering. This usually means a reasoning model with too small a limit.'
+        : 'The provider returned an empty message. Response shape was unexpected.',
+      cut
+        ? 'Reasoning models spend tokens thinking before they answer — raise the limit or pick a non-reasoning model.'
+        : 'Unexpected provider error.',
     );
   }
   return text;

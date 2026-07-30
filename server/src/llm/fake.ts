@@ -18,7 +18,7 @@ const FAKE_SCORE = {
     {
       title: 'This is the offline stub, not a real review',
       detail:
-        'The grader model is set to the offline stub, so these numbers are placeholders. Open Settings and point ArchDojo at Anthropic, Groq, DeepSeek, OpenAI or a local Ollama server to get a real review of this design.',
+        'The grader model is set to the offline stub, so these numbers are placeholders. Open Settings and point Loadbearing at Anthropic, Groq, DeepSeek, OpenAI or a local Ollama server to get a real review of this design.',
       concept: 'observability',
       severity: 'high',
     },
@@ -57,7 +57,7 @@ const FAKE_SCORE = {
       risk: 'The design has not actually been reviewed',
       likelihood: 'high',
       impact: 'Placeholder scores teach nothing and hide real failure modes.',
-      mitigation: 'Open Settings and point ArchDojo at Anthropic, Groq, DeepSeek, OpenAI or a local Ollama.',
+      mitigation: 'Open Settings and point Loadbearing at Anthropic, Groq, DeepSeek, OpenAI or a local Ollama.',
     },
   ],
   at_10x:

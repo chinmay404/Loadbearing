@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Attempt } from '@archdojo/shared';
+import type { Attempt } from '@loadbearing/shared';
 import { api } from '../lib/api';
 import { useApp } from '../state/appStore';
 

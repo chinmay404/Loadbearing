@@ -12,7 +12,7 @@ import type {
   Stats,
   ConceptCard,
   CanvasDoc,
-} from '@archdojo/shared';
+} from '@loadbearing/shared';
 
 export class ApiError extends Error {
   constructor(
@@ -35,7 +35,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     });
   } catch {
     throw new ApiError(
-      'Cannot reach the ArchDojo server on port 8787.',
+      'Cannot reach the Loadbearing server on port 8787.',
       'offline',
       'Is `npm run dev` still running in the terminal?',
     );
@@ -101,6 +101,14 @@ export const api = {
     req<{ ok: true; path: string }>(`/export/${attemptId}?format=${format}`, { method: 'POST' }),
   exportText: (attemptId: number, format: 'review' | 'adr' = 'adr') =>
     req<{ format: string; text: string }>(`/export/${attemptId}/text?format=${format}`),
-  problemFromBrief: (body: { brief: string; level?: number }) =>
+  problemFromBrief: (body: {
+    brief: string;
+    scale?: string;
+    constraints?: string;
+    focus?: string[];
+    level?: number;
+    mode?: 'own' | 'exercise';
+    harder?: boolean;
+  }) =>
     req<Problem>('/problems/from-brief', { method: 'POST', body: JSON.stringify(body) }),
 };

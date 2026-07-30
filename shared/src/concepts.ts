@@ -1,4 +1,4 @@
-// The ArchDojo concept taxonomy — the fixed vocabulary for rubrics, mastery
+// The Loadbearing concept taxonomy — the fixed vocabulary for rubrics, mastery
 // tracking, and the in-app Design Reference. Every card teaches: what it is,
 // when to reach for it, the trade-off it costs, and the red flag of misuse.
 

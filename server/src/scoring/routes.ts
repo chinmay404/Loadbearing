@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
-import { normalizeScore, simulate } from '@archdojo/shared';
-import type { Attempt, GraphDSL, ScoreResult, SimConfig } from '@archdojo/shared';
+import { checkTopology, normalizeScore, simulate } from '@loadbearing/shared';
+import type { Attempt, GraphDSL, ScoreResult, SimConfig } from '@loadbearing/shared';
 import { db, upsertMastery } from '../db.js';
 import { completeJson } from '../llm/adapter.js';
 import { loadLlmConfig } from '../llm/settings.js';
@@ -74,7 +74,10 @@ scoringRoutes.post('/attempts', async (c) => {
   );
   const sim = simulateForGrading(graph, stressMultiplier);
 
-  const { system, user } = buildScoringPrompt({ problem, graph, sim, twist });
+  // The rule engine is free and certain; run it so the model spends its judgement
+  // on what rules cannot decide.
+  const checks = checkTopology(graph);
+  const { system, user } = buildScoringPrompt({ problem, graph, sim, checks, twist });
   const raw = await completeJson<unknown>(loadLlmConfig(db()), system, user, {
     maxTokens: 8000,
     temperature: 0.2,
@@ -99,7 +102,7 @@ scoringRoutes.post('/attempts', async (c) => {
     upsertMastery(db(), concept, value);
   }
 
-  return c.json({ attemptId: Number(info.lastInsertRowid), score, sim: sim ?? null });
+  return c.json({ attemptId: Number(info.lastInsertRowid), score, sim: sim ?? null, checks });
 });
 
 scoringRoutes.get('/attempts', (c) => {

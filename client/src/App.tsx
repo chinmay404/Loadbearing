@@ -14,9 +14,12 @@ import { ProblemBrowser } from './panels/ProblemBrowser';
 import { Dashboard } from './panels/Dashboard';
 import { ReferencePanel } from './panels/ReferencePanel';
 import { SettingsPanel } from './panels/SettingsPanel';
+import { ComposePanel } from './panels/ComposePanel';
+import { ChecksPanel } from './panels/ChecksPanel';
 import { ErrorBoundary } from './ui/ErrorBoundary';
 import {
   IconBack,
+  IconCompose,
   IconDrafting,
   IconGauge,
   IconInstrument,
@@ -26,6 +29,7 @@ import {
 
 const RAIL: { view: View; Icon: (p: { size?: number }) => JSX.Element; title: string }[] = [
   { view: 'problems', Icon: IconSheets, title: 'Problems' },
+  { view: 'compose', Icon: IconCompose, title: 'Compose a sheet' },
   { view: 'workspace', Icon: IconDrafting, title: 'Drawing board' },
   { view: 'dashboard', Icon: IconGauge, title: 'Progress' },
   { view: 'reference', Icon: IconManual, title: 'Design reference' },
@@ -42,14 +46,16 @@ export function App() {
   const setError = useApp((s) => s.setError);
   const notice = useApp((s) => s.notice);
   const setNotice = useApp((s) => s.setNotice);
+  const stubMode = useApp((s) => s.stubMode);
+  const llmConfigured = useApp((s) => s.llmConfigured);
 
   useEffect(() => {
     const ping = async () => {
       try {
         const h = await api.health();
-        setHealth({ serverUp: h.ok, llmConfigured: h.llmConfigured });
+        setHealth({ serverUp: h.ok, llmConfigured: h.llmConfigured, stubMode: h.fake });
       } catch {
-        setHealth({ serverUp: false, llmConfigured: false });
+        setHealth({ serverUp: false, llmConfigured: false, stubMode: false });
       }
     };
     void ping();
@@ -60,8 +66,8 @@ export function App() {
   return (
     <div className="shell">
       <nav className="rail">
-        <div className="mark" title="ArchDojo">
-          AD
+        <div className="mark" title="Loadbearing">
+          LB
         </div>
         {RAIL.map(({ view: v, Icon, title }) => (
           <button
@@ -85,6 +91,26 @@ export function App() {
       </nav>
 
       <main className="main">
+        {serverUp && (stubMode || !llmConfigured) && (
+          <div
+            className="banner warnb"
+            style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 35, maxWidth: 640, margin: 0 }}
+          >
+            {stubMode ? (
+              <>
+                <strong>Reviews are not real right now.</strong> The server was started with{' '}
+                <span className="mono">FAKE_LLM=1</span>, which forces the offline stub and ignores the model
+                in Settings. Restart it without that variable.
+              </>
+            ) : (
+              <>
+                <strong>No grader model configured.</strong> Open <em>Grader model</em> and point Loadbearing at a
+                provider, or reviews will not run.
+              </>
+            )}
+          </div>
+        )}
+
         {(error || notice) && (
           <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 40, maxWidth: 620 }}>
             {error && (
@@ -105,6 +131,7 @@ export function App() {
         )}
 
         {view === 'problems' && <ProblemBrowser />}
+        {view === 'compose' && <ComposePanel />}
         {view === 'workspace' && (problem ? <Workspace /> : <ProblemBrowser />)}
         {view === 'dashboard' && <Dashboard />}
         {view === 'reference' && <ReferencePanel />}
@@ -119,6 +146,7 @@ const LEFT_TABS: { id: LeftTab; label: string }[] = [
   { id: 'palette', label: 'Components' },
   { id: 'flows', label: 'Flows' },
   { id: 'inspect', label: 'Inspect' },
+  { id: 'checks', label: 'Checks' },
 ];
 
 const RIGHT_TABS: { id: RightTab; label: string }[] = [
@@ -222,6 +250,7 @@ function Workspace() {
             {leftTab === 'palette' && <Palette />}
             {leftTab === 'flows' && <FlowPanel />}
             {leftTab === 'inspect' && <InspectorPanel />}
+            {leftTab === 'checks' && <ChecksPanel />}
           </ErrorBoundary>
         </div>
         <div className="pane-foot">
