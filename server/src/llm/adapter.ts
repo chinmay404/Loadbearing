@@ -152,7 +152,11 @@ function anthropicRequest(
       model: cfg.model,
       max_tokens: maxTokens,
       temperature,
-      system,
+      // Anthropic caches prompts only where a cache_control breakpoint says to.
+      // The system block is our large stable prefix (persona, output contract,
+      // taxonomy), so marking it makes repeat reviews ~10x cheaper on input.
+      // OpenAI-compatible providers (DeepSeek, Groq) prefix-cache automatically.
+      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: user }],
     },
   };

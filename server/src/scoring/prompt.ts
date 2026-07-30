@@ -270,14 +270,18 @@ export interface ScoringPromptInput {
 export function buildScoringPrompt(input: ScoringPromptInput): { system: string; user: string } {
   const { problem, graph, sim, checks, twist } = input;
 
+  // Ordered for provider-side prefix caching (DeepSeek/Groq/OpenAI cache by
+  // exact prefix; Anthropic via cache_control): everything identical across
+  // ALL reviews comes first, the per-problem taxonomy last. Reordering this
+  // is what lets a review of a different problem still hit the cached prefix.
   const system = `${GRADER_PERSONA}
-
-CONCEPT TAXONOMY (use these ids verbatim in concept_scores and critical_failures.concept; lines marked * are this problem's rubric):
-${conceptTaxonomyBlock(problem.concepts)}
 
 Allowed node types for suggested_additions: ${allowedNodeTypes()}
 
-${OUTPUT_CONTRACT}`;
+${OUTPUT_CONTRACT}
+
+CONCEPT TAXONOMY (use these ids verbatim in concept_scores and critical_failures.concept; lines marked * are this problem's rubric):
+${conceptTaxonomyBlock(problem.concepts)}`;
 
   const twistBlock = twist
     ? `

@@ -60,7 +60,9 @@ describe('complete — anthropic', () => {
       model: 'claude-sonnet-5',
       max_tokens: 1234,
       temperature: 0.9,
-      system: 'SYSTEM',
+      // System goes as a block array with a cache_control breakpoint so
+      // Anthropic prompt-caches the stable prefix across reviews.
+      system: [{ type: 'text', text: 'SYSTEM', cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: 'USER' }],
     });
     expect(init.signal).toBeDefined();
@@ -251,7 +253,7 @@ describe('completeJson', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const second = JSON.parse(fetchMock.mock.calls[1]![1].body);
-    expect(second.system).toBe('SYSTEM');
+    expect(second.system[0].text).toBe('SYSTEM');
     expect(second.messages[0].content).toContain('could not be parsed as JSON');
     expect(second.messages[0].content).toContain('oops not json');
   });
