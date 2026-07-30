@@ -23,6 +23,7 @@ import { CanvasToolbar } from './CanvasToolbar';
 import { SimHud } from './SimHud';
 import { TitleBlock } from './TitleBlock';
 import { QuickAdd } from './QuickAdd';
+import { AiBar } from './AiBar';
 import { useCanvas } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
 
@@ -169,6 +170,7 @@ function CanvasInner() {
       <CanvasToolbar />
       <TitleBlock />
       <SimHud />
+      <AiBar />
       <QuickAdd />
     </div>
   );

@@ -74,8 +74,12 @@ export const api = {
   attempts: (problemId?: string) =>
     req<Attempt[]>(`/attempts${problemId ? `?problemId=${encodeURIComponent(problemId)}` : ''}`),
 
-  critique: (body: { problemId: string; graph: GraphDSL; question: string }) =>
-    req<CritiqueResponse>('/critique', { method: 'POST', body: JSON.stringify(body) }),
+  critique: (body: {
+    problemId: string;
+    graph: GraphDSL;
+    question: string;
+    selectedNodeIds?: string[];
+  }) => req<CritiqueResponse>('/critique', { method: 'POST', body: JSON.stringify(body) }),
 
   simulate: (body: { graph: GraphDSL; config: SimConfig }) =>
     req<SimResult>('/simulate', { method: 'POST', body: JSON.stringify(body) }),

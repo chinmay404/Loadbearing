@@ -71,7 +71,15 @@ function migrate(db: Db): void {
       graph_json TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS llm_cache (
+      key TEXT PRIMARY KEY,
+      response TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
+  // Cached model replies go stale as prompts evolve; two weeks is plenty.
+  db.prepare(`DELETE FROM llm_cache WHERE created_at < datetime('now', '-14 days')`).run();
 }
 
 export function upsertMastery(db: Db, concept: string, score: number): void {

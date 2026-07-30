@@ -399,6 +399,24 @@ function canSubstitute(killedType: ArchNodeType, candidateType: ArchNodeType): b
   if (killedType === candidateType) return true;
   return REPLICA_SUBSTITUTES.get(killedType)?.has(candidateType) ?? false;
 }
+
+/** Live replica-family nodes joined to this one by a replication edge. */
+function attachedReplicas(
+  graph: GraphDSL,
+  node: GraphNode,
+  killed: ReadonlySet<string>,
+): GraphNode[] {
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const out: GraphNode[] = [];
+  for (const e of graph.edges) {
+    if (e.kind !== 'replication') continue;
+    const otherId = e.from === node.id ? e.to : e.to === node.id ? e.from : undefined;
+    if (!otherId || killed.has(otherId)) continue;
+    const other = byId.get(otherId);
+    if (other && other.id !== node.id && canSubstitute(node.type, other.type)) out.push(other);
+  }
+  return out;
+}
 /** Nodes whose presence in every flow is not interesting SPOF news. */
 const NON_INFRA_TYPES: ReadonlySet<ArchNodeType> = new Set(['client', 'mobile_client', 'group']);
 /** Flow kinds where a human is waiting for the response. */
@@ -621,7 +639,26 @@ export function simulate(graph: GraphDSL, config: SimConfig): SimResult {
       }
 
       steps.push(substitutedFor ? { node: serving, substitutedFor } : { node: serving });
-      incoming.set(serving.id, (incoming.get(serving.id) ?? 0) + carried);
+
+      // Read offload: a datastore with live replicas attached over replication
+      // edges shares its READ traffic with them. This is why adding a replica
+      // visibly lowers the primary's utilization — writes still all land on it.
+      const replicas =
+        flow.kind === 'read' && DATASTORE_TYPES.has(serving.type)
+          ? attachedReplicas(g, serving, killed)
+          : [];
+      if (replicas.length > 0) {
+        const share = carried / (replicas.length + 1);
+        incoming.set(serving.id, (incoming.get(serving.id) ?? 0) + share);
+        for (const r of replicas) incoming.set(r.id, (incoming.get(r.id) ?? 0) + share);
+        notes.push(
+          `${serving.label}'s reads are split across ${replicas.length + 1} nodes ` +
+            `(${replicas.map((r) => r.label).join(', ')}) — each takes ${round(share)} rps.`,
+        );
+      } else {
+        incoming.set(serving.id, (incoming.get(serving.id) ?? 0) + carried);
+      }
+
       // Absorbed traffic (cache hits) is served here and never reaches the next hop.
       carried = carried * (1 - absorbRateOf(serving));
       previousNodeId = serving.id;

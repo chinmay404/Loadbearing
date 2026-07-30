@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { checkTopology, normalizeScore, simulate } from '@loadbearing/shared';
 import type { Attempt, GraphDSL, ScoreResult, SimConfig } from '@loadbearing/shared';
 import { db, upsertMastery } from '../db.js';
-import { completeJson } from '../llm/adapter.js';
+import { cachedCompleteJson } from '../llm/cache.js';
 import { loadLlmConfig } from '../llm/settings.js';
 import { findProblem } from '../problems/routes.js';
 import { buildCritiquePrompt, buildScoringPrompt } from './prompt.js';
@@ -78,7 +78,7 @@ scoringRoutes.post('/attempts', async (c) => {
   // on what rules cannot decide.
   const checks = checkTopology(graph);
   const { system, user } = buildScoringPrompt({ problem, graph, sim, checks, twist });
-  const raw = await completeJson<unknown>(loadLlmConfig(db()), system, user, {
+  const { value: raw, cached } = await cachedCompleteJson<unknown>(loadLlmConfig(db()), system, user, {
     maxTokens: 8000,
     temperature: 0.2,
   });
@@ -102,7 +102,7 @@ scoringRoutes.post('/attempts', async (c) => {
     upsertMastery(db(), concept, value);
   }
 
-  return c.json({ attemptId: Number(info.lastInsertRowid), score, sim: sim ?? null, checks });
+  return c.json({ attemptId: Number(info.lastInsertRowid), score, sim: sim ?? null, checks, cached });
 });
 
 scoringRoutes.get('/attempts', (c) => {
@@ -129,6 +129,7 @@ scoringRoutes.post('/critique', async (c) => {
     problemId?: string;
     graph?: unknown;
     question?: string;
+    selectedNodeIds?: unknown;
   };
   const problem = findProblem(String(body.problemId ?? ''));
   if (!problem) return c.json({ error: { code: 'not_found', message: 'Unknown problem id' } }, 404);
@@ -136,12 +137,21 @@ scoringRoutes.post('/critique', async (c) => {
   if (!question) return c.json({ error: { code: 'bad_request', message: 'Ask a question first.' } }, 400);
 
   const graph = sanitizeGraph(body.graph);
-  const { system, user } = buildCritiquePrompt(problem, graph, question);
-  const raw = await completeJson<unknown>(loadLlmConfig(db()), system, user, {
+  const selectedNodeIds = (Array.isArray(body.selectedNodeIds) ? body.selectedNodeIds : []).filter(
+    (x): x is string => typeof x === 'string',
+  );
+  const { system, user } = buildCritiquePrompt(problem, graph, question, selectedNodeIds);
+  const { value: raw } = await cachedCompleteJson<unknown>(loadLlmConfig(db()), system, user, {
     maxTokens: 2000,
     temperature: 0.4,
   });
-  return c.json(validateCritique(raw, graph));
+  const critique = validateCritique(raw, graph);
+
+  // The coach hints; it does not build. Whatever the model wanted, an empty
+  // canvas gets no ghost components, and a question never earns more than one.
+  critique.suggested_additions = graph.nodes.length === 0 ? [] : critique.suggested_additions.slice(0, 1);
+  if (graph.nodes.length === 0) critique.canvas_markup = [];
+  return c.json(critique);
 });
 
 /** Run the deterministic simulator without spending a token. */

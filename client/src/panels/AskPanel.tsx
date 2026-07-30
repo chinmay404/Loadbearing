@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import { useApp } from '../state/appStore';
-import { useCanvas } from '../state/canvasStore';
+import { useCanvas, type ArchNodeData } from '../state/canvasStore';
 
 const STARTERS = [
   'Where is the single point of failure in what I drew?',
@@ -22,17 +22,34 @@ export function AskPanel() {
   const toGraph = useCanvas((s) => s.toGraph);
   const setMarkup = useCanvas((s) => s.setMarkup);
   const addGhosts = useCanvas((s) => s.addGhosts);
+  // Selecting components on the canvas points the coach at them.
+  const selectedNodes = useCanvas((s) => s.nodes).filter(
+    (n) => n.selected && n.type === 'arch' && !(n.data as ArchNodeData).ghost,
+  );
   const [log, setLog] = useState<Msg[]>([]);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
 
   const ask = async (question: string) => {
     if (!problem || !question.trim()) return;
+    const selectedNodeIds = selectedNodes.map((n) => n.id);
+    const selectedLabels = selectedNodes.map((n) => (n.data as ArchNodeData).label);
     setQ('');
-    setLog((l) => [...l, { role: 'me', text: question }]);
+    setLog((l) => [
+      ...l,
+      {
+        role: 'me',
+        text: selectedLabels.length ? `[about ${selectedLabels.join(', ')}] ${question}` : question,
+      },
+    ]);
     setBusy(true);
     try {
-      const r = await api.critique({ problemId: problem.id, graph: toGraph(), question });
+      const r = await api.critique({
+        problemId: problem.id,
+        graph: toGraph(),
+        question,
+        ...(selectedNodeIds.length ? { selectedNodeIds } : {}),
+      });
       setLog((l) => [...l, { role: 'ai', text: r.answer }]);
       if (r.canvas_markup.length) setMarkup(r.canvas_markup);
       if (r.suggested_additions.length) addGhosts(r.suggested_additions);
@@ -48,9 +65,21 @@ export function AskPanel() {
   return (
     <div className="col" style={{ height: '100%' }}>
       <p className="faint" style={{ fontSize: 12, marginTop: 0 }}>
-        Ask about the diagram you have drawn right now. Answers can pin markers on your components and
-        propose ghost nodes you can accept.
+        A coach, not an answer machine: it sharpens your thinking about what you drew, and only proposes
+        a component when you explicitly ask what to add. Select components on the canvas to ask about
+        them specifically.
       </p>
+
+      {selectedNodes.length > 0 && (
+        <div className="row wrap" style={{ gap: 3, marginBottom: 8 }}>
+          <span className="stencil">asking about</span>
+          {selectedNodes.map((n) => (
+            <span className="chip spec" key={n.id}>
+              {(n.data as ArchNodeData).label}
+            </span>
+          ))}
+        </div>
+      )}
 
       {log.length === 0 && (
         <div className="col" style={{ gap: 5 }}>

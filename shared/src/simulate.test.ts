@@ -487,3 +487,39 @@ describe('cache death falls through instead of breaking the flow', () => {
     expect(r.flows[0]!.broken).toBe(true);
   });
 });
+
+describe('read replicas offload read traffic from the primary', () => {
+  const graph: GraphDSL = {
+    nodes: [
+      { id: 'api', type: 'service', label: 'API', annotation: '', attrs: { capacityRps: 50000, replicas: 4 } },
+      { id: 'db', type: 'sql_db', label: 'Primary', annotation: '', attrs: { capacityRps: 3000 } },
+      { id: 'r1', type: 'read_replica', label: 'Replica', annotation: '', attrs: { capacityRps: 3000 } },
+    ],
+    edges: [
+      { id: 'e1', from: 'api', to: 'db', kind: 'sync', label: '' },
+      { id: 'e2', from: 'db', to: 'r1', kind: 'replication', label: '' },
+    ],
+    stickies: [],
+    flows: [
+      { id: 'fr', name: 'read', kind: 'read', steps: ['api', 'db'], rps: 4000, description: '' },
+      { id: 'fw', name: 'write', kind: 'write', steps: ['api', 'db'], rps: 1000, description: '' },
+    ],
+  };
+
+  it('splits reads across primary and replica, keeps writes on the primary', () => {
+    const r = simulate(graph, { rpsMultiplier: 1, killNodeIds: [], thirdPartyLatencyMs: 0 });
+    const primary = r.nodes.find((n) => n.nodeId === 'db')!;
+    const replica = r.nodes.find((n) => n.nodeId === 'r1')!;
+    // 4000 reads split two ways (2000 each) + 1000 writes on the primary only.
+    expect(primary.incomingRps).toBeCloseTo(3000, 0);
+    expect(replica.incomingRps).toBeCloseTo(2000, 0);
+    const read = r.flows.find((f) => f.flowId === 'fr')!;
+    expect(read.notes.join(' ')).toMatch(/split across 2 nodes/);
+  });
+
+  it('a killed replica stops taking traffic and the primary carries it all again', () => {
+    const r = simulate(graph, { rpsMultiplier: 1, killNodeIds: ['r1'], thirdPartyLatencyMs: 0 });
+    const primary = r.nodes.find((n) => n.nodeId === 'db')!;
+    expect(primary.incomingRps).toBeCloseTo(5000, 0);
+  });
+});

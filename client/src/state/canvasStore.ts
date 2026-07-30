@@ -64,6 +64,8 @@ interface CanvasState extends Snapshot {
   /** Which engine produced simResult: the local copy, or the server's. */
   simSource: 'local' | 'server';
   markup: CanvasMarkup[];
+  /** Node ids that entered the drawing by accepting an AI suggestion. */
+  aiAccepted: string[];
   viewportCenter: { x: number; y: number };
   past: Snapshot[];
   future: Snapshot[];
@@ -108,6 +110,10 @@ interface CanvasState extends Snapshot {
   addGhosts: (suggestions: SuggestedAddition[]) => void;
   acceptGhost: (id: string) => void;
   rejectGhost: (id: string) => void;
+  acceptAllGhosts: () => void;
+  rejectAllGhosts: () => void;
+  /** Removes every AI-accepted component again — the "put it back how I had it" button. */
+  revertAiChanges: () => void;
   setSimResult: (r: SimResult | null, source?: 'local' | 'server') => void;
   setSimConfig: (patch: Partial<SimConfig>) => void;
   setSimRunning: (v: boolean) => void;
@@ -152,6 +158,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   simRunning: false,
   simSource: 'local',
   markup: [],
+  aiAccepted: [],
   viewportCenter: { x: 300, y: 200 },
   past: [],
   future: [],
@@ -159,7 +166,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
 
   loadProblem: (problemId, doc) => {
     if (!doc) {
-      set({ ...EMPTY, problemId, past: [], future: [], markup: [], simResult: null, dirty: false });
+      set({ ...EMPTY, problemId, past: [], future: [], markup: [], aiAccepted: [], simResult: null, dirty: false });
       return;
     }
     const nodes: AnyNode[] = [
@@ -205,12 +212,13 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       past: [],
       future: [],
       markup: [],
+      aiAccepted: [],
       simResult: null,
       dirty: false,
     });
   },
 
-  reset: () => set({ ...EMPTY, past: [], future: [], markup: [], simResult: null, dirty: true }),
+  reset: () => set({ ...EMPTY, past: [], future: [], markup: [], aiAccepted: [], simResult: null, dirty: true }),
 
   onNodesChange: (changes) => {
     const structural = changes.some((c) => c.type === 'remove' || c.type === 'add');
@@ -415,18 +423,26 @@ export const useCanvas = create<CanvasState>((set, get) => ({
 
   addGhosts: (suggestions) =>
     set((s) => {
-      const existing = s.nodes.filter((n) => n.type === 'arch') as Node<ArchNodeData, 'arch'>[];
-      const anchorOf = (id?: string) => existing.find((n) => n.id === id);
+      const existing = s.nodes.filter(
+        (n) => n.type === 'arch' && !(n.data as ArchNodeData).ghost,
+      ) as Node<ArchNodeData, 'arch'>[];
+      // Proposals get their own column to the right of the drawing, spaced far
+      // enough apart that five suggestions never pile into one unreadable stack.
+      const GHOST_SPACING = 190;
+      const baseX = existing.length
+        ? Math.max(...existing.map((n) => n.position.x)) + 300
+        : s.viewportCenter.x + 140;
+      const baseY = existing.length
+        ? Math.min(...existing.map((n) => n.position.y))
+        : s.viewportCenter.y - 100;
       const newNodes: AnyNode[] = [];
       const newEdges: Edge[] = [];
       suggestions.forEach((sg, i) => {
-        const anchor = anchorOf(sg.connect_from) ?? anchorOf(sg.connect_to) ?? existing[i % Math.max(1, existing.length)];
-        const base = anchor?.position ?? { x: 120, y: 120 };
         const id = uid('g');
         newNodes.push({
           id,
           type: 'arch',
-          position: { x: base.x + 220, y: base.y + 90 + i * 40 },
+          position: { x: baseX, y: baseY + i * GHOST_SPACING },
           data: {
             archType: sg.type,
             label: sg.label,
@@ -469,6 +485,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       edges: s.edges.map((e) =>
         e.source === id || e.target === id ? { ...e, style: undefined } : e,
       ),
+      aiAccepted: [...s.aiAccepted, id],
       dirty: true,
     })),
 
@@ -477,6 +494,57 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       edges: s.edges.filter((e) => e.source !== id && e.target !== id),
     })),
+
+  acceptAllGhosts: () =>
+    set((s) => {
+      const ids = s.nodes
+        .filter((n) => n.type === 'arch' && (n.data as ArchNodeData).ghost)
+        .map((n) => n.id);
+      if (ids.length === 0) return {};
+      const idSet = new Set(ids);
+      return {
+        past: [...s.past.slice(-49), snap(s)],
+        future: [],
+        nodes: s.nodes.map((n) => {
+          if (!idSet.has(n.id) || n.type !== 'arch') return n;
+          const { ghost: _ghost, ...rest } = n.data;
+          return { ...n, data: rest as ArchNodeData };
+        }) as AnyNode[],
+        edges: s.edges.map((e) =>
+          idSet.has(e.source) || idSet.has(e.target) ? { ...e, style: undefined } : e,
+        ),
+        aiAccepted: [...s.aiAccepted, ...ids],
+        dirty: true,
+      };
+    }),
+
+  rejectAllGhosts: () =>
+    set((s) => {
+      const idSet = new Set(
+        s.nodes.filter((n) => n.type === 'arch' && (n.data as ArchNodeData).ghost).map((n) => n.id),
+      );
+      if (idSet.size === 0) return {};
+      return {
+        nodes: s.nodes.filter((n) => !idSet.has(n.id)),
+        edges: s.edges.filter((e) => !idSet.has(e.source) && !idSet.has(e.target)),
+      };
+    }),
+
+  revertAiChanges: () =>
+    set((s) => {
+      const doomed = new Set(s.aiAccepted);
+      if (doomed.size === 0) return {};
+      return {
+        past: [...s.past.slice(-49), snap(s)],
+        future: [],
+        nodes: s.nodes.filter((n) => !doomed.has(n.id)),
+        edges: s.edges.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)),
+        flows: s.flows.map((f) => ({ ...f, steps: f.steps.filter((x) => !doomed.has(x)) })),
+        markup: s.markup.filter((m) => !doomed.has(m.nodeId)),
+        aiAccepted: [],
+        dirty: true,
+      };
+    }),
 
   setSimResult: (simResult, source = 'local') => set({ simResult, simSource: source }),
   setSimConfig: (patch) => set((s) => ({ simConfig: { ...s.simConfig, ...patch } })),

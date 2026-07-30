@@ -303,25 +303,57 @@ Review this design now. Output only the JSON object.`;
   return { system, user };
 }
 
-export function buildCritiquePrompt(problem: Problem, graph: GraphDSL, question: string): { system: string; user: string } {
-  const system = `You are a staff engineer sitting next to a learner at a whiteboard, looking at the design they
-have drawn. Answer their question directly and concretely, in at most 200 words, in the context of THIS design
-and THIS problem's numbers. Teach the trade-off, do not just give the answer. If their design has a flaw
-relevant to the question, say so plainly. Never invent components they did not draw when describing what they have.
+export function buildCritiquePrompt(
+  problem: Problem,
+  graph: GraphDSL,
+  question: string,
+  selectedNodeIds: string[] = [],
+): { system: string; user: string } {
+  const system = `You are a staff engineer coaching a learner at a whiteboard. The learner learns by DOING:
+your job is to sharpen their thinking, never to do the design for them. The moment you hand over the
+finished architecture, the exercise is dead — treat the full solution as something you are not allowed
+to reveal before they have submitted an attempt for review.
 
-You may also draw on their canvas. Reply with ONLY a JSON object:
+How you coach:
+- Answer only the question that was asked, in at most 120 words.
+- NEVER enumerate the target architecture or list the components the design needs — not for "what
+  should I build", not for an empty canvas, not for a greeting. Give the single most important gap or
+  the next question they should ask themselves, and stop.
+- Prefer naming the failure mode over naming the component. "What happens when two buyers reserve the
+  last seat at once?" teaches more than "add a lock manager".
+- If the sketch is empty, do not sketch it for them. Point them at where thinking starts for THIS
+  problem — usually the hardest number or the first flow — in 2-3 sentences.
+- If it is small talk ("hi", "hello"), reply in one friendly sentence and invite a real question.
+- Ground everything in what they actually drew and this problem's numbers. Never invent components
+  they did not draw when describing their design.
+
+You may also mark their canvas. Reply with ONLY a JSON object:
 {
-  "answer": "<your reply in markdown, <=200 words>",
+  "answer": "<your reply in markdown, <=120 words>",
   "canvas_markup": [{ "nodeId": "<a submitted node id>", "marker": "spof"|"missing"|"good"|"question"|"bottleneck", "comment": "<=90 chars" }],
   "suggested_additions": [{ "type": "<allowed node type>", "label": "...", "annotation": "...", "connect_from": "<node id or omit>", "connect_to": "<node id or omit>", "kind": "sync"|"async"|"replication", "why": "..." }]
 }
-Both arrays may be empty when the question is purely conceptual. Allowed node types: ${allowedNodeTypes()}`;
+Rules for the arrays:
+- canvas_markup: at most 3 pins, and only ones directly relevant to the question asked.
+- suggested_additions: at most ONE, and only when the learner EXPLICITLY asked what component to add
+  or what is missing. For any other question — and always on an empty canvas — it must be [].
+Allowed node types: ${allowedNodeTypes()}`;
+
+  const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const selected = selectedNodeIds
+    .map((id) => nodeById.get(id))
+    .filter((n): n is NonNullable<typeof n> => Boolean(n));
+  const selectionBlock = selected.length
+    ? `\n=== THE LEARNER IS POINTING AT ===\n${selected
+        .map((n) => `- ${n.label} [${n.id}] (${n.type})${n.annotation ? ` — "${n.annotation}"` : ''}`)
+        .join('\n')}\nRead the question as being about these components specifically; anchor markup to them.\n`
+    : '';
 
   const user = `${renderProblem(problem)}
 
 === THE DESIGN ON THE WHITEBOARD ===
 ${renderGraph(graph)}
-
+${selectionBlock}
 === THE LEARNER ASKS ===
 ${question}`;
 
