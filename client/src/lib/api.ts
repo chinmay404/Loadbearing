@@ -97,6 +97,10 @@ export const api = {
       body: JSON.stringify(doc),
     }),
 
-  exportAttempt: (attemptId: number) =>
-    req<{ ok: true; path: string }>(`/export/${attemptId}`, { method: 'POST' }),
+  exportAttempt: (attemptId: number, format: 'review' | 'adr' = 'review') =>
+    req<{ ok: true; path: string }>(`/export/${attemptId}?format=${format}`, { method: 'POST' }),
+  exportText: (attemptId: number, format: 'review' | 'adr' = 'adr') =>
+    req<{ format: string; text: string }>(`/export/${attemptId}/text?format=${format}`),
+  problemFromBrief: (body: { brief: string; level?: number }) =>
+    req<Problem>('/problems/from-brief', { method: 'POST', body: JSON.stringify(body) }),
 };

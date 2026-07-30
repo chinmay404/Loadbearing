@@ -35,15 +35,28 @@ pick a provider and paste a key (see below).
 5. **Submit for review.** The grader scores six dimensions (requirements, scalability, reliability,
    data & consistency, security, cost & simplicity — overengineering loses points too), names the
    concrete failures ("a client retry on POST /charge with no idempotency key charges twice"), finds
-   your SPOFs, reviews each flow, and asks Socratic questions before it will show you a model answer.
-   It also **draws on your canvas**: markers pinned to your components, plus ghost nodes you can
-   accept with one click.
+   your SPOFs, reviews each flow, keeps a three-row risk register, says what changes first at ten
+   times the load, and asks Socratic questions before it will show you a model answer. It also
+   **draws on your canvas**: markers pinned to your components, plus ghost nodes you can accept
+   with one click.
 6. **Take the twist.** A constraint changes — the payment provider's p99 jumps to 4s, traffic goes
    20×, a region dies — and you adapt the same diagram for round two, graded on the adaptation.
 7. **Watch mastery build.** Every review scores the concepts it saw; a per-concept exponential moving
    average feeds a radar and heatmap, and "Train my weakness" generates a fresh problem aimed at your
    three weakest concepts. Any attempt exports as a Markdown post-mortem (with a Mermaid diagram) into
    your Obsidian vault.
+
+## For work, not just practice
+
+- **Review a system you actually own.** Problem index → *Review my system*. Describe your production
+  service in a paragraph — traffic, data, constraints — and it becomes a sheet with a rubric built
+  from your own numbers. Draw what you really run, then have it argued with.
+- **ADRs.** Any review writes a full Architecture Decision Record: context and constraints, the
+  decision, alternatives weighed and why they lose, consequences per component, a risk table with
+  mitigations, and the at-10× note. Straight into your vault, or copied for a PR description.
+- **Take the diagram with you.** Copy as Mermaid for a README or PR, or download `.drawio` with
+  positions intact for people who do not have ArchDojo.
+- **Ctrl+K** to add any component by name — faster than hunting a palette of sixty.
 
 ## Bring your own model
 
@@ -61,6 +74,12 @@ Settings → **Grader model**. Two wire formats cover essentially everything:
 The key is stored in your local SQLite file and is never returned to the browser after saving. One
 review costs roughly 3–6k input tokens and up to 2k output — a fraction of a cent on most providers.
 The simulator, mastery tracking and design reference cost nothing.
+
+Prefer not to store a key at all? Environment variables win over anything saved in the app:
+
+```bash
+ARCHDOJO_PROVIDER=openai-compatible ARCHDOJO_BASE_URL=https://api.groq.com/openai/v1 ARCHDOJO_MODEL=llama-3.3-70b-versatile ARCHDOJO_API_KEY=your-key npm run dev
+```
 
 ## Design reference
 

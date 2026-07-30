@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { MasteryEntry, ProblemSummary } from '@archdojo/shared';
 import { api, ApiError } from '../lib/api';
 import { useApp } from '../state/appStore';
+import { IconPlus, IconTarget } from '../ui/UiIcons';
 
 const LEVEL_NAME: Record<number, string> = {
   1: 'Fundamentals',
@@ -21,6 +22,8 @@ export function ProblemBrowser() {
   const [level, setLevel] = useState<number | 'all'>('all');
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<Record<string, number>>({});
+  const [ownOpen, setOwnOpen] = useState(false);
+  const [brief, setBrief] = useState('');
 
   useEffect(() => {
     void (async () => {
@@ -78,26 +81,72 @@ export function ProblemBrowser() {
   const byLevel = [1, 2, 3, 4, 5, 6].map((l) => ({ l, items: shown.filter((p) => p.level === l) }));
 
   return (
-    <div className="dash">
-      <div className="row wrap" style={{ marginBottom: 14 }}>
+    <div className="sheet">
+      <div className="row wrap" style={{ alignItems: 'flex-end' }}>
         <div className="grow">
-          <h1 style={{ margin: 0 }}>Choose a problem</h1>
-          <p className="faint" style={{ margin: '3px 0 0', fontSize: 12.5 }}>
-            Draw the design, declare the flows, run load against it, then get graded. Levels climb from
-            single-service fundamentals to multi-region and AI systems.
+          <h1>Problem index</h1>
+          <p className="lede">
+            Draw the design, declare the flows, run load against it, then have it reviewed. Levels climb
+            from single-service fundamentals to multi-region, exactly-once billing and AI systems.
           </p>
         </div>
-        <button onClick={() => void generate(true)} disabled={busy === 'gen'}>
-          {busy === 'gen' ? <span className="spinner" /> : '🎯'} Train my weakness
-        </button>
-        <button onClick={() => void generate(false)} disabled={busy === 'gen'}>
-          + Generate problem
-        </button>
+        <div className="row" style={{ marginBottom: 16 }}>
+          <button onClick={() => void generate(true)} disabled={busy === 'gen'} title="Generate a problem aimed at your three weakest concepts">
+            {busy === 'gen' ? <span className="spinner" /> : <IconTarget size={15} />} Target my weak spots
+          </button>
+          <button onClick={() => void generate(false)} disabled={busy === 'gen'}>
+            <IconPlus size={15} /> New problem
+          </button>
+          <button className={ownOpen ? 'on' : ''} onClick={() => setOwnOpen(!ownOpen)} title="Have your own production system reviewed against its real numbers">
+            Review my system
+          </button>
+        </div>
       </div>
 
-      <div className="row wrap" style={{ marginBottom: 12, gap: 4 }}>
+      {ownOpen && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <h4>Review a system you actually own</h4>
+          <p className="muted" style={{ fontSize: 12.5 }}>
+            Describe it the way you would to a new teammate: what it does, roughly how much traffic and
+            data, and the constraints you are actually under. You will get a sheet with a rubric built
+            from your own numbers, then draw it and have it torn apart.
+          </p>
+          <textarea
+            rows={5}
+            value={brief}
+            onChange={(e) => setBrief(e.target.value)}
+            placeholder="Order service for a marketplace. ~900 writes/sec at peak, 40M orders in Postgres, p99 budget 250ms. Team of 5, no dedicated SRE, must stay PCI-compliant, single AWS region today. Payments go through Stripe; we retry failed charges from a cron."
+          />
+          <div className="row" style={{ marginTop: 7 }}>
+            <button
+              className="primary"
+              disabled={busy === 'own' || brief.trim().length < 40}
+              onClick={() =>
+                void (async () => {
+                  try {
+                    setBusy('own');
+                    const p = await api.problemFromBrief({ brief });
+                    setProblems(await api.problems());
+                    openProblem(p);
+                  } catch (e) {
+                    const err = e as ApiError;
+                    setError({ message: err.message, hint: err.hint });
+                  } finally {
+                    setBusy(null);
+                  }
+                })()
+              }
+            >
+              {busy === 'own' ? <span className="spinner" /> : null} Build the sheet
+            </button>
+            <span className="stencil">{brief.trim().length} characters</span>
+          </div>
+        </div>
+      )}
+
+      <div className="filter-row">
         <button className={level === 'all' ? 'on' : ''} onClick={() => setLevel('all')}>
-          All
+          All levels
         </button>
         {[1, 2, 3, 4, 5, 6].map((l) => (
           <button key={l} className={level === l ? 'on' : ''} onClick={() => setLevel(l)}>
@@ -108,11 +157,13 @@ export function ProblemBrowser() {
 
       {byLevel.map(({ l, items }) =>
         items.length === 0 ? null : (
-          <div key={l} style={{ marginBottom: 18 }}>
-            <h3 style={{ fontSize: 13, margin: '0 0 8px', color: 'var(--fg-dim)' }}>
-              <span className={`lvl l${l}`}>L{l}</span> {LEVEL_NAME[l]}
-            </h3>
-            <div className="dash-grid">
+          <div className="tier" key={l}>
+            <div className="tier-head">
+              <span className={`lvl l${l}`}>L{l}</span>
+              <h3>{LEVEL_NAME[l]}</h3>
+              <span className="count">{items.length} sheets</span>
+            </div>
+            <div className="index-grid">
               {items.map((p) => (
                 <ProblemCard
                   key={p.id}
@@ -128,7 +179,10 @@ export function ProblemBrowser() {
         ),
       )}
       {problems.length === 0 && (
-        <div className="banner info">Loading the problem bank… if this persists, the server is not running.</div>
+        <div className="banner info">
+          No problems loaded. The server on port 8787 is not answering — check the terminal running
+          <span className="mono"> npm run dev</span>.
+        </div>
       )}
     </div>
   );
@@ -148,22 +202,26 @@ function ProblemCard({
   onOpen: () => void;
 }) {
   return (
-    <button className="plist-item" onClick={onOpen} disabled={busy} style={{ padding: 12 }}>
-      <div className="t">
-        <span className={`lvl l${p.level}`}>L{p.level}</span>
-        <span className="grow">{p.title}</span>
-        {best !== undefined && (
-          <span className={`chip ${best >= 80 ? 'good' : best >= 60 ? 'warn' : 'bad'}`}>{best}</span>
-        )}
+    <button className="plate" onClick={onOpen} disabled={busy}>
+      {best !== undefined && (
+        <span
+          className={`best ${best >= 80 ? 'hi' : best >= 60 ? 'mid' : 'lo'}`}
+          title={`Your best score on this problem: ${best}/100`}
+        >
+          {best}
+        </span>
+      )}
+      <div className="t" style={{ paddingRight: best !== undefined ? 32 : 0 }}>
+        {p.title}
       </div>
       <div className="m">
         {p.domain}
         {p.custom ? ' · generated' : ''}
-        {weak > 0 ? ` · hits ${weak} weak concept${weak > 1 ? 's' : ''}` : ''}
+        {weak > 0 ? ` · ${weak} weak concept${weak > 1 ? 's' : ''}` : ''}
       </div>
-      <div className="row wrap" style={{ gap: 3, marginTop: 6 }}>
+      <div className="row wrap" style={{ gap: 3, marginTop: 7 }}>
         {p.concepts.slice(0, 5).map((c) => (
-          <span className="chip" key={c} style={{ fontSize: 10 }}>
+          <span className="chip" key={c}>
             {c}
           </span>
         ))}

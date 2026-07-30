@@ -1,6 +1,7 @@
 import type { NodeAttrs } from '@archdojo/shared';
 import { NODE_SPEC } from '../canvas/nodeCatalog';
 import { useCanvas, type ArchNodeData } from '../state/canvasStore';
+import { IconSkull } from '../ui/UiIcons';
 
 const FIELD_LABEL: Record<keyof NodeAttrs, string> = {
   capacityRps: 'Capacity (rps per replica)',
@@ -80,7 +81,7 @@ export function InspectorPanel() {
                         onChange={(e) => updateNodeAttrs(n.id, { multiAz: e.target.checked })}
                         style={{ width: 'auto' }}
                       />
-                      <span style={{ fontSize: 12, color: 'var(--fg-dim)' }}>{FIELD_LABEL[field]}</span>
+                      <span style={{ fontSize: 12, color: 'var(--graphite)' }}>{FIELD_LABEL[field]}</span>
                     </label>
                   );
                 }
@@ -107,12 +108,12 @@ export function InspectorPanel() {
                     if (!r) return null;
                     return (
                       <>
-                        <span className={`chip ${r.state === 'ok' ? 'good' : r.state === 'warn' ? 'warn' : 'bad'}`}>
+                        <span className={`chip ${r.state === 'ok' ? 'pass' : r.state === 'warn' ? 'load' : 'fail'}`}>
                           {r.state}
                         </span>
                         <span className="chip">{Math.round(r.incomingRps)} rps in</span>
                         <span className="chip">{Math.round(r.latencyMs)}ms</span>
-                        {r.queueDepth > 0 && <span className="chip warn">queue {Math.round(r.queueDepth)}</span>}
+                        {r.queueDepth > 0 && <span className="chip load">queue {Math.round(r.queueDepth)}</span>}
                       </>
                     );
                   })()}
@@ -136,11 +137,11 @@ export function InspectorPanel() {
               return (
                 <button
                   key={n.id}
-                  className={dead ? 'on' : ''}
-                  style={dead ? { borderColor: 'var(--bad)', color: 'var(--bad)', background: '#2a1616' } : {}}
+                  className={dead ? 'danger on' : ''}
                   onClick={() => toggleKill(n.id)}
+                  title={dead ? 'Bring this component back online' : 'Take this component offline'}
                 >
-                  {dead ? '☠ ' : ''}
+                  {dead ? <IconSkull size={13} /> : null}
                   {data.label}
                 </button>
               );

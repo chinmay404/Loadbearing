@@ -44,6 +44,9 @@ export function hintForStatus(status: number): string {
   if (status === 404) {
     return 'Endpoint or model not found — check the base URL (it usually ends in /v1) and the model name.';
   }
+  if (status === 413) {
+    return 'The request was larger than this model or tier allows — pick a model with a bigger token-per-minute allowance, or trim the design before submitting.';
+  }
   if (status === 429) {
     return 'Rate limited — wait a moment, lower the request size, or switch provider.';
   }

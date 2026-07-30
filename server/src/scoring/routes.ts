@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { simulate } from '@archdojo/shared';
+import { normalizeScore, simulate } from '@archdojo/shared';
 import type { Attempt, GraphDSL, ScoreResult, SimConfig } from '@archdojo/shared';
 import { db, upsertMastery } from '../db.js';
 import { completeJson } from '../llm/adapter.js';
@@ -26,7 +26,7 @@ const rowToAttempt = (r: AttemptRow): Attempt => ({
   problemId: r.problem_id,
   round: r.round,
   graph: JSON.parse(r.graph_json) as GraphDSL,
-  score: JSON.parse(r.score_json) as ScoreResult,
+  score: normalizeScore(JSON.parse(r.score_json) as Partial<ScoreResult>),
   overall: r.overall,
   ...(r.twist_text ? { twistText: r.twist_text } : {}),
   createdAt: r.created_at,

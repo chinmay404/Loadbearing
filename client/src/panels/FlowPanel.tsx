@@ -114,7 +114,7 @@ export function FlowPanel() {
             <div className="row wrap" style={{ gap: 4, marginBottom: 6 }}>
               {flow.steps.length === 0 && <span className="faint" style={{ fontSize: 11.5 }}>no steps yet →</span>}
               {flow.steps.map((s, i) => (
-                <span className="chip accent" key={`${s}-${i}`}>
+                <span className="chip spec" key={`${s}-${i}`}>
                   {i + 1}. {labelOf(s)}
                   <button
                     className="ghost"
@@ -150,7 +150,7 @@ export function FlowPanel() {
                   <span className="chip">
                     {Math.round(result.completedRps)}/{Math.round(result.offeredRps)} rps
                   </span>
-                  <span className="chip info">p99 {Math.round(result.p99Ms)}ms</span>
+                  <span className="chip spec">p99 {Math.round(result.p99Ms)}ms</span>
                 </div>
                 {result.notes.length > 0 && (
                   <ul className="list-reset faint" style={{ fontSize: 11.5, marginTop: 5 }}>

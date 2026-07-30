@@ -68,25 +68,48 @@ const OUTPUT_CONTRACT = `Reply with ONLY a JSON object, no prose and no code fen
   "flow_reviews": [
     { "flowName": "<declared or expected flow name>", "verdict": "sound" | "flawed" | "missing",
       "issues": ["<what goes wrong at which step>"] }
-  ]
+  ],
+  "decision_summary": "<one sentence naming the architectural decision this design represents, in ADR voice: 'Serve the catalog read path from a cache-aside Redis layer in front of a single Postgres primary.'>",
+  "alternatives": [
+    { "option": "<a design a reviewer would have weighed>", "why_not": "<why it loses under THESE constraints>" }
+  ],
+  "risks": [
+    { "risk": "<the risk>", "likelihood": "high" | "medium" | "low",
+      "impact": "<what the user or the business feels>", "mitigation": "<the concrete next step>" }
+  ],
+  "at_10x": "<3-5 sentences: what breaks or has to change FIRST at ten times the traffic, ten times the data, and ten times the team — in that order of likelihood, with the numbers>"
 }
 
 Rules for the fields:
+- dimensions: all six keys are required. Never omit one — if you have little evidence for a dimension,
+  score it and say in the notes what evidence was missing.
 - concept_scores: score EVERY concept id listed in "Rubric concepts" for this problem, plus any other
   taxonomy concept the design clearly demonstrated or clearly botched. Use the taxonomy ids verbatim.
 - canvas_markup: 3-8 entries, each nodeId MUST be one of the submitted node ids. This is drawn on the
   learner's own diagram, so keep comments under ~90 characters.
 - suggested_additions: 1-5 components they should add. connect_from/connect_to MUST be submitted node ids.
 - flow_reviews: one entry per expected flow, plus any extra flow the learner declared.
-- critical_failures: only real, reachable failures. Empty array is allowed for an excellent design.`;
+- critical_failures: only real, reachable failures. Empty array is allowed for an excellent design.
+- risks: exactly three, ordered most serious first. These go straight into an Architecture Decision
+  Record, so write them the way a staff engineer writes them for a team that will read this in a year.
+- alternatives: 2-3 entries. Name the real fork in the road, not a straw man.`;
 
+/**
+ * The rubric concepts get their full card — summary and the red flag to hunt for.
+ * Everything else is just an id, so the grader can still score a concept it spots
+ * without us paying for 45 descriptions it does not need. Keeping this lean is what
+ * lets small free-tier models run a review at all.
+ */
 function conceptTaxonomyBlock(ids: string[]): string {
   const wanted = new Set(ids);
-  const lines = CONCEPT_CARDS.map((c) => {
-    const star = wanted.has(c.id) ? '* ' : '  ';
-    return `${star}${c.id} — ${c.name}: ${c.summary} Red flag: ${c.redFlags}`;
-  });
-  return lines.join('\n');
+  const focused = CONCEPT_CARDS.filter((c) => wanted.has(c.id)).map(
+    (c) => `* ${c.id} — ${c.name}: ${c.summary} Red flag: ${c.redFlags}`,
+  );
+  const rest = CONCEPT_CARDS.filter((c) => !wanted.has(c.id)).map((c) => c.id);
+  return `${focused.join('\n')}
+
+Other valid concept ids (use them if the design demonstrates or botches one, no description needed):
+${rest.join(', ')}`;
 }
 
 function allowedNodeTypes(): string {
@@ -285,6 +308,7 @@ ${question}`;
 }
 
 export function buildProblemGenPrompt(level: number, concepts: string[]): { system: string; user: string } {
+  const conceptIds = CONCEPT_CARDS.map((c) => c.id).join(', ');
   const system = `You author system-design interview problems for an architecture training app. Problems must be
 realistic, numerically concrete, and solvable in a 30-minute whiteboard session. Difficulty scale:
 1 = single-service fundamentals, 3 = reliability and correctness under retries, 5 = distributed hard mode
@@ -311,7 +335,7 @@ Reply with ONLY a JSON object:
   ]
 }
 Use only these concept ids:
-${CONCEPT_CARDS.map((c) => c.id).join(', ')}`;
+${conceptIds}`;
 
   const user = `Write one level-${level} problem that forces the learner to demonstrate these concepts they are weak on:
 ${concepts.join(', ')}

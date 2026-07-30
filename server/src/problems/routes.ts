@@ -91,6 +91,50 @@ problemRoutes.post('/problems/generate', async (c) => {
   return c.json(stored);
 });
 
+/**
+ * Turn a system you actually own into a reviewable sheet. Paste the brief — what it
+ * does, the traffic, the constraints — and the model shapes it into a problem with a
+ * rubric, so the review that follows judges YOUR system against YOUR numbers.
+ */
+problemRoutes.post('/problems/from-brief', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { brief?: string; level?: number };
+  const brief = String(body.brief ?? '').trim();
+  if (brief.length < 40) {
+    return c.json(
+      {
+        error: {
+          code: 'bad_request',
+          message: 'Describe the system in a few sentences first.',
+          hint: 'What does it do, roughly how much traffic and data, and what are the hard constraints?',
+        },
+      },
+      400,
+    );
+  }
+
+  const level = Math.max(1, Math.min(6, Math.round(body.level ?? 4)));
+  const { system } = buildProblemGenPrompt(level, []);
+  const user = `A senior engineer wants their OWN system reviewed. Turn this description into a problem
+sheet, preserving every fact they gave — do not invent a different system. Where they left a number
+unstated, infer a plausible one and keep it modest. The rubric concepts must be the ones this system's
+correctness actually depends on. Set "domain" from their description and make the title name their system.
+
+Their description:
+"""
+${brief}
+"""`;
+
+  const raw = await completeJson<unknown>(loadLlmConfig(db()), system, user, {
+    maxTokens: 4000,
+    temperature: 0.4,
+  });
+  const problem = validateProblem(raw);
+  const id = findProblem(problem.id) ? `${problem.id}-${Date.now().toString(36)}` : problem.id;
+  const stored: Problem = { ...problem, id, custom: true };
+  db().prepare('INSERT INTO problems_custom (id, json) VALUES (?, ?)').run(stored.id, JSON.stringify(stored));
+  return c.json(stored);
+});
+
 problemRoutes.delete('/problems/:id', (c) => {
   const id = c.req.param('id');
   db().prepare('DELETE FROM problems_custom WHERE id = ?').run(id);

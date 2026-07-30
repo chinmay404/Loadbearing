@@ -151,7 +151,7 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
 
       {data.ghost && (
         <>
-          <div className="annot" style={{ color: 'var(--accent-2)' }}>
+          <div className="annot" style={{ color: 'var(--violet)' }}>
             AI suggests: {data.ghost.why}
           </div>
           <div className="ghost-actions">

@@ -29,17 +29,40 @@ export interface SaveLlmInput {
   apiKey?: string;
 }
 
-/** Full config for the adapter. `FAKE_LLM=1` short-circuits everything (offline dev, CI). */
+/**
+ * Full config for the adapter. Resolution order, most specific first:
+ *   1. `FAKE_LLM=1` — offline stub, for dev and CI.
+ *   2. `ARCHDOJO_API_KEY` (+ optional PROVIDER / MODEL / BASE_URL) — env wins, so a
+ *      key can be supplied per-run and never touch the database or a backup.
+ *   3. the settings table, written from the UI.
+ */
 export function loadLlmConfig(db: Db): LlmConfig {
   if (process.env.FAKE_LLM === '1') {
     return { provider: 'fake', model: 'fake', apiKey: '' };
   }
-  return {
+
+  const stored: LlmConfig = {
     provider: readProvider(db),
     baseUrl: getSetting(db, KEY.baseUrl) ?? DEFAULTS.baseUrl,
     model: getSetting(db, KEY.model) ?? DEFAULTS.model,
     apiKey: getSetting(db, KEY.apiKey) ?? DEFAULTS.apiKey,
   };
+
+  const envKey = process.env.ARCHDOJO_API_KEY;
+  if (!envKey) return stored;
+
+  const envProvider = process.env.ARCHDOJO_PROVIDER;
+  return {
+    provider: PROVIDERS.includes(envProvider as LlmProvider) ? (envProvider as LlmProvider) : stored.provider,
+    baseUrl: process.env.ARCHDOJO_BASE_URL ?? stored.baseUrl,
+    model: process.env.ARCHDOJO_MODEL ?? stored.model,
+    apiKey: envKey,
+  };
+}
+
+/** True when a key is coming from the environment rather than the database. */
+export function keyFromEnv(): boolean {
+  return Boolean(process.env.ARCHDOJO_API_KEY);
 }
 
 export function saveLlmConfig(db: Db, input: SaveLlmInput): void {

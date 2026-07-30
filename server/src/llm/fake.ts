@@ -44,6 +44,24 @@ const FAKE_SCORE = {
   canvas_markup: [],
   suggested_additions: [],
   flow_reviews: [],
+  decision_summary:
+    'Offline stub — no decision was assessed. Configure a grader model in Settings to get a real ADR-quality summary.',
+  alternatives: [
+    {
+      option: 'A real grader model',
+      why_not: 'Nothing rejected it — it simply is not configured yet. Open Settings.',
+    },
+  ],
+  risks: [
+    {
+      risk: 'The design has not actually been reviewed',
+      likelihood: 'high',
+      impact: 'Placeholder scores teach nothing and hide real failure modes.',
+      mitigation: 'Open Settings and point ArchDojo at Anthropic, Groq, DeepSeek, OpenAI or a local Ollama.',
+    },
+  ],
+  at_10x:
+    'The offline stub cannot reason about growth. A real review names what saturates first at ten times the traffic, what the data volume does to your query plans and backups, and which boundaries a bigger team would need in order to ship without stepping on each other.',
 };
 
 const FAKE_CRITIQUE = {

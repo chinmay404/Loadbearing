@@ -51,7 +51,7 @@ export function HistoryPanel() {
             <span className="chip">{a.graph.edges.length} links</span>
             <span className="chip">{a.graph.flows.length} flows</span>
             {a.score.critical_failures.length > 0 && (
-              <span className="chip bad">{a.score.critical_failures.length} failures</span>
+              <span className="chip fail">{a.score.critical_failures.length} failures</span>
             )}
           </div>
         </div>

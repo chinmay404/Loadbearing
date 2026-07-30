@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef } from 'react';
 import { simulate } from '@archdojo/shared';
 import { useCanvas } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
+import { IconPlay, IconStop } from '../ui/UiIcons';
 
 /**
- * The live load HUD. The simulation runs locally on every change, so dragging
- * the load slider re-colours the diagram in real time — no server, no tokens.
+ * The load instrument. The capacity model runs locally on every change, so
+ * dragging the load dial re-colours the drawing live — no server, no tokens.
  */
 export function SimHud() {
   const running = useCanvas((s) => s.simRunning);
@@ -42,15 +43,11 @@ export function SimHud() {
   if (!running) {
     return (
       <div className="toolbar" style={{ left: 'auto', right: 12, top: 10, transform: 'none' }}>
-        <button
-          onClick={() => setRunning(true)}
-          title="Push synthetic load through your declared flows"
-          disabled={flows.length === 0}
-        >
-          ▶ Run load
+        <button onClick={() => setRunning(true)} disabled={flows.length === 0} title="Push synthetic traffic down your declared flows">
+          <IconPlay size={13} /> Run load
         </button>
         {flows.length === 0 && (
-          <span className="faint" style={{ fontSize: 11, alignSelf: 'center', padding: '0 6px' }}>
+          <span className="stencil" style={{ alignSelf: 'center', padding: '0 6px' }}>
             declare a flow first
           </span>
         )}
@@ -62,15 +59,18 @@ export function SimHud() {
     (acc, f) => (acc === null || f.p99Ms > acc.p99Ms ? f : acc),
     null as (typeof result.flows)[number] | null,
   );
+  const brokenFlows = result?.flows.filter((f) => f.broken) ?? [];
 
   return (
-    <div className="sim-hud">
-      <div className="row wrap">
+    <div className="instrument">
+      <div className="strip">
         <button className="on" onClick={() => setRunning(false)} title="Stop the simulation">
-          ■ Stop
+          <IconStop size={13} /> Stop
         </button>
-        <div className="row" style={{ gap: 6 }}>
-          <span className="faint mono">load ×{config.rpsMultiplier}</span>
+
+        <div className="readout">
+          <span className="stencil">load</span>
+          <b>×{config.rpsMultiplier}</b>
           <input
             type="range"
             min={1}
@@ -78,10 +78,13 @@ export function SimHud() {
             step={1}
             value={config.rpsMultiplier}
             onChange={(e) => setConfig({ rpsMultiplier: Number(e.target.value) })}
+            aria-label="Load multiplier"
           />
         </div>
-        <div className="row" style={{ gap: 6 }}>
-          <span className="faint mono">3rd-party +{config.thirdPartyLatencyMs}ms</span>
+
+        <div className="readout">
+          <span className="stencil">3rd-party</span>
+          <b>+{config.thirdPartyLatencyMs}ms</b>
           <input
             type="range"
             min={0}
@@ -89,27 +92,41 @@ export function SimHud() {
             step={100}
             value={config.thirdPartyLatencyMs}
             onChange={(e) => setConfig({ thirdPartyLatencyMs: Number(e.target.value) })}
-            style={{ width: 110 }}
+            style={{ width: 96 }}
+            aria-label="Extra third-party latency"
           />
         </div>
+
         {result && (
           <>
-            <span className={`chip ${result.totalDroppedRps > 0 ? 'bad' : 'good'}`}>
-              {result.totalDroppedRps > 0
-                ? `dropping ${Math.round(result.totalDroppedRps)} rps`
-                : 'no drops'}
-            </span>
-            {worst && <span className="chip info">worst p99 {Math.round(worst.p99Ms)}ms</span>}
-            <span className="chip">~${Math.round(result.monthlyCost)}/mo</span>
+            <div className="readout">
+              <span className="stencil">dropped</span>
+              <b style={{ color: result.totalDroppedRps > 0 ? 'var(--fail)' : 'var(--pass)' }}>
+                {Math.round(result.totalDroppedRps)} rps
+              </b>
+            </div>
+            {worst && (
+              <div className="readout">
+                <span className="stencil">worst p99</span>
+                <b style={{ color: worst.p99Ms > 1000 ? 'var(--load)' : undefined }}>{Math.round(worst.p99Ms)}ms</b>
+              </div>
+            )}
+            <div className="readout">
+              <span className="stencil">cost</span>
+              <b>${Math.round(result.monthlyCost)}/mo</b>
+            </div>
           </>
         )}
+
         <span className="grow" />
+
         {problem && problem.scenarios.length > 0 && (
-          <div className="row" style={{ gap: 4 }}>
+          <div className="row" style={{ gap: 3 }}>
+            <span className="stencil">scenarios</span>
             {problem.scenarios.map((sc) => (
               <button
                 key={sc.id}
-                title={`${sc.description}\n\nPass: ${sc.passCriteria}`}
+                title={`${sc.description}\n\nPasses when: ${sc.passCriteria}`}
                 onClick={() => {
                   const graph = toGraph();
                   const kills = (sc.killNodes ?? []).flatMap((needle) =>
@@ -132,8 +149,8 @@ export function SimHud() {
               </button>
             ))}
             {config.killNodeIds.length > 0 && (
-              <button onClick={() => setConfig({ killNodeIds: [] })} title="Revive all killed components">
-                revive {config.killNodeIds.length}
+              <button onClick={() => setConfig({ killNodeIds: [] })} title="Bring every killed component back online">
+                Revive {config.killNodeIds.length}
               </button>
             )}
           </div>
@@ -141,23 +158,21 @@ export function SimHud() {
       </div>
 
       {result && (
-        <>
-          <div className="verdict">{result.verdict}</div>
-          {result.flows.some((f) => f.broken) && (
-            <div className="row wrap" style={{ marginTop: 5, gap: 5 }}>
-              {result.flows
-                .filter((f) => f.broken)
-                .map((f) => (
-                  <span className="chip bad" key={f.flowId}>
-                    {f.name} breaks at {f.brokenAt}
-                  </span>
-                ))}
+        <div className="verdict">
+          {result.verdict}
+          {brokenFlows.length > 0 && (
+            <div className="row wrap" style={{ marginTop: 5, gap: 4 }}>
+              {brokenFlows.map((f) => (
+                <span className="chip fail" key={f.flowId}>
+                  {f.name} stops at {f.brokenAt}
+                </span>
+              ))}
             </div>
           )}
           {result.findings.length > 0 && (
-            <details className="disclose" style={{ marginTop: 4 }}>
+            <details className="disclose" style={{ marginTop: 0 }}>
               <summary>{result.findings.length} findings from the capacity model</summary>
-              <ul className="list-reset" style={{ fontSize: 12, marginTop: 4 }}>
+              <ul className="list-reset" style={{ fontSize: 12, marginTop: 3 }}>
                 {result.findings.map((f, i) => (
                   <li key={i} className="muted">
                     {f}
@@ -166,11 +181,7 @@ export function SimHud() {
               </ul>
             </details>
           )}
-          <p className="faint" style={{ fontSize: 11, margin: '5px 0 0' }}>
-            Tip: click a component in the Inspector's kill list to take it offline and watch the flows
-            re-route — or fail.
-          </p>
-        </>
+        </div>
       )}
     </div>
   );

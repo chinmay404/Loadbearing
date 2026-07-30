@@ -8,6 +8,9 @@ export class ScoreShapeError extends Error {
   }
 }
 
+/** Sentinel the client renders as "not assessed" rather than a zero. */
+export const NOT_ASSESSED = 'Not assessed — the grader omitted this dimension.';
+
 const CONCEPT_SET = new Set<string>(CONCEPTS);
 const NODE_TYPE_SET = new Set<string>(ARCH_NODE_TYPES);
 const MARKERS = new Set(['spof', 'missing', 'good', 'question', 'bottleneck']);
@@ -36,22 +39,25 @@ export function validateScore(raw: unknown, graph: GraphDSL): ScoreResult {
 
   const rawDims = (o.dimensions ?? {}) as Record<string, { score?: unknown; max?: unknown; notes?: unknown }>;
   const dimensions = {} as ScoreResult['dimensions'];
+  const assessed: number[] = [];
   for (const key of DIMENSION_KEYS) {
     const d = rawDims[key];
     if (!d || typeof d !== 'object') {
+      // Smaller models sometimes drop a dimension. Say so plainly rather than
+      // scoring it zero — an omission is not a failing grade.
       problems.push(`missing dimension "${key}"`);
-      dimensions[key] = { score: 0, max: 10, notes: 'The grader did not return this dimension.' };
+      dimensions[key] = { score: 0, max: 0, notes: NOT_ASSESSED };
       continue;
     }
-    dimensions[key] = {
-      score: num(d.score, 0, 10, 0),
-      max: 10,
-      notes: str(d.notes, ''),
-    };
+    const score = num(d.score, 0, 10, 0);
+    dimensions[key] = { score, max: 10, notes: str(d.notes, '') };
+    assessed.push(score);
   }
-  if (problems.length === DIMENSION_KEYS.length) throw new ScoreShapeError(problems);
+  if (assessed.length === 0) throw new ScoreShapeError(problems);
 
-  const avg = DIMENSION_KEYS.reduce((s, k) => s + dimensions[k].score, 0) / DIMENSION_KEYS.length;
+  // Derive the overall from what was actually assessed, so a dropped dimension
+  // does not silently cost the learner sixteen points.
+  const avg = assessed.reduce((s, x) => s + x, 0) / assessed.length;
   const overall = num(o.overall, 0, 100, Math.round(avg * 10));
 
   const nodeIds = new Set(graph.nodes.map((n) => n.id));
@@ -120,10 +126,31 @@ export function validateScore(raw: unknown, graph: GraphDSL): ScoreResult {
     }))
     .filter((t) => t.component.trim() !== '');
 
+  const risks = (Array.isArray(o.risks) ? o.risks : [])
+    .filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null)
+    .map((r) => ({
+      risk: str(r.risk),
+      likelihood: (['high', 'medium', 'low'] as const).includes(r.likelihood as 'high')
+        ? (r.likelihood as 'high' | 'medium' | 'low')
+        : 'medium',
+      impact: str(r.impact),
+      mitigation: str(r.mitigation),
+    }))
+    .filter((r) => r.risk.trim() !== '');
+
+  const alternatives = (Array.isArray(o.alternatives) ? o.alternatives : [])
+    .filter((a): a is Record<string, unknown> => typeof a === 'object' && a !== null)
+    .map((a) => ({ option: str(a.option), why_not: str(a.why_not) }))
+    .filter((a) => a.option.trim() !== '');
+
   return {
     overall: Math.round(overall),
     dimensions,
     critical_failures,
+    risks,
+    alternatives,
+    at_10x: str(o.at_10x),
+    decision_summary: str(o.decision_summary),
     spofs: strArray(o.spofs),
     missing: strArray(o.missing),
     good_calls: strArray(o.good_calls),

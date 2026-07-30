@@ -8,19 +8,39 @@ export const ARCH_NODE_TYPES = [
   'cdn',
   'dns',
   'load_balancer',
+  'waf',
+  'reverse_proxy',
   'api_gateway',
+  'bff',
+  'graphql_gateway',
+  'service_mesh',
   'service',
   'monolith',
   'serverless_fn',
+  'edge_function',
+  'container_platform',
+  'vm',
+  'batch_job',
   'cache',
   'sql_db',
+  'read_replica',
   'nosql_db',
   'blob_store',
   'search_index',
+  'data_warehouse',
+  'olap_db',
+  'timeseries_db',
+  'graph_db',
+  'data_lake',
+  'cdc_connector',
   'queue',
   'stream',
+  'event_bus',
+  'dead_letter_queue',
   'worker',
   'scheduler',
+  'workflow_engine',
+  'saga_orchestrator',
   'rate_limiter',
   'websocket_gw',
   'third_party',
@@ -28,8 +48,20 @@ export const ARCH_NODE_TYPES = [
   'vector_db',
   'embedding_svc',
   'eval_gate',
+  'model_router',
+  'prompt_cache',
+  'guardrail',
+  'reranker',
+  'agent_runtime',
+  'feature_store',
+  'iam',
+  'kms',
+  'audit_log',
   'observability',
   'auth',
+  'feature_flags',
+  'secrets_manager',
+  'ci_cd',
   'group',
 ] as const;
 
@@ -201,6 +233,14 @@ export interface FlowReview {
   issues: string[];
 }
 
+/** A risk worth writing down, in the form an ADR records it. */
+export interface Risk {
+  risk: string;
+  likelihood: 'high' | 'medium' | 'low';
+  impact: string;
+  mitigation: string;
+}
+
 export interface ScoreResult {
   overall: number;
   dimensions: Record<DimensionKey, Dimension>;
@@ -215,6 +255,44 @@ export interface ScoreResult {
   canvas_markup: CanvasMarkup[];
   suggested_additions: SuggestedAddition[];
   flow_reviews: FlowReview[];
+  /** The three risks a reviewer would put in the ADR. */
+  risks: Risk[];
+  /** What breaks or has to change first at ten times the load, data or team size. */
+  at_10x: string;
+  /** One-line statement of the architectural decision, for the ADR title. */
+  decision_summary: string;
+  /** Alternatives a reviewer would have weighed, and why they lose here. */
+  alternatives: { option: string; why_not: string }[];
+}
+
+/**
+ * Fills in fields that attempts stored by older versions do not carry, so a saved
+ * review from last week still renders instead of throwing on a missing array.
+ */
+export function normalizeScore(raw: Partial<ScoreResult> | null | undefined): ScoreResult {
+  const s = (raw ?? {}) as Partial<ScoreResult>;
+  const blankDims = Object.fromEntries(
+    DIMENSION_KEYS.map((k) => [k, { score: 0, max: 10, notes: '' }]),
+  ) as Record<DimensionKey, Dimension>;
+  return {
+    overall: typeof s.overall === 'number' ? s.overall : 0,
+    dimensions: { ...blankDims, ...(s.dimensions ?? {}) },
+    critical_failures: s.critical_failures ?? [],
+    spofs: s.spofs ?? [],
+    missing: s.missing ?? [],
+    good_calls: s.good_calls ?? [],
+    socratic_questions: s.socratic_questions ?? [],
+    concept_scores: s.concept_scores ?? {},
+    model_answer_summary: s.model_answer_summary ?? '',
+    verdict_teaching: s.verdict_teaching ?? [],
+    canvas_markup: s.canvas_markup ?? [],
+    suggested_additions: s.suggested_additions ?? [],
+    flow_reviews: s.flow_reviews ?? [],
+    risks: s.risks ?? [],
+    at_10x: s.at_10x ?? '',
+    decision_summary: s.decision_summary ?? '',
+    alternatives: s.alternatives ?? [],
+  };
 }
 
 export interface Attempt {

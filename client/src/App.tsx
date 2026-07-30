@@ -14,13 +14,22 @@ import { ProblemBrowser } from './panels/ProblemBrowser';
 import { Dashboard } from './panels/Dashboard';
 import { ReferencePanel } from './panels/ReferencePanel';
 import { SettingsPanel } from './panels/SettingsPanel';
+import { ErrorBoundary } from './ui/ErrorBoundary';
+import {
+  IconBack,
+  IconDrafting,
+  IconGauge,
+  IconInstrument,
+  IconManual,
+  IconSheets,
+} from './ui/UiIcons';
 
-const RAIL: { view: View; glyph: string; title: string }[] = [
-  { view: 'problems', glyph: '◆', title: 'Problems' },
-  { view: 'workspace', glyph: '✎', title: 'Whiteboard' },
-  { view: 'dashboard', glyph: '◔', title: 'Progress' },
-  { view: 'reference', glyph: '📖', title: 'Design reference' },
-  { view: 'settings', glyph: '⚙', title: 'Grader model' },
+const RAIL: { view: View; Icon: (p: { size?: number }) => JSX.Element; title: string }[] = [
+  { view: 'problems', Icon: IconSheets, title: 'Problems' },
+  { view: 'workspace', Icon: IconDrafting, title: 'Drawing board' },
+  { view: 'dashboard', Icon: IconGauge, title: 'Progress' },
+  { view: 'reference', Icon: IconManual, title: 'Design reference' },
+  { view: 'settings', Icon: IconInstrument, title: 'Grader model' },
 ];
 
 export function App() {
@@ -51,25 +60,28 @@ export function App() {
   return (
     <div className="shell">
       <nav className="rail">
-        <div className="logo" title="ArchDojo">
+        <div className="mark" title="ArchDojo">
           AD
         </div>
-        {RAIL.map((r) => (
+        {RAIL.map(({ view: v, Icon, title }) => (
           <button
-            key={r.view}
-            className={view === r.view ? 'active' : ''}
-            title={r.title}
-            disabled={r.view === 'workspace' && !problem}
-            onClick={() => setView(r.view)}
+            key={v}
+            className={view === v ? 'active' : ''}
+            title={title}
+            aria-label={title}
+            disabled={v === 'workspace' && !problem}
+            onClick={() => setView(v)}
           >
-            {r.glyph}
+            <Icon size={18} />
           </button>
         ))}
         <span className="spacer" />
         <span
-          className={`dot ${serverUp ? 'up' : ''}`}
-          title={serverUp ? 'Server connected' : 'Server unreachable on port 8787'}
-        />
+          className={`link-state ${serverUp ? 'up' : ''}`}
+          title={serverUp ? 'Server connected on port 8787' : 'Server unreachable on port 8787'}
+        >
+          {serverUp ? 'linked' : 'no link'}
+        </span>
       </nav>
 
       <main className="main">
@@ -79,7 +91,7 @@ export function App() {
               <div className="banner error" onClick={() => setError(null)} style={{ cursor: 'pointer' }}>
                 <strong>{error.message}</strong>
                 {error.hint ? <div style={{ fontSize: 12, marginTop: 3 }}>{error.hint}</div> : null}
-                <div className="faint" style={{ fontSize: 10.5, marginTop: 3 }}>
+                <div className="stencil" style={{ marginTop: 4 }}>
                   click to dismiss
                 </div>
               </div>
@@ -205,18 +217,21 @@ function Workspace() {
           ))}
         </div>
         <div className="pane-body">
-          {leftTab === 'brief' && <BriefPanel />}
-          {leftTab === 'palette' && <Palette />}
-          {leftTab === 'flows' && <FlowPanel />}
-          {leftTab === 'inspect' && <InspectorPanel />}
+          <ErrorBoundary area={leftTab}>
+            {leftTab === 'brief' && <BriefPanel />}
+            {leftTab === 'palette' && <Palette />}
+            {leftTab === 'flows' && <FlowPanel />}
+            {leftTab === 'inspect' && <InspectorPanel />}
+          </ErrorBoundary>
         </div>
-        <div className="pane-head" style={{ borderTop: '1px solid var(--line)', borderBottom: 'none' }}>
+        <div className="pane-foot">
           <button className="ghost" onClick={() => setView('problems')} title="Back to the problem list">
-            ← Problems
+            <IconBack size={15} /> Problems
           </button>
           <span className="grow" />
           <button className="primary" onClick={() => void submit()} disabled={submitting || nodeCount === 0}>
-            {submitting ? <span className="spinner" /> : null} Submit for review
+            {submitting ? <span className="spinner" /> : null}
+            {submitting ? 'Reviewing' : 'Submit for review'}
           </button>
         </div>
       </aside>
@@ -234,9 +249,11 @@ function Workspace() {
           ))}
         </div>
         <div className="pane-body">
-          {rightTab === 'feedback' && <FeedbackPanel />}
-          {rightTab === 'ask' && <AskPanel />}
-          {rightTab === 'history' && <HistoryPanel />}
+          <ErrorBoundary area={rightTab === 'feedback' ? 'review' : rightTab}>
+            {rightTab === 'feedback' && <FeedbackPanel />}
+            {rightTab === 'ask' && <AskPanel />}
+            {rightTab === 'history' && <HistoryPanel />}
+          </ErrorBoundary>
         </div>
       </aside>
     </div>

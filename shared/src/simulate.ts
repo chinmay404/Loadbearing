@@ -41,28 +41,64 @@ export const DEFAULT_CAPACITY: Record<ArchNodeType, number> = {
   rate_limiter: 40_000,
   observability: 50_000,
   websocket_gw: 10_000,
+  waf: 40_000,
+  reverse_proxy: 40_000,
+  service_mesh: 30_000,
   // Caches and pipes.
   cache: 80_000,
   queue: 20_000,
   stream: 30_000,
+  event_bus: 25_000,
+  dead_letter_queue: 20_000,
+  prompt_cache: 50_000,
+  feature_flags: 50_000,
   // Compute: this is where real designs actually run out of room.
   service: 500,
   monolith: 800,
   serverless_fn: 1_000,
+  edge_function: 5_000,
+  vm: 300,
   worker: 300,
   scheduler: 1_000,
   auth: 2_000,
   eval_gate: 500,
+  bff: 400,
+  graphql_gateway: 800,
+  workflow_engine: 500,
+  saga_orchestrator: 400,
+  // Control planes: they orchestrate, they do not sit on the request path.
+  container_platform: 50_000,
   // Storage.
   sql_db: 3_000,
+  read_replica: 3_000,
   nosql_db: 8_000,
   search_index: 2_000,
   blob_store: 5_000,
   vector_db: 1_000,
+  timeseries_db: 5_000,
+  graph_db: 1_500,
+  feature_store: 3_000,
+  // Analytical stores: built for scans and columns, not for per-request reads.
+  data_warehouse: 50,
+  olap_db: 200,
+  data_lake: 100,
+  cdc_connector: 5_000,
+  // Security plane: fast, cacheable, and on every call whether you like it or not.
+  iam: 5_000,
+  kms: 10_000,
+  audit_log: 20_000,
+  secrets_manager: 5_000,
+  // Batch and pipelines: measured in jobs, not in requests per second.
+  batch_job: 50,
+  ci_cd: 10,
   // Anything you do not own, and the expensive new stuff.
   third_party: 200,
   llm: 20,
   embedding_svc: 100,
+  model_router: 5_000,
+  guardrail: 200,
+  reranker: 100,
+  agent_runtime: 10,
 };
 
 /** Service time at low load, milliseconds. */
@@ -77,24 +113,56 @@ export const DEFAULT_LATENCY: Record<ArchNodeType, number> = {
   rate_limiter: 1,
   observability: 2,
   websocket_gw: 5,
+  waf: 3,
+  reverse_proxy: 2,
+  service_mesh: 1,
   cache: 1,
   queue: 3,
   stream: 3,
+  event_bus: 4,
+  dead_letter_queue: 3,
+  prompt_cache: 2,
+  feature_flags: 1,
   service: 40,
   monolith: 60,
   serverless_fn: 50,
+  edge_function: 20,
+  vm: 50,
   worker: 50,
   scheduler: 5,
   auth: 20,
   eval_gate: 200,
+  bff: 45,
+  graphql_gateway: 35,
+  workflow_engine: 30,
+  saga_orchestrator: 40,
+  container_platform: 1,
   sql_db: 8,
+  read_replica: 8,
   nosql_db: 5,
   search_index: 25,
   blob_store: 30,
   vector_db: 30,
+  timeseries_db: 10,
+  graph_db: 20,
+  feature_store: 15,
+  data_warehouse: 2_000,
+  olap_db: 500,
+  data_lake: 1_000,
+  cdc_connector: 50,
+  iam: 15,
+  kms: 5,
+  audit_log: 5,
+  secrets_manager: 5,
+  batch_job: 5_000,
+  ci_cd: 60_000,
   third_party: 250,
   llm: 1_200,
   embedding_svc: 80,
+  model_router: 5,
+  guardrail: 150,
+  reranker: 120,
+  agent_runtime: 4_000,
 };
 
 /** Modest USD/month per replica. Used for the cost total only — no cost opinions. */
@@ -109,24 +177,56 @@ export const DEFAULT_COST: Record<ArchNodeType, number> = {
   rate_limiter: 20,
   observability: 50,
   websocket_gw: 60,
+  waf: 45,
+  reverse_proxy: 20,
+  service_mesh: 65,
   cache: 80,
   queue: 40,
   stream: 90,
+  event_bus: 45,
+  dead_letter_queue: 10,
+  prompt_cache: 35,
+  feature_flags: 25,
   service: 60,
   monolith: 120,
   serverless_fn: 20,
+  edge_function: 15,
+  vm: 70,
   worker: 45,
   scheduler: 10,
   auth: 40,
   eval_gate: 30,
+  bff: 55,
+  graphql_gateway: 70,
+  workflow_engine: 90,
+  saga_orchestrator: 55,
+  container_platform: 75,
   sql_db: 200,
+  read_replica: 150,
   nosql_db: 150,
   search_index: 120,
   blob_store: 25,
   vector_db: 100,
+  timeseries_db: 110,
+  graph_db: 180,
+  feature_store: 130,
+  data_warehouse: 400,
+  olap_db: 250,
+  data_lake: 60,
+  cdc_connector: 80,
+  iam: 30,
+  kms: 15,
+  audit_log: 40,
+  secrets_manager: 20,
+  batch_job: 25,
+  ci_cd: 50,
   third_party: 100,
   llm: 300,
   embedding_svc: 70,
+  model_router: 30,
+  guardrail: 60,
+  reranker: 90,
+  agent_runtime: 400,
 };
 
 // ---------------------------------------------------------------- tunables ---
@@ -147,24 +247,59 @@ export const REDUNDANT_SIBLING_CAPACITY_SHARE = 0.5;
 const MAX_FINDINGS = 8;
 const EPSILON = 1e-9;
 
-const QUEUE_TYPES: ReadonlySet<ArchNodeType> = new Set(['queue', 'stream']);
+/** Buffers whose real constraint is consumer drain rate, not their own capacity. */
+const QUEUE_TYPES: ReadonlySet<ArchNodeType> = new Set([
+  'queue',
+  'stream',
+  'event_bus',
+  'dead_letter_queue',
+]);
 const DATASTORE_TYPES: ReadonlySet<ArchNodeType> = new Set([
   'sql_db',
+  'read_replica',
   'nosql_db',
   'search_index',
   'vector_db',
+  'timeseries_db',
+  'graph_db',
 ]);
 /** Losing a zone loses these unless they are spread across AZs. */
 const STATEFUL_TYPES: ReadonlySet<ArchNodeType> = new Set([
   'sql_db',
+  'read_replica',
   'nosql_db',
   'search_index',
   'blob_store',
   'vector_db',
+  'timeseries_db',
+  'graph_db',
+  'data_warehouse',
+  'olap_db',
+  'data_lake',
+  'feature_store',
   'queue',
   'stream',
+  'event_bus',
+  'dead_letter_queue',
   'cache',
+  'prompt_cache',
 ]);
+/** Nodes that absorb traffic like a cache unless told otherwise. */
+const CACHE_TYPES: ReadonlySet<ArchNodeType> = new Set(['cache', 'prompt_cache']);
+/**
+ * Stand-ins beyond an identical twin: a read replica keeps reads alive when its
+ * primary dies (and the primary keeps serving when a replica dies).
+ */
+const REPLICA_SUBSTITUTES: ReadonlyMap<ArchNodeType, ReadonlySet<ArchNodeType>> = new Map([
+  ['sql_db', new Set<ArchNodeType>(['read_replica'])],
+  ['nosql_db', new Set<ArchNodeType>(['read_replica'])],
+  ['read_replica', new Set<ArchNodeType>(['sql_db', 'nosql_db'])],
+]);
+
+function canSubstitute(killedType: ArchNodeType, candidateType: ArchNodeType): boolean {
+  if (killedType === candidateType) return true;
+  return REPLICA_SUBSTITUTES.get(killedType)?.has(candidateType) ?? false;
+}
 /** Nodes whose presence in every flow is not interesting SPOF news. */
 const NON_INFRA_TYPES: ReadonlySet<ArchNodeType> = new Set(['client', 'mobile_client', 'group']);
 /** Flow kinds where a human is waiting for the response. */
@@ -233,13 +368,14 @@ function baseCapacityOf(node: GraphNode): number {
 
 /**
  * Fraction of arriving traffic a node absorbs instead of forwarding.
- * Caches default to 0.8; any other node opts in by setting `cacheHitRate`
- * explicitly (so a CDN can model offload without being typed as a cache).
+ * Caches (including a prompt cache in front of a model) default to 0.8; any
+ * other node opts in by setting `cacheHitRate` explicitly (so a CDN can model
+ * offload without being typed as a cache).
  */
 function absorbRateOf(node: GraphNode): number {
   const explicit = node.attrs?.cacheHitRate;
   if (typeof explicit === 'number') return Math.min(1, Math.max(0, explicit));
-  return node.type === 'cache' ? DEFAULT_CACHE_HIT_RATE : 0;
+  return CACHE_TYPES.has(node.type) ? DEFAULT_CACHE_HIT_RATE : 0;
 }
 
 function costOf(node: GraphNode): number {
@@ -285,7 +421,8 @@ function connected(edges: readonly GraphEdge[], a: string, b: string): boolean {
 
 /**
  * Redundancy awareness: a killed node is survivable if another live node of the
- * SAME type either replicates it, or hangs off the same upstream neighbour.
+ * same type (or an accepted stand-in, e.g. a read replica for its primary)
+ * either replicates it, or hangs off the same upstream neighbour.
  */
 function findSibling(
   graph: GraphDSL,
@@ -294,7 +431,8 @@ function findSibling(
   killed: ReadonlySet<string>,
 ): GraphNode | undefined {
   const candidates = graph.nodes.filter(
-    (n) => n.id !== killedNode.id && n.type === killedNode.type && !killed.has(n.id),
+    (n) =>
+      n.id !== killedNode.id && canSubstitute(killedNode.type, n.type) && !killed.has(n.id),
   );
   if (candidates.length === 0) return undefined;
 

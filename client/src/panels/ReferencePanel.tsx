@@ -19,7 +19,7 @@ export function ReferencePanel() {
   }, [q, group]);
 
   return (
-    <div className="dash">
+    <div className="sheet">
       <h1>Design reference</h1>
       <p className="faint" style={{ fontSize: 12.5, marginTop: -8 }}>
         The vocabulary the grader scores against: {CONCEPT_CARDS.length} concepts in {CONCEPT_GROUPS.length}{' '}
@@ -50,7 +50,7 @@ export function ReferencePanel() {
         ))}
       </div>
 
-      <div className="dash-grid">
+      <div className="index-grid">
         {cards.map((c) => (
           <div className="card ref-card" key={c.id}>
             <div className="row">

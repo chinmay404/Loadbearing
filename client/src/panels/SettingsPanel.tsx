@@ -12,8 +12,8 @@ interface Preset {
 
 const PRESETS: Preset[] = [
   { name: 'Anthropic', provider: 'anthropic', baseUrl: '', model: 'claude-sonnet-5', note: 'Native API. Strongest reviews.' },
-  { name: 'Groq', provider: 'openai-compatible', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', note: 'Very fast, free tier.' },
-  { name: 'DeepSeek', provider: 'openai-compatible', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', note: 'Cheap and strong at reasoning.' },
+  { name: 'Groq', provider: 'openai-compatible', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', note: 'Very fast, generous free tier. Good default for practice runs.' },
+  { name: 'DeepSeek', provider: 'openai-compatible', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', note: 'Cheap and strong at reasoning. deepseek-reasoner also works.' },
   { name: 'OpenAI', provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o', note: 'Any OpenAI chat model.' },
   { name: 'OpenRouter', provider: 'openai-compatible', baseUrl: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-sonnet-4', note: 'One key, many models.' },
   { name: 'Ollama (local)', provider: 'openai-compatible', baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5:32b', note: 'Offline. No key needed.' },
@@ -75,7 +75,7 @@ export function SettingsPanel() {
   };
 
   return (
-    <div className="dash" style={{ maxWidth: 660 }}>
+    <div className="sheet" style={{ maxWidth: 660 }}>
       <h1>Grader model</h1>
       <p className="faint" style={{ fontSize: 12.5, marginTop: -8 }}>
         ArchDojo talks to whichever model you park here. The key is stored locally in your SQLite file and
@@ -156,6 +156,23 @@ export function SettingsPanel() {
           2k output. That is a fraction of a cent on most providers. The load simulator, mastery tracking
           and the design reference cost nothing: they run locally.
         </p>
+      </div>
+
+      <div className="card">
+        <h4>Keeping the key out of the database</h4>
+        <p className="muted" style={{ fontSize: 12.5 }}>
+          If you would rather not store a key at all, set it in the environment before starting the
+          server and it takes precedence over anything saved here:
+        </p>
+        <pre
+          className="mono"
+          style={{ margin: '6px 0 0', padding: '7px 9px', background: '#0a0d12', border: '1px solid var(--rule)', fontSize: 11, overflowX: 'auto' }}
+        >
+{`ARCHDOJO_PROVIDER=openai-compatible
+ARCHDOJO_BASE_URL=https://api.groq.com/openai/v1
+ARCHDOJO_MODEL=llama-3.3-70b-versatile
+ARCHDOJO_API_KEY=…`}
+        </pre>
       </div>
     </div>
   );

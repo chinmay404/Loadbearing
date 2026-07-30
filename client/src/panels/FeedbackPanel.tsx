@@ -3,6 +3,8 @@ import type { DimensionKey } from '@archdojo/shared';
 import { useApp } from '../state/appStore';
 import { useCanvas } from '../state/canvasStore';
 import { api, ApiError } from '../lib/api';
+import { copyText, downloadText, toDrawio, toMermaid } from '../lib/diagram';
+import { IconArchive, IconTwist } from '../ui/UiIcons';
 
 const DIM_LABEL: Record<DimensionKey, string> = {
   requirements: 'Requirements met',
@@ -23,16 +25,18 @@ export function FeedbackPanel() {
   const setNotice = useApp((s) => s.setNotice);
   const setError = useApp((s) => s.setError);
   const clearAi = useCanvas((s) => s.clearAi);
-  const [exporting, setExporting] = useState(false);
+  const toGraph = useCanvas((s) => s.toGraph);
+  const toDoc = useCanvas((s) => s.toDoc);
+  const [busy, setBusy] = useState<string | null>(null);
 
   if (submitting) {
     return (
       <div className="empty-state">
         <div>
-          <span className="spinner" style={{ width: 22, height: 22 }} />
-          <h3 style={{ marginTop: 12 }}>The reviewer is reading your design…</h3>
-          <p style={{ fontSize: 12.5 }}>
-            Components, connections, annotations, flows and the capacity model — 10 to 40 seconds.
+          <span className="spinner" style={{ width: 18, height: 18 }} />
+          <h3 style={{ marginTop: 12 }}>The reviewer is reading your drawing</h3>
+          <p style={{ fontSize: 12.5, maxWidth: 260 }}>
+            Components, connections, annotations, flows and the capacity model. Ten to forty seconds.
           </p>
         </div>
       </div>
@@ -43,10 +47,10 @@ export function FeedbackPanel() {
     return (
       <div className="empty-state">
         <div>
-          <h3>No review yet</h3>
-          <p style={{ fontSize: 12.5, maxWidth: 280 }}>
-            Draw your design, declare the flows, run the load simulator to catch the obvious problems
-            yourself — then hit <strong>Submit for review</strong>.
+          <h3>Nothing reviewed yet</h3>
+          <p style={{ fontSize: 12.5, maxWidth: 270 }}>
+            Draw the design, declare your flows, then run load to catch the obvious problems yourself.
+            Submit when you are ready to be argued with.
           </p>
         </div>
       </div>
@@ -56,108 +60,215 @@ export function FeedbackPanel() {
   const band = score.overall >= 80 ? 'hi' : score.overall >= 60 ? 'mid' : 'lo';
   const twist = problem?.twists[round - 1] ?? problem?.twists[0];
 
-  const doExport = async () => {
-    if (attemptId === null) return;
+  const run = async (key: string, fn: () => Promise<void>) => {
     try {
-      setExporting(true);
-      const r = await api.exportAttempt(attemptId);
-      setNotice(`Post-mortem written to ${r.path}`);
+      setBusy(key);
+      await fn();
     } catch (e) {
       const err = e as ApiError;
       setError({ message: err.message, hint: err.hint });
     } finally {
-      setExporting(false);
+      setBusy(null);
     }
   };
 
   return (
     <div>
-      <div className="overall" style={{ marginBottom: 4 }}>
+      <div className="verdict-head">
         <span className={`n ${band}`}>{score.overall}</span>
-        <span className="faint">/100 · round {round}</span>
+        <span className="of">
+          / 100
+          <br />
+          rev {round}
+        </span>
+        <span className="grow" />
+        {score.risks.length > 0 && (
+          <span className={`chip ${score.risks.some((r) => r.likelihood === 'high') ? 'fail' : 'load'}`}>
+            {score.risks.length} risks
+          </span>
+        )}
       </div>
-      <p className="faint" style={{ fontSize: 11.5, marginTop: 0 }}>
-        Pins have been drawn on your canvas. Ghost components are suggestions you can accept.
-      </p>
 
-      <div className="row wrap" style={{ gap: 5, marginBottom: 12 }}>
+      {score.decision_summary && (
+        <p className="muted" style={{ fontSize: 12.5, marginTop: 9 }}>
+          {score.decision_summary}
+        </p>
+      )}
+
+      <div className="row wrap" style={{ gap: 4, margin: '10px 0 4px' }}>
         {twist && (
-          <button className="primary" onClick={() => { clearAi(); startTwist(twist); }}>
-            🌀 Take the twist
+          <button
+            className="primary"
+            onClick={() => {
+              clearAi();
+              startTwist(twist);
+            }}
+            title={twist}
+          >
+            <IconTwist size={15} /> Take the twist
           </button>
         )}
-        <button onClick={() => void doExport()} disabled={exporting || attemptId === null}>
-          {exporting ? <span className="spinner" /> : '↗'} Save to my vault
+        <button
+          onClick={() => void run('adr', async () => {
+            if (attemptId === null) return;
+            const r = await api.exportAttempt(attemptId, 'adr');
+            setNotice(`ADR written to ${r.path}`);
+          })}
+          disabled={busy !== null || attemptId === null}
+          title="Write an Architecture Decision Record into your vault: context, decision, alternatives, consequences, risks, at-10x"
+        >
+          {busy === 'adr' ? <span className="spinner" /> : <IconArchive size={15} />} Write ADR
         </button>
-        <button onClick={clearAi} title="Remove the grader's pins and ghost nodes">
+        <button
+          onClick={() => void run('copyadr', async () => {
+            if (attemptId === null) return;
+            const r = await api.exportText(attemptId, 'adr');
+            setNotice((await copyText(r.text)) ? 'ADR copied to the clipboard.' : 'Clipboard blocked — use Write ADR instead.');
+          })}
+          disabled={busy !== null || attemptId === null}
+          title="Copy the ADR markdown for a PR description or a design doc"
+        >
+          Copy ADR
+        </button>
+        <button
+          onClick={() => void run('mermaid', async () => {
+            setNotice(
+              (await copyText(toMermaid(toGraph())))
+                ? 'Mermaid copied — paste it into a PR, README or Obsidian note.'
+                : 'Clipboard blocked by the browser.',
+            );
+          })}
+          title="Copy the diagram as Mermaid"
+        >
+          Copy Mermaid
+        </button>
+        <button
+          onClick={() => downloadText(`${problem?.id ?? 'design'}.drawio`, toDrawio(toDoc()), 'application/xml')}
+          title="Download as draw.io / diagrams.net, positions intact"
+        >
+          .drawio
+        </button>
+        <button
+          onClick={() => void run('review', async () => {
+            if (attemptId === null) return;
+            const r = await api.exportAttempt(attemptId, 'review');
+            setNotice(`Review post-mortem written to ${r.path}`);
+          })}
+          disabled={busy !== null || attemptId === null}
+        >
+          Save review
+        </button>
+        <button className="ghost" onClick={clearAi} title="Remove the reviewer's pins and ghost components">
           Clear markup
         </button>
       </div>
 
-      {score.dimensions &&
-        (Object.keys(DIM_LABEL) as DimensionKey[]).map((k) => {
-          const d = score.dimensions[k];
-          const pct = (d.score / d.max) * 100;
-          const color = pct >= 75 ? 'var(--good)' : pct >= 50 ? 'var(--warn)' : 'var(--bad)';
+      <span className="section-label">Scores</span>
+      {(Object.keys(DIM_LABEL) as DimensionKey[]).map((k) => {
+        const d = score.dimensions[k];
+        // max 0 means the grader never returned this dimension — show it as such
+        // instead of a zero the learner did not earn.
+        if (d.max === 0) {
           return (
             <div className="dim-row" key={k}>
               <div className="top">
-                <span>{DIM_LABEL[k]}</span>
-                <span className="mono" style={{ color }}>
-                  {d.score}/{d.max}
-                </span>
+                <span className="muted">{DIM_LABEL[k]}</span>
+                <span className="v faint">n/a</span>
               </div>
-              <div className="bar">
-                <span style={{ width: `${pct}%`, background: color }} />
+              <div className="notes faint">
+                Not assessed this round. Smaller models sometimes drop a dimension — resubmit, or use a
+                stronger model for the full rubric.
               </div>
-              {d.notes && <div className="notes">{d.notes}</div>}
             </div>
           );
-        })}
+        }
+        const pct = (d.score / d.max) * 100;
+        const color = pct >= 75 ? 'var(--pass)' : pct >= 50 ? 'var(--load)' : 'var(--fail)';
+        return (
+          <div className="dim-row" key={k}>
+            <div className="top">
+              <span>{DIM_LABEL[k]}</span>
+              <span className="v" style={{ color }}>
+                {d.score}/{d.max}
+              </span>
+            </div>
+            <div className="bar">
+              <span style={{ width: `${pct}%`, background: color }} />
+            </div>
+            {d.notes && <div className="notes">{d.notes}</div>}
+          </div>
+        );
+      })}
 
       {score.critical_failures.length > 0 && (
-        <Section title={`What breaks (${score.critical_failures.length})`}>
+        <>
+          <span className="section-label">What breaks · {score.critical_failures.length}</span>
           {score.critical_failures.map((f, i) => (
             <div className={`card sev-${f.severity}`} key={i}>
               <h4>{f.title}</h4>
               <p className="muted" style={{ fontSize: 12.5 }}>
                 {f.detail}
               </p>
-              {f.concept && <span className="chip bad">{f.concept}</span>}
+              {f.concept && <span className="chip fail">{f.concept}</span>}
             </div>
           ))}
-        </Section>
+        </>
+      )}
+
+      {score.risks.length > 0 && (
+        <>
+          <span className="section-label">Risk register</span>
+          {score.risks.map((r, i) => (
+            <div className="card" key={i}>
+              <div className="row" style={{ alignItems: 'flex-start' }}>
+                <h4 className="grow">{r.risk}</h4>
+                <span className={`chip ${r.likelihood === 'high' ? 'fail' : r.likelihood === 'medium' ? 'load' : ''}`}>
+                  {r.likelihood}
+                </span>
+              </div>
+              <p className="muted" style={{ fontSize: 12 }}>
+                <span className="stencil">impact</span> {r.impact}
+              </p>
+              <p className="muted" style={{ fontSize: 12 }}>
+                <span className="stencil">mitigation</span> {r.mitigation}
+              </p>
+            </div>
+          ))}
+        </>
       )}
 
       {score.spofs.length > 0 && (
-        <Section title="Single points of failure">
+        <>
+          <span className="section-label">Single points of failure</span>
           <ul className="list-reset muted" style={{ fontSize: 12.5 }}>
             {score.spofs.map((s, i) => (
               <li key={i}>{s}</li>
             ))}
           </ul>
-        </Section>
+        </>
       )}
 
       {score.missing.length > 0 && (
-        <Section title="Missing">
+        <>
+          <span className="section-label">Missing</span>
           <ul className="list-reset muted" style={{ fontSize: 12.5 }}>
             {score.missing.map((s, i) => (
               <li key={i}>{s}</li>
             ))}
           </ul>
-        </Section>
+        </>
       )}
 
       {score.flow_reviews.length > 0 && (
-        <Section title="Flow review">
+        <>
+          <span className="section-label">Flow review</span>
           {score.flow_reviews.map((f, i) => (
             <div className="card" key={i}>
               <div className="row">
-                <span className="grow">
-                  <strong style={{ fontSize: 12.5 }}>{f.flowName}</strong>
-                </span>
-                <span className={`chip ${f.verdict === 'sound' ? 'good' : f.verdict === 'missing' ? 'bad' : 'warn'}`}>
+                <strong className="grow" style={{ fontSize: 12.5 }}>
+                  {f.flowName}
+                </strong>
+                <span className={`chip ${f.verdict === 'sound' ? 'pass' : f.verdict === 'missing' ? 'fail' : 'load'}`}>
                   {f.verdict}
                 </span>
               </div>
@@ -170,11 +281,12 @@ export function FeedbackPanel() {
               )}
             </div>
           ))}
-        </Section>
+        </>
       )}
 
       {score.good_calls.length > 0 && (
-        <Section title="Good calls">
+        <>
+          <span className="section-label">Right calls</span>
           {score.good_calls.map((g, i) => (
             <div className="card ok-card" key={i}>
               <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
@@ -182,40 +294,64 @@ export function FeedbackPanel() {
               </p>
             </div>
           ))}
-        </Section>
+        </>
       )}
 
       {score.socratic_questions.length > 0 && (
-        <Section title="Answer these before you look at the model answer">
+        <>
+          <span className="section-label">Answer these before you peek</span>
           <ol className="list-reset" style={{ fontSize: 12.5 }}>
             {score.socratic_questions.map((q, i) => (
-              <li key={i} style={{ marginBottom: 6 }}>
+              <li key={i} style={{ marginBottom: 5 }}>
                 {q}
               </li>
             ))}
           </ol>
-          <p className="faint" style={{ fontSize: 11.5 }}>
-            Use the Ask tab to work through them against your own diagram.
-          </p>
-        </Section>
+          <p className="stencil">work them through in the ask tab</p>
+        </>
+      )}
+
+      {score.at_10x && (
+        <details className="disclose">
+          <summary>At ten times the load</summary>
+          <div className="card">
+            <p className="muted" style={{ fontSize: 12.5, margin: 0, whiteSpace: 'pre-wrap' }}>
+              {score.at_10x}
+            </p>
+          </div>
+        </details>
+      )}
+
+      {score.alternatives.length > 0 && (
+        <details className="disclose">
+          <summary>Alternatives weighed · {score.alternatives.length}</summary>
+          {score.alternatives.map((a, i) => (
+            <div className="card" key={i}>
+              <h4>{a.option}</h4>
+              <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
+                {a.why_not}
+              </p>
+            </div>
+          ))}
+        </details>
       )}
 
       {score.verdict_teaching.length > 0 && (
         <details className="disclose">
-          <summary>Why each component belongs ({score.verdict_teaching.length})</summary>
+          <summary>Why each component belongs · {score.verdict_teaching.length}</summary>
           {score.verdict_teaching.map((t, i) => (
             <div className="card" key={i}>
               <h4>{t.component}</h4>
               <dl style={{ margin: 0, fontSize: 12 }}>
-                <dt className="faint">why</dt>
+                <dt className="stencil">why</dt>
                 <dd className="muted" style={{ margin: '0 0 4px' }}>
                   {t.why}
                 </dd>
-                <dt className="faint">breaks without it</dt>
+                <dt className="stencil">breaks without it</dt>
                 <dd className="muted" style={{ margin: '0 0 4px' }}>
                   {t.breaks_without}
                 </dd>
-                <dt className="faint">rejected alternative</dt>
+                <dt className="stencil">rejected alternative</dt>
                 <dd className="muted" style={{ margin: 0 }}>
                   {t.rejected_alt}
                 </dd>
@@ -227,7 +363,7 @@ export function FeedbackPanel() {
 
       {score.model_answer_summary && (
         <details className="disclose">
-          <summary>Peek at how a strong engineer would solve it</summary>
+          <summary>How a strong engineer would solve it</summary>
           <div className="card">
             <p className="muted" style={{ fontSize: 12.5, whiteSpace: 'pre-wrap', margin: 0 }}>
               {score.model_answer_summary}
@@ -239,28 +375,17 @@ export function FeedbackPanel() {
       {Object.keys(score.concept_scores).length > 0 && (
         <details className="disclose">
           <summary>Concept mastery from this attempt</summary>
-          <div className="row wrap" style={{ gap: 4, marginTop: 6 }}>
+          <div className="row wrap" style={{ gap: 3, marginTop: 6 }}>
             {Object.entries(score.concept_scores)
               .sort((a, b) => a[1] - b[1])
               .map(([c, v]) => (
-                <span className={`chip ${v >= 0.75 ? 'good' : v >= 0.45 ? 'warn' : 'bad'}`} key={c}>
+                <span className={`chip ${v >= 0.75 ? 'pass' : v >= 0.45 ? 'load' : 'fail'}`} key={c}>
                   {c} {Math.round(v * 100)}%
                 </span>
               ))}
           </div>
         </details>
       )}
-    </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div style={{ marginTop: 14 }}>
-      <h4 style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--fg-faint)', margin: '0 0 6px' }}>
-        {title}
-      </h4>
-      {children}
     </div>
   );
 }

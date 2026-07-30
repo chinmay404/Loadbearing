@@ -13,7 +13,7 @@ export function BriefPanel() {
       <div className="row wrap" style={{ marginBottom: 8 }}>
         <span className={`lvl l${problem.level}`}>L{problem.level}</span>
         <span className="chip">{problem.domain}</span>
-        {round > 1 && <span className="chip warn">round {round}</span>}
+        {round > 1 && <span className="chip load">round {round}</span>}
       </div>
       <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>{problem.title}</h3>
 
@@ -38,7 +38,7 @@ export function BriefPanel() {
         <h4>Numbers</h4>
         <div className="row wrap" style={{ gap: 4 }}>
           {Object.entries(problem.nonFunctional).map(([k, v]) => (
-            <span className="chip info" key={k}>
+            <span className="chip spec" key={k}>
               {k}: {String(v)}
             </span>
           ))}
@@ -58,7 +58,7 @@ export function BriefPanel() {
         <h4>Flows you should declare</h4>
         <div className="row wrap" style={{ gap: 4 }}>
           {problem.expectedFlows.map((f) => (
-            <span className="chip accent" key={f}>
+            <span className="chip spec" key={f}>
               {f}
             </span>
           ))}
@@ -93,11 +93,11 @@ export function BriefPanel() {
             <div className="row wrap" style={{ gap: 4 }}>
               <span className="chip">×{s.rpsMultiplier} load</span>
               {(s.killNodes ?? []).map((k) => (
-                <span className="chip bad" key={k}>
+                <span className="chip fail" key={k}>
                   kill {k}
                 </span>
               ))}
-              {s.thirdPartyLatencyMs ? <span className="chip warn">+{s.thirdPartyLatencyMs}ms 3rd-party</span> : null}
+              {s.thirdPartyLatencyMs ? <span className="chip load">+{s.thirdPartyLatencyMs}ms 3rd-party</span> : null}
             </div>
             <p className="faint" style={{ fontSize: 11.5, margin: '6px 0 0' }}>
               Pass: {s.passCriteria}

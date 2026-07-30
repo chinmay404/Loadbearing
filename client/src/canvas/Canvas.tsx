@@ -19,6 +19,8 @@ import { PenLayer } from './PenLayer';
 import { FlowParticles } from './FlowParticles';
 import { CanvasToolbar } from './CanvasToolbar';
 import { SimHud } from './SimHud';
+import { TitleBlock } from './TitleBlock';
+import { QuickAdd } from './QuickAdd';
 import { useCanvas } from '../state/canvasStore';
 
 const nodeTypes: NodeTypes = { arch: ArchNode, sticky: StickyNode };
@@ -126,20 +128,24 @@ function CanvasInner() {
         fitView
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#232936" />
-        <Controls showInteractive={false} position="bottom-right" />
+        {/* Blueprint ruling: a fine grid inside a coarse one, like drafting paper. */}
+        <Background id="fine" variant={BackgroundVariant.Lines} gap={16} lineWidth={0.4} color="#161c26" />
+        <Background id="coarse" variant={BackgroundVariant.Lines} gap={96} lineWidth={0.6} color="#1d2632" />
+        <Controls showInteractive={false} position="top-right" />
         <MiniMap
           pannable
           zoomable
-          style={{ background: '#11131a', border: '1px solid #262b38', borderRadius: 8 }}
-          maskColor="rgb(11 13 18 / 0.7)"
-          nodeColor="#2c3346"
+          style={{ background: '#141922', border: '1px solid #26303d', borderRadius: 2 }}
+          maskColor="rgb(14 17 22 / 0.72)"
+          nodeColor="#2b3644"
         />
       </ReactFlow>
       <FlowParticles />
       <PenLayer />
       <CanvasToolbar />
+      <TitleBlock />
       <SimHud />
+      <QuickAdd />
     </div>
   );
 }

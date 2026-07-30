@@ -26,10 +26,10 @@ export function Dashboard() {
   const strongest = [...practised].sort((a, b) => (b.ema ?? 0) - (a.ema ?? 0)).slice(0, 6);
 
   return (
-    <div className="dash">
+    <div className="sheet">
       <h1>Progress</h1>
 
-      <div className="dash-grid" style={{ marginBottom: 14 }}>
+      <div className="index-grid" style={{ marginBottom: 14 }}>
         <Tile label="Designs reviewed" value={stats ? String(stats.attempts) : '–'} />
         <Tile label="Average score" value={stats?.avgOverall !== null && stats ? `${stats.avgOverall}` : '–'} />
         <Tile label="Day streak" value={stats ? String(stats.streakDays) : '–'} />
@@ -39,7 +39,7 @@ export function Dashboard() {
         />
       </div>
 
-      <div className="dash-grid">
+      <div className="index-grid">
         <div className="card">
           <h4>Mastery by area</h4>
           <Radar data={groupAvg} />
@@ -87,7 +87,7 @@ export function Dashboard() {
                 m.ema === null
                   ? {}
                   : {
-                      background: `color-mix(in srgb, var(--good) ${Math.round(m.ema * 100)}%, #2a1616)`,
+                      background: `color-mix(in srgb, var(--pass) ${Math.round(m.ema * 100)}%, #2a1616)`,
                       borderColor: 'transparent',
                     }
               }
@@ -101,7 +101,7 @@ export function Dashboard() {
 
 function Tile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="card stat-tile">
+    <div className="tile">
       <div className="v">{value}</div>
       <div className="faint" style={{ fontSize: 11.5 }}>
         {label}
@@ -112,7 +112,7 @@ function Tile({ label, value }: { label: string; value: string }) {
 
 function Row({ m }: { m: MasteryEntry }) {
   const pct = Math.round((m.ema ?? 0) * 100);
-  const color = pct >= 75 ? 'var(--good)' : pct >= 45 ? 'var(--warn)' : 'var(--bad)';
+  const color = pct >= 75 ? 'var(--pass)' : pct >= 45 ? 'var(--load)' : 'var(--fail)';
   return (
     <div style={{ marginBottom: 7 }}>
       <div className="row" style={{ fontSize: 12 }}>
