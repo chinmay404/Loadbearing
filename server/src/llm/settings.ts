@@ -1,9 +1,9 @@
-// LLM credentials/model live in the settings table. The API key leaves this
-// module in exactly two shapes: the full value inside an LlmConfig (server-side
-// only) or masked for display. Never both.
+// LLM credentials/model live in each user's settings rows. The API key leaves
+// this module in exactly two shapes: the full value inside an LlmConfig
+// (server-side only) or masked for display. Never both.
 
 import type { LlmConfig, LlmProvider } from '@loadbearing/shared';
-import { getSetting, setSetting, type Db } from '../db.js';
+import type { Storage } from '../storage/index.js';
 
 const KEY = {
   provider: 'llm_provider',
@@ -32,21 +32,33 @@ export interface SaveLlmInput {
 /**
  * Full config for the adapter. Resolution order, most specific first:
  *   1. `FAKE_LLM=1` — offline stub, for dev and CI.
- *   2. `LOADBEARING_API_KEY` (+ optional PROVIDER / MODEL / BASE_URL) — env wins, so a
- *      key can be supplied per-run and never touch the database or a backup.
- *   3. the settings table, written from the UI.
+ *   2. `LOADBEARING_API_KEY` (+ optional PROVIDER / MODEL / BASE_URL) — a key for
+ *      the whole instance, so the owner of a deployment can let people try it
+ *      without each bringing their own.
+ *   3. this user's settings rows, written from the Settings panel.
  */
-export function loadLlmConfig(db: Db): LlmConfig {
+export async function loadLlmConfig(store: Storage, userId: string): Promise<LlmConfig> {
   if (process.env.FAKE_LLM === '1') {
     return { provider: 'fake', model: 'fake', apiKey: '' };
   }
 
+  const [provider, baseUrl, model, apiKey] = await Promise.all([
+    readProvider(store, userId),
+    store.getSetting(userId, KEY.baseUrl),
+    store.getSetting(userId, KEY.model),
+    store.getSetting(userId, KEY.apiKey),
+  ]);
+
   const stored: LlmConfig = {
-    provider: readProvider(db),
-    baseUrl: getSetting(db, KEY.baseUrl) ?? DEFAULTS.baseUrl,
-    model: getSetting(db, KEY.model) ?? DEFAULTS.model,
-    apiKey: getSetting(db, KEY.apiKey) ?? DEFAULTS.apiKey,
+    provider,
+    baseUrl: baseUrl ?? DEFAULTS.baseUrl,
+    model: model ?? DEFAULTS.model,
+    apiKey: apiKey ?? DEFAULTS.apiKey,
   };
+
+  // A key the user saved themselves wins over the house key: they are paying for
+  // it and chose the model that goes with it.
+  if (stored.apiKey.trim()) return stored;
 
   const envKey = process.env.LOADBEARING_API_KEY;
   if (!envKey) return stored;
@@ -60,42 +72,52 @@ export function loadLlmConfig(db: Db): LlmConfig {
   };
 }
 
-/** True when a key is coming from the environment rather than the database. */
-export function keyFromEnv(): boolean {
+/** True when the instance carries a key of its own that users can fall back on. */
+export function houseKeyPresent(): boolean {
   return Boolean(process.env.LOADBEARING_API_KEY);
 }
 
-export function saveLlmConfig(db: Db, input: SaveLlmInput): void {
+export async function saveLlmConfig(store: Storage, userId: string, input: SaveLlmInput): Promise<void> {
   if (!PROVIDERS.includes(input.provider)) {
     throw new Error(`Unknown provider "${input.provider}". Expected one of: ${PROVIDERS.join(', ')}.`);
   }
-  setSetting(db, KEY.provider, input.provider);
-  setSetting(db, KEY.baseUrl, (input.baseUrl ?? '').trim());
-  setSetting(db, KEY.model, input.model.trim());
+  await store.setSetting(userId, KEY.provider, input.provider);
+  await store.setSetting(userId, KEY.baseUrl, (input.baseUrl ?? '').trim());
+  await store.setSetting(userId, KEY.model, input.model.trim());
 
   const key = (input.apiKey ?? '').trim();
-  if (key) setSetting(db, KEY.apiKey, key);
+  if (key) await store.setSetting(userId, KEY.apiKey, key);
 }
 
 /** Safe-to-serialise view: the key is masked to its last 4 characters. */
-export function viewSettings(db: Db): {
+export async function viewSettings(
+  store: Storage,
+  userId: string,
+): Promise<{
   provider: LlmProvider;
   baseUrl: string;
   model: string;
   apiKeyMasked: string;
-} {
-  const apiKey = getSetting(db, KEY.apiKey) ?? '';
+  usingHouseKey: boolean;
+}> {
+  const [provider, baseUrl, model, apiKey] = await Promise.all([
+    readProvider(store, userId),
+    store.getSetting(userId, KEY.baseUrl),
+    store.getSetting(userId, KEY.model),
+    store.getSetting(userId, KEY.apiKey),
+  ]);
   return {
-    provider: readProvider(db),
-    baseUrl: getSetting(db, KEY.baseUrl) ?? DEFAULTS.baseUrl,
-    model: getSetting(db, KEY.model) ?? DEFAULTS.model,
-    apiKeyMasked: maskKey(apiKey),
+    provider,
+    baseUrl: baseUrl ?? DEFAULTS.baseUrl,
+    model: model ?? DEFAULTS.model,
+    apiKeyMasked: maskKey(apiKey ?? ''),
+    usingHouseKey: !(apiKey ?? '').trim() && houseKeyPresent(),
   };
 }
 
 /** Enough settings present that a real call has a chance of working. */
-export function isConfigured(db: Db): boolean {
-  const cfg = loadLlmConfig(db);
+export async function isConfigured(store: Storage, userId: string): Promise<boolean> {
+  const cfg = await loadLlmConfig(store, userId);
   if (cfg.provider === 'fake') return true;
   if (!cfg.model.trim()) return false;
   if (cfg.provider === 'anthropic') return cfg.apiKey.trim().length > 0;
@@ -107,8 +129,8 @@ export function maskKey(apiKey: string): string {
   return `••••${apiKey.slice(-4)}`;
 }
 
-function readProvider(db: Db): LlmProvider {
-  const stored = getSetting(db, KEY.provider);
+async function readProvider(store: Storage, userId: string): Promise<LlmProvider> {
+  const stored = await store.getSetting(userId, KEY.provider);
   return stored && PROVIDERS.includes(stored as LlmProvider)
     ? (stored as LlmProvider)
     : DEFAULTS.provider;

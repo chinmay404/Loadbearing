@@ -24,6 +24,14 @@ interface AppState {
   llmConfigured: boolean;
   /** True when the server is forcing the offline stub, so reviews are not real. */
   stubMode: boolean;
+  /** null = signed out. Everything a person owns is keyed to this account. */
+  username: string | null;
+  /** Undecided until /health answers, so the app does not flash the sign-in panel. */
+  authChecked: boolean;
+  /** Which database is behind this instance — worth seeing on a fresh deploy. */
+  storageKind: 'sqlite' | 'postgres' | null;
+  /** True when the instance carries an API key that users without one can borrow. */
+  houseKey: boolean;
 
   setView: (v: View) => void;
   setLeftTab: (t: LeftTab) => void;
@@ -35,7 +43,16 @@ interface AppState {
   setSubmitting: (v: boolean) => void;
   setError: (e: { message: string; hint?: string } | null) => void;
   setNotice: (n: string | null) => void;
-  setHealth: (h: { serverUp: boolean; llmConfigured: boolean; stubMode: boolean }) => void;
+  setHealth: (h: {
+    serverUp: boolean;
+    llmConfigured: boolean;
+    stubMode: boolean;
+    username?: string | null;
+    storageKind?: 'sqlite' | 'postgres' | null;
+    houseKey?: boolean;
+  }) => void;
+  signedIn: (username: string) => void;
+  signedOut: () => void;
 }
 
 export const useApp = create<AppState>((set) => ({
@@ -56,6 +73,10 @@ export const useApp = create<AppState>((set) => ({
   serverUp: false,
   llmConfigured: false,
   stubMode: false,
+  username: null,
+  authChecked: false,
+  storageKind: null,
+  houseKey: false,
 
   setView: (view) => set({ view }),
   setLeftTab: (leftTab) => set({ leftTab }),
@@ -92,5 +113,34 @@ export const useApp = create<AppState>((set) => ({
   setSubmitting: (submitting) => set({ submitting }),
   setError: (error) => set({ error, submitting: false }),
   setNotice: (notice) => set({ notice }),
-  setHealth: ({ serverUp, llmConfigured, stubMode }) => set({ serverUp, llmConfigured, stubMode }),
+  setHealth: ({ serverUp, llmConfigured, stubMode, username, storageKind, houseKey }) =>
+    set({
+      serverUp,
+      llmConfigured,
+      stubMode,
+      authChecked: true,
+      ...(username !== undefined ? { username } : {}),
+      ...(storageKind !== undefined ? { storageKind } : {}),
+      ...(houseKey !== undefined ? { houseKey } : {}),
+    }),
+
+  signedIn: (username) => set({ username, authChecked: true, view: 'problems', error: null }),
+
+  // Signing out clears the work in progress too: the next person at this browser
+  // must not inherit the last one's problem, score or drawing.
+  signedOut: () =>
+    set({
+      username: null,
+      authChecked: true,
+      view: 'problems',
+      problem: null,
+      problems: [],
+      score: null,
+      lastSim: null,
+      attemptId: null,
+      round: 1,
+      activeTwist: null,
+      previousOverall: null,
+      error: null,
+    }),
 }));

@@ -44,7 +44,8 @@ const OUTPUT_CONTRACT = `Reply with ONLY a JSON object, no prose and no code fen
   },
   "critical_failures": [
     { "title": "<short name of the bug>", "detail": "<the exact sequence that produces it, and the fix>",
-      "concept": "<concept id from the taxonomy>", "severity": "high" | "medium" | "low" }
+      "concept": "<concept id from the taxonomy>", "severity": "high" | "medium" | "low",
+      "refs": ["<key from the trusted reference material that establishes this, or [] if none applies>"] }
   ],
   "spofs": ["<component whose loss takes the system down, and what breaks>"],
   "missing": ["<component or mechanism absent from the design that the requirements demand>"],
@@ -77,7 +78,8 @@ const OUTPUT_CONTRACT = `Reply with ONLY a JSON object, no prose and no code fen
     { "risk": "<the risk>", "likelihood": "high" | "medium" | "low",
       "impact": "<what the user or the business feels>", "mitigation": "<the concrete next step>" }
   ],
-  "at_10x": "<3-5 sentences: what breaks or has to change FIRST at ten times the traffic, ten times the data, and ten times the team — in that order of likelihood, with the numbers>"
+  "at_10x": "<3-5 sentences: what breaks or has to change FIRST at ten times the traffic, ten times the data, and ten times the team — in that order of likelihood, with the numbers>",
+  "references_used": ["<keys from the trusted reference material you actually reasoned from>"]
 }
 
 Rules for the fields:
@@ -92,7 +94,10 @@ Rules for the fields:
 - critical_failures: only real, reachable failures. Empty array is allowed for an excellent design.
 - risks: exactly three, ordered most serious first. These go straight into an Architecture Decision
   Record, so write them the way a staff engineer writes them for a team that will read this in a year.
-- alternatives: 2-3 entries. Name the real fork in the road, not a straw man.`;
+- alternatives: 2-3 entries. Name the real fork in the road, not a straw man.
+- refs / references_used: cite ONLY keys that appear in the trusted reference material given to you.
+  Invented keys are discarded. A finding the reference material covers and that you state without
+  citing it is a worse answer, because the learner cannot go and read the source.`;
 
 /**
  * The rubric concepts get their full card — summary and the red flag to hunt for.
@@ -292,10 +297,16 @@ export interface ScoringPromptInput {
   /** renderDiffLines output vs the previous round's graph. */
   changes?: string[];
   twist?: { text: string; previousOverall: number };
+  /**
+   * Retrieved playbook entries, rendered. Goes in the user message rather than
+   * the system prompt: it varies per problem, and the system prefix has to stay
+   * byte-identical across reviews for provider-side caching to hit.
+   */
+  reference?: string;
 }
 
 export function buildScoringPrompt(input: ScoringPromptInput): { system: string; user: string } {
-  const { problem, graph, sim, checks, gates, changes, twist } = input;
+  const { problem, graph, sim, checks, gates, changes, twist, reference } = input;
 
   // Ordered for provider-side prefix caching (DeepSeek/Groq/OpenAI cache by
   // exact prefix; Anthropic via cache_control): everything identical across
@@ -331,6 +342,7 @@ ${sim ? `\n${renderSim(sim)}\n` : ''}
 ${gates && gates.length ? `\n${renderGates(gates)}\n` : ''}
 ${checks ? `\n${renderChecks(checks)}\n` : ''}
 ${twist && changes !== undefined ? `\n${renderChanges(changes)}\n` : ''}
+${reference ? `\n${reference}\n` : ''}
 Review this design now. Output only the JSON object.`;
 
   return { system, user };
@@ -341,6 +353,7 @@ export function buildCritiquePrompt(
   graph: GraphDSL,
   question: string,
   selectedNodeIds: string[] = [],
+  reference = '',
 ): { system: string; user: string } {
   const system = `You are a staff engineer coaching a learner at a whiteboard. The learner learns by DOING:
 your job is to sharpen their thinking, never to do the design for them. The moment you hand over the
@@ -386,7 +399,7 @@ Allowed node types: ${allowedNodeTypes()}`;
 
 === THE DESIGN ON THE WHITEBOARD ===
 ${renderGraph(graph)}
-${selectionBlock}
+${selectionBlock}${reference ? `\n${reference}\nUse this material to keep your hint accurate. Do NOT dump it at them — one gap, one question.\n` : ''}
 === THE LEARNER ASKS ===
 ${question}`;
 
@@ -403,6 +416,7 @@ export function buildSocraticPrompt(
   graph: GraphDSL,
   question: string,
   answer: string,
+  reference = '',
 ): { system: string; user: string } {
   const system = `You grade a learner's written answer to a follow-up question from an architecture design
 review. Judge the ANSWER, not the design — the design already got its review. Be exact about what they
@@ -440,7 +454,7 @@ THEIR WRITTEN ANSWER:
 """
 ${answer}
 """
-
+${reference ? `\n${reference}\nJudge the answer against this material, not against your own recollection.\n` : ''}
 Grade the answer now. Output only the JSON object.`;
 
   return { system, user };

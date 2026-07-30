@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { DimensionKey } from '@loadbearing/shared';
+import type { DimensionKey, ScoreReference, ScoreResult } from '@loadbearing/shared';
 import { useApp } from '../state/appStore';
 import { useCanvas } from '../state/canvasStore';
 import { api, ApiError } from '../lib/api';
@@ -211,11 +211,18 @@ export function FeedbackPanel() {
               <p className="muted" style={{ fontSize: 12.5 }}>
                 {f.detail}
               </p>
-              {f.concept && <span className="chip fail">{f.concept}</span>}
+              <div className="row wrap" style={{ gap: 3 }}>
+                {f.concept && <span className="chip fail">{f.concept}</span>}
+                {(f.refs ?? []).map((ref) => (
+                  <SourceChip key={ref} id={ref} references={score.references} />
+                ))}
+              </div>
             </div>
           ))}
         </>
       )}
+
+      {score.references.length > 0 && <ReferencesUsed score={score} />}
 
       {score.risks.length > 0 && (
         <>
@@ -463,5 +470,56 @@ function SocraticQuestion({ question, problemId }: { question: string; problemId
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * A citation, rendered as something you can actually follow. The grader was
+ * shown a fixed set of reference entries and told to cite the ones it leaned on;
+ * this is the other half of that bargain — the learner gets to see the source and
+ * check the claim rather than take a model's word for it.
+ */
+function SourceChip({ id, references }: { id: string; references: ScoreReference[] }) {
+  const entry = references.find((r) => r.id === id);
+  if (!entry) return null;
+  return (
+    <span className="chip spec" title={`${entry.title}\n\nSource: ${entry.source}`}>
+      {entry.id}
+    </span>
+  );
+}
+
+function ReferencesUsed({ score }: { score: ScoreResult }) {
+  const [open, setOpen] = useState(false);
+  const used = new Set(score.references_used);
+  // Cited entries first: those are the ones the review actually rests on.
+  const ordered = [...score.references].sort(
+    (a, b) => Number(used.has(b.id)) - Number(used.has(a.id)) || a.id.localeCompare(b.id),
+  );
+
+  return (
+    <details className="card" open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary>
+        Grounded in {score.references.length} references
+        {score.references_used.length > 0 ? ` · ${score.references_used.length} cited` : ''}
+      </summary>
+      <p className="stencil" style={{ marginTop: 6 }}>
+        established practice retrieved for this problem and put in front of the grader before it judged
+      </p>
+      {ordered.map((r) => (
+        <div key={r.id} style={{ marginTop: 7 }}>
+          <div className="row wrap" style={{ gap: 4 }}>
+            <strong style={{ fontSize: 12.5 }}>{r.title}</strong>
+            {used.has(r.id) && <span className="chip pass">cited</span>}
+          </div>
+          <p className="muted" style={{ fontSize: 11.5, margin: '2px 0 0' }}>
+            {r.source}
+          </p>
+          <p className="stencil" style={{ margin: '2px 0 0' }}>
+            {r.because.join(' · ')}
+          </p>
+        </div>
+      ))}
+    </details>
   );
 }

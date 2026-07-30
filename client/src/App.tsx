@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { api, ApiError } from './lib/api';
+import { api, ApiError, setUnauthorizedHandler } from './lib/api';
 import { useApp, type LeftTab, type RightTab, type View } from './state/appStore';
 import { useCanvas } from './state/canvasStore';
 import { Canvas } from './canvas/Canvas';
@@ -16,6 +16,7 @@ import { ReferencePanel } from './panels/ReferencePanel';
 import { SettingsPanel } from './panels/SettingsPanel';
 import { ComposePanel } from './panels/ComposePanel';
 import { ChecksPanel } from './panels/ChecksPanel';
+import { SignInPanel } from './panels/SignInPanel';
 import { ErrorBoundary } from './ui/ErrorBoundary';
 import {
   IconBack,
@@ -48,13 +49,25 @@ export function App() {
   const setNotice = useApp((s) => s.setNotice);
   const stubMode = useApp((s) => s.stubMode);
   const llmConfigured = useApp((s) => s.llmConfigured);
+  const username = useApp((s) => s.username);
+  const authChecked = useApp((s) => s.authChecked);
+  const signedOut = useApp((s) => s.signedOut);
 
   useEffect(() => {
     const ping = async () => {
       try {
         const h = await api.health();
-        setHealth({ serverUp: h.ok, llmConfigured: h.llmConfigured, stubMode: h.fake });
+        setHealth({
+          serverUp: h.ok,
+          llmConfigured: h.llmConfigured,
+          stubMode: h.fake,
+          username: h.signedIn ? (h.username ?? null) : null,
+          storageKind: h.storage,
+          houseKey: h.houseKey,
+        });
       } catch {
+        // A server we cannot reach tells us nothing about the session, so the
+        // signed-in state is left alone rather than flipped to signed out.
         setHealth({ serverUp: false, llmConfigured: false, stubMode: false });
       }
     };
@@ -62,6 +75,28 @@ export function App() {
     const t = window.setInterval(ping, 15000);
     return () => window.clearInterval(t);
   }, [setHealth]);
+
+  // One place decides what an expired session looks like.
+  useEffect(() => {
+    setUnauthorizedHandler(() => signedOut());
+    return () => setUnauthorizedHandler(null);
+  }, [signedOut]);
+
+  if (!username) {
+    return (
+      <div className="shell">
+        <main className="main">
+          {authChecked ? (
+            <SignInPanel />
+          ) : (
+            <div className="sheet">
+              <p className="faint">Connecting…</p>
+            </div>
+          )}
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="shell">
@@ -82,6 +117,17 @@ export function App() {
           </button>
         ))}
         <span className="spacer" />
+        <button
+          title={`Signed in as ${username} — click to sign out`}
+          aria-label="Sign out"
+          onClick={() => {
+            void api.logout().catch(() => undefined);
+            signedOut();
+          }}
+          style={{ fontSize: 10, letterSpacing: '0.04em' }}
+        >
+          {username.slice(0, 2).toUpperCase()}
+        </button>
         <span
           className={`link-state ${serverUp ? 'up' : ''}`}
           title={serverUp ? 'Server connected on port 8787' : 'Server unreachable on port 8787'}

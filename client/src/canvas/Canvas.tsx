@@ -8,7 +8,10 @@ import {
   ReactFlowProvider,
   useReactFlow,
   type Connection,
+  type Edge,
   type EdgeTypes,
+  type FinalConnectionState,
+  type Node,
   type NodeTypes,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -24,11 +27,43 @@ import { SimHud } from './SimHud';
 import { TitleBlock } from './TitleBlock';
 import { QuickAdd } from './QuickAdd';
 import { AiBar } from './AiBar';
+import { EdgeTools } from './EdgeTools';
 import { useCanvas } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
 
 const nodeTypes: NodeTypes = { arch: ArchNode, sticky: StickyNode };
 const edgeTypes: EdgeTypes = { arch: ArchEdge };
+
+/**
+ * Which drawn connection passes under a point, in flow coordinates.
+ *
+ * Asked of the DOM rather than recomputed: the edges are smooth-step paths with
+ * corners, so re-deriving their geometry here would drift from what the user can
+ * see. React Flow renders every edge inside the viewport's transform, so the
+ * SVG's own user space IS flow space, and the wide invisible interaction stroke
+ * it draws for hit-testing gives the tolerance for free.
+ */
+function edgeUnderPoint(p: { x: number; y: number }): string | null {
+  if (typeof DOMPoint === 'undefined') return null;
+  const point = new DOMPoint(p.x, p.y);
+  const groups = document.querySelectorAll<SVGGElement>('.react-flow__edge');
+  for (const g of groups) {
+    const id = g.getAttribute('data-id');
+    if (!id) continue;
+    const path =
+      g.querySelector<SVGPathElement>('path.react-flow__edge-interaction') ??
+      g.querySelector<SVGPathElement>('path.react-flow__edge-path');
+    if (!path) continue;
+    try {
+      if (path.isPointInStroke(point)) return id;
+    } catch {
+      // Older engines reject a DOMPoint here; skipping the check just means the
+      // splice gesture is unavailable, not that dragging breaks.
+      return null;
+    }
+  }
+  return null;
+}
 
 function CanvasInner() {
   const wrap = useRef<HTMLDivElement>(null);
@@ -44,6 +79,10 @@ function CanvasInner() {
   const onConnect = useCanvas((s) => s.onConnect);
   const addArchNode = useCanvas((s) => s.addArchNode);
   const addSticky = useCanvas((s) => s.addSticky);
+  const reconnect = useCanvas((s) => s.reconnectEdge);
+  const detachEdge = useCanvas((s) => s.detachEdge);
+  const spliceNodeIntoEdge = useCanvas((s) => s.spliceNodeIntoEdge);
+  const setEdgeInsertTarget = useCanvas((s) => s.setEdgeInsertTarget);
   const deleteSelection = useCanvas((s) => s.deleteSelection);
   const undo = useCanvas((s) => s.undo);
   const redo = useCanvas((s) => s.redo);
@@ -115,6 +154,74 @@ function CanvasInner() {
     [onConnect, toGraph, edgeKind, setNotice],
   );
 
+  /**
+   * Re-pointing a connection. The edge keeps its id, its kind and its label —
+   * this is an edit to an existing connection, not a delete and a redraw — and
+   * the same compatibility check runs as when it was first drawn.
+   */
+  const reconnected = useRef(false);
+  const onReconnect = useCallback(
+    (oldEdge: Edge, next: Connection) => {
+      const ok = reconnect(oldEdge.id, next);
+      reconnected.current = true;
+      if (!ok) {
+        setNotice('That connection already exists (or points a component at itself), so nothing moved.');
+        return;
+      }
+      const graph = toGraph();
+      const from = graph.nodes.find((n) => n.id === next.source);
+      const to = graph.nodes.find((n) => n.id === next.target);
+      if (!from || !to) return;
+      const kind = (oldEdge.data as { kind?: typeof edgeKind } | undefined)?.kind ?? edgeKind;
+      const worst = checkConnection(from, to, kind).find((f) => f.severity === 'error');
+      if (worst) setNotice(`${worst.message} — ${worst.fix}`);
+    },
+    [reconnect, toGraph, edgeKind, setNotice],
+  );
+
+  /** Dragging an endpoint onto blank paper disconnects it — the obvious gesture. */
+  const onReconnectStart = useCallback(() => {
+    reconnected.current = false;
+  }, []);
+
+  const onReconnectEnd = useCallback(
+    (_e: MouseEvent | TouchEvent, edge: Edge, _handle: unknown, state: FinalConnectionState) => {
+      if (reconnected.current || state.isValid) return;
+      detachEdge(edge.id);
+      setNotice('Disconnected. Both components are still on the sheet — reconnect from either handle.');
+    },
+    [detachEdge, setNotice],
+  );
+
+  /**
+   * Drop a component on top of a connection and it is spliced into it: A→B
+   * becomes A→X→B, and any declared flow that walked A→B now walks through X.
+   * This is the fast way to add a cache, a queue or a gateway to a path that
+   * already exists, which is most of what editing an architecture consists of.
+   */
+  const onNodeDragStop = useCallback(
+    (_e: unknown, node: Node) => {
+      if (node.type !== 'arch') return;
+      if ((node.data as { archType?: string } | undefined)?.archType === 'group') return;
+      // Already wired into something? Then the drag was a move, not an insert.
+      const touching = edges.some((e) => e.source === node.id || e.target === node.id);
+      if (touching) return;
+
+      const center = {
+        x: node.position.x + (node.measured?.width ?? 168) / 2,
+        y: node.position.y + (node.measured?.height ?? 64) / 2,
+      };
+      const edgeId = edgeUnderPoint(center);
+      if (!edgeId) return;
+      const target = edges.find((e) => e.id === edgeId);
+      if (!target || target.source === node.id || target.target === node.id) return;
+      if (spliceNodeIntoEdge(edgeId, node.id)) {
+        setNotice('Spliced into that connection — the path now runs through this component.');
+      }
+    },
+    [edges, spliceNodeIntoEdge, setNotice],
+  );
+
   const onPaneClick = useCallback(
     (e: React.MouseEvent) => {
       if (tool !== 'sticky') return;
@@ -135,6 +242,11 @@ function CanvasInner() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnectChecked}
+        onReconnect={onReconnect}
+        onReconnectStart={onReconnectStart}
+        onReconnectEnd={onReconnectEnd}
+        onNodeDragStop={onNodeDragStop}
+        onEdgeDoubleClick={(_e, edge) => setEdgeInsertTarget(edge.id)}
         onDrop={onDrop}
         onDragOver={(e) => {
           e.preventDefault();
@@ -148,6 +260,7 @@ function CanvasInner() {
         zoomOnDoubleClick={false}
         defaultEdgeOptions={{ type: 'arch' }}
         connectionRadius={28}
+        reconnectRadius={14}
         minZoom={0.2}
         maxZoom={2.2}
         fitView
@@ -171,6 +284,7 @@ function CanvasInner() {
       <TitleBlock />
       <SimHud />
       <AiBar />
+      <EdgeTools />
       <QuickAdd />
     </div>
   );

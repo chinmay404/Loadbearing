@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { CONCEPTS, CONCEPT_CARDS } from '@loadbearing/shared';
 import type { Problem, ProblemSummary } from '@loadbearing/shared';
-import { db } from '../db.js';
+import { storage, type Storage } from '../storage/index.js';
+import { requireUser, type AppEnv } from '../auth/middleware.js';
 import { PROBLEM_BANK } from './bank.js';
 import { validateProblem } from './validate.js';
 import { buildProblemGenPrompt } from '../scoring/prompt.js';
@@ -9,27 +10,32 @@ import { completeJson } from '../llm/adapter.js';
 import { loadLlmConfig } from '../llm/settings.js';
 import { registerReferenceRoutes } from './reference.js';
 
-export const problemRoutes = new Hono();
+export const problemRoutes = new Hono<AppEnv>();
 
-function customProblems(): Problem[] {
-  const rows = db().prepare('SELECT json FROM problems_custom ORDER BY created_at DESC').all() as {
-    json: string;
-  }[];
-  return rows.flatMap((r) => {
+async function customProblems(store: Storage, userId: string): Promise<Problem[]> {
+  const rows = await store.listCustomProblems(userId);
+  return rows.flatMap((json) => {
     try {
-      return [JSON.parse(r.json) as Problem];
+      return [JSON.parse(json) as Problem];
     } catch {
       return [];
     }
   });
 }
 
-export function allProblems(): Problem[] {
-  return [...PROBLEM_BANK, ...customProblems()];
+/** The shared bank plus this user's own composed sheets. */
+export async function allProblems(store: Storage, userId: string): Promise<Problem[]> {
+  return [...PROBLEM_BANK, ...(await customProblems(store, userId))];
 }
 
-export function findProblem(id: string): Problem | undefined {
-  return allProblems().find((p) => p.id === id);
+export async function findProblem(
+  store: Storage,
+  userId: string,
+  id: string,
+): Promise<Problem | undefined> {
+  const fromBank = PROBLEM_BANK.find((p) => p.id === id);
+  if (fromBank) return fromBank;
+  return (await customProblems(store, userId)).find((p) => p.id === id);
 }
 
 const summarize = (p: Problem): ProblemSummary => ({
@@ -42,53 +48,67 @@ const summarize = (p: Problem): ProblemSummary => ({
 });
 
 /** Concepts the learner is weakest on, plus a level suited to their history. */
-export function weaknessTarget(): { level: number; concepts: string[] } {
-  const rows = db().prepare('SELECT concept, ema_score FROM mastery').all() as {
-    concept: string;
-    ema_score: number;
-  }[];
-  const seen = new Map(rows.map((r) => [r.concept, r.ema_score]));
+export async function weaknessTarget(
+  store: Storage,
+  userId: string,
+): Promise<{ level: number; concepts: string[] }> {
+  const rows = await store.listMastery(userId);
+  const seen = new Map(rows.map((r) => [r.concept, r.emaScore]));
   const scored = CONCEPTS.map((c) => ({ concept: c, score: seen.has(c) ? seen.get(c)! : 0.4 }));
   scored.sort((a, b) => a.score - b.score);
   const concepts = scored.slice(0, 3).map((s) => s.concept);
 
-  const stats = db().prepare('SELECT COUNT(*) AS n, AVG(overall) AS avg FROM attempts').get() as {
-    n: number;
-    avg: number | null;
-  };
-  const base = 1 + Math.floor(stats.n / 5);
-  const adjust = (stats.avg ?? 0) >= 75 ? 1 : 0;
+  const stats = await store.statsAgg(userId);
+  const base = 1 + Math.floor(stats.attempts / 5);
+  const adjust = (stats.avgOverall ?? 0) >= 75 ? 1 : 0;
   const level = Math.max(1, Math.min(6, base + adjust));
   return { level, concepts };
 }
 
-problemRoutes.get('/problems', (c) => c.json(allProblems().map(summarize)));
+// The bank is the same for everyone, so browsing it needs no account. Anything
+// that reads or writes a person's own work goes through requireUser.
+problemRoutes.get('/problems', async (c) => {
+  const store = await storage();
+  const userId = c.get('userId');
+  const problems = userId ? await allProblems(store, userId) : PROBLEM_BANK;
+  return c.json(problems.map(summarize));
+});
 
-problemRoutes.get('/problems/:id', (c) => {
-  const p = findProblem(c.req.param('id'));
+problemRoutes.get('/concepts', (c) => c.json(CONCEPT_CARDS));
+
+problemRoutes.get('/weakness-target', requireUser, async (c) =>
+  c.json(await weaknessTarget(await storage(), c.get('userId'))),
+);
+
+problemRoutes.get('/problems/:id', async (c) => {
+  const store = await storage();
+  const userId = c.get('userId');
+  const p = userId
+    ? await findProblem(store, userId, c.req.param('id'))
+    : PROBLEM_BANK.find((x) => x.id === c.req.param('id'));
   if (!p) return c.json({ error: { code: 'not_found', message: 'No such problem' } }, 404);
   return c.json(p);
 });
 
-problemRoutes.get('/weakness-target', (c) => c.json(weaknessTarget()));
-
-problemRoutes.get('/concepts', (c) => c.json(CONCEPT_CARDS));
-
-problemRoutes.post('/problems/generate', async (c) => {
+problemRoutes.post('/problems/generate', requireUser, async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { level?: number; concepts?: string[] };
-  const target = weaknessTarget();
+  const store = await storage();
+  const userId = c.get('userId');
+  const target = await weaknessTarget(store, userId);
   const level = Math.max(1, Math.min(6, Math.round(body.level ?? target.level)));
   const concepts = body.concepts?.length ? body.concepts : target.concepts;
 
   const { system, user } = buildProblemGenPrompt(level, concepts);
-  const raw = await completeJson<unknown>(loadLlmConfig(db()), system, user, { maxTokens: 4000, temperature: 0.8 });
+  const raw = await completeJson<unknown>(await loadLlmConfig(store, userId), system, user, {
+    maxTokens: 4000,
+    temperature: 0.8,
+  });
   const problem = validateProblem(raw);
 
-  const id = findProblem(problem.id) ? `${problem.id}-${Date.now().toString(36)}` : problem.id;
+  const taken = await findProblem(store, userId, problem.id);
+  const id = taken ? `${problem.id}-${Date.now().toString(36)}` : problem.id;
   const stored: Problem = { ...problem, id, custom: true };
-  db()
-    .prepare('INSERT INTO problems_custom (id, json) VALUES (?, ?)')
-    .run(stored.id, JSON.stringify(stored));
+  await store.insertCustomProblem(userId, stored.id, JSON.stringify(stored));
   return c.json(stored);
 });
 
@@ -97,7 +117,7 @@ problemRoutes.post('/problems/generate', async (c) => {
  * does, the traffic, the constraints — and the model shapes it into a problem with a
  * rubric, so the review that follows judges YOUR system against YOUR numbers.
  */
-problemRoutes.post('/problems/from-brief', async (c) => {
+problemRoutes.post('/problems/from-brief', requireUser, async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     brief?: string;
     constraints?: string;
@@ -150,20 +170,22 @@ ${scale ? `\nScale and traffic they gave (respect these exactly where stated):\n
 ${constraints ? `\nHard constraints they are under (these decide what counts as overengineering):\n"""\n${constraints}\n"""` : ''}
 ${focus.length ? `\nThe answer must demonstrate these concepts, so build the problem around them: ${focus.join(', ')}` : ''}`;
 
-  const raw = await completeJson<unknown>(loadLlmConfig(db()), system, user, {
+  const store = await storage();
+  const userId = c.get('userId');
+  const raw = await completeJson<unknown>(await loadLlmConfig(store, userId), system, user, {
     maxTokens: 4000,
     temperature: 0.4,
   });
   const problem = validateProblem(raw);
-  const id = findProblem(problem.id) ? `${problem.id}-${Date.now().toString(36)}` : problem.id;
+  const taken = await findProblem(store, userId, problem.id);
+  const id = taken ? `${problem.id}-${Date.now().toString(36)}` : problem.id;
   const stored: Problem = { ...problem, id, custom: true };
-  db().prepare('INSERT INTO problems_custom (id, json) VALUES (?, ?)').run(stored.id, JSON.stringify(stored));
+  await store.insertCustomProblem(userId, stored.id, JSON.stringify(stored));
   return c.json(stored);
 });
 
-problemRoutes.delete('/problems/:id', (c) => {
-  const id = c.req.param('id');
-  db().prepare('DELETE FROM problems_custom WHERE id = ?').run(id);
+problemRoutes.delete('/problems/:id', requireUser, async (c) => {
+  await (await storage()).deleteCustomProblem(c.get('userId'), c.req.param('id'));
   return c.json({ ok: true });
 });
 

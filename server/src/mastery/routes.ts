@@ -1,17 +1,13 @@
 import { Hono } from 'hono';
 import { CONCEPT_CARDS } from '@loadbearing/shared';
 import type { MasteryEntry, Stats } from '@loadbearing/shared';
-import { db } from '../db.js';
+import { storage } from '../storage/index.js';
+import { requireUser, type AppEnv } from '../auth/middleware.js';
 
-export const masteryRoutes = new Hono();
+export const masteryRoutes = new Hono<AppEnv>();
 
-masteryRoutes.get('/mastery', (c) => {
-  const rows = db().prepare('SELECT concept, ema_score, attempts, last_seen FROM mastery').all() as {
-    concept: string;
-    ema_score: number;
-    attempts: number;
-    last_seen: string | null;
-  }[];
+masteryRoutes.get('/mastery', requireUser, async (c) => {
+  const rows = await (await storage()).listMastery(c.get('userId'));
   const byId = new Map(rows.map((r) => [r.concept, r]));
   const entries: MasteryEntry[] = CONCEPT_CARDS.map((card) => {
     const row = byId.get(card.id);
@@ -19,9 +15,9 @@ masteryRoutes.get('/mastery', (c) => {
       concept: card.id,
       name: card.name,
       group: card.group,
-      ema: row ? row.ema_score : null,
+      ema: row ? row.emaScore : null,
       attempts: row ? row.attempts : 0,
-      lastSeen: row?.last_seen ?? null,
+      lastSeen: row?.lastSeen ?? null,
     };
   });
   return c.json(entries);
@@ -39,26 +35,19 @@ const REVIEW_INTERVAL_DAYS = (ema: number): number => {
   return 1;
 };
 
-masteryRoutes.get('/review-queue', (c) => {
-  const rows = db()
-    .prepare(
-      `SELECT concept, ema_score, attempts, last_seen,
-              julianday('now') - julianday(last_seen) AS days_since
-       FROM mastery WHERE last_seen IS NOT NULL`,
-    )
-    .all() as { concept: string; ema_score: number; attempts: number; days_since: number }[];
-
+masteryRoutes.get('/review-queue', requireUser, async (c) => {
+  const rows = await (await storage()).reviewQueue(c.get('userId'));
   const cardById = new Map(CONCEPT_CARDS.map((card) => [card.id, card]));
   const due = rows
     .filter((r) => cardById.has(r.concept))
     .map((r) => {
-      const interval = REVIEW_INTERVAL_DAYS(r.ema_score);
+      const interval = REVIEW_INTERVAL_DAYS(r.emaScore);
       return {
         concept: r.concept,
         name: cardById.get(r.concept)!.name,
         group: cardById.get(r.concept)!.group,
-        ema: r.ema_score,
-        overdueDays: Math.floor(r.days_since - interval),
+        ema: r.emaScore,
+        overdueDays: Math.floor(r.daysSince - interval),
         intervalDays: interval,
       };
     })
@@ -69,25 +58,19 @@ masteryRoutes.get('/review-queue', (c) => {
   return c.json({ due, drillConcepts: due.slice(0, 3).map((d) => d.concept) });
 });
 
-masteryRoutes.get('/stats', (c) => {
-  const agg = db().prepare('SELECT COUNT(*) AS n, AVG(overall) AS avg FROM attempts').get() as {
-    n: number;
-    avg: number | null;
-  };
-  const trendRows = db()
-    .prepare(
-      `SELECT date(created_at) AS date, overall FROM attempts ORDER BY id DESC LIMIT 40`,
-    )
-    .all() as { date: string; overall: number }[];
-
-  const days = db()
-    .prepare(`SELECT DISTINCT date(created_at) AS d FROM attempts ORDER BY d DESC`)
-    .all() as { d: string }[];
+masteryRoutes.get('/stats', requireUser, async (c) => {
+  const store = await storage();
+  const userId = c.get('userId');
+  const [agg, trendRows, days] = await Promise.all([
+    store.statsAgg(userId),
+    store.statsTrend(userId, 40),
+    store.statsDays(userId),
+  ]);
 
   const stats: Stats = {
-    attempts: agg.n,
-    avgOverall: agg.avg === null ? null : Math.round(agg.avg),
-    streakDays: computeStreak(days.map((r) => r.d)),
+    attempts: agg.attempts,
+    avgOverall: agg.avgOverall === null ? null : Math.round(agg.avgOverall),
+    streakDays: computeStreak(days),
     trend: trendRows.reverse(),
   };
   return c.json(stats);

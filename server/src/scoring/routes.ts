@@ -8,35 +8,27 @@ import {
   simulate,
 } from '@loadbearing/shared';
 import type { Attempt, GraphDSL, ScoreResult, SimConfig } from '@loadbearing/shared';
-import { db, upsertMastery } from '../db.js';
+import { storage } from '../storage/index.js';
+import type { AttemptRow } from '../storage/types.js';
+import { requireUser, type AppEnv } from '../auth/middleware.js';
 import { cachedCompleteJson } from '../llm/cache.js';
 import { loadLlmConfig } from '../llm/settings.js';
+import { referenceBriefFor } from '../reference/inject.js';
 import { findProblem } from '../problems/routes.js';
 import { buildCritiquePrompt, buildScoringPrompt, buildSocraticPrompt } from './prompt.js';
 import { sanitizeGraph, validateCritique, validateScore, validateSocratic } from './validate.js';
 
-export const scoringRoutes = new Hono();
-
-interface AttemptRow {
-  id: number;
-  problem_id: string;
-  round: number;
-  graph_json: string;
-  score_json: string;
-  overall: number;
-  twist_text: string | null;
-  created_at: string;
-}
+export const scoringRoutes = new Hono<AppEnv>();
 
 const rowToAttempt = (r: AttemptRow): Attempt => ({
   id: r.id,
-  problemId: r.problem_id,
+  problemId: r.problemId,
   round: r.round,
-  graph: JSON.parse(r.graph_json) as GraphDSL,
-  score: normalizeScore(JSON.parse(r.score_json) as Partial<ScoreResult>),
+  graph: JSON.parse(r.graphJson) as GraphDSL,
+  score: normalizeScore(JSON.parse(r.scoreJson) as Partial<ScoreResult>),
   overall: r.overall,
-  ...(r.twist_text ? { twistText: r.twist_text } : {}),
-  createdAt: r.created_at,
+  ...(r.twistText ? { twistText: r.twistText } : {}),
+  createdAt: r.createdAt,
 });
 
 /** Runs the capacity model at the harshest scenario so the grader sees evidence. */
@@ -49,7 +41,7 @@ function simulateForGrading(graph: GraphDSL, multiplier: number) {
   }
 }
 
-scoringRoutes.post('/attempts', async (c) => {
+scoringRoutes.post('/attempts', requireUser, async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     problemId?: string;
     round?: number;
@@ -58,7 +50,9 @@ scoringRoutes.post('/attempts', async (c) => {
     previousOverall?: number;
   };
 
-  const problem = findProblem(String(body.problemId ?? ''));
+  const store = await storage();
+  const userId = c.get('userId');
+  const problem = await findProblem(store, userId, String(body.problemId ?? ''));
   if (!problem) return c.json({ error: { code: 'not_found', message: 'Unknown problem id' } }, 404);
 
   const graph = sanitizeGraph(body.graph);
@@ -97,73 +91,80 @@ scoringRoutes.post('/attempts', async (c) => {
   // adaptation itself, not just the design that resulted.
   let changes: string[] | undefined;
   if (twist) {
-    const prev = db()
-      .prepare('SELECT graph_json FROM attempts WHERE problem_id = ? ORDER BY id DESC LIMIT 1')
-      .get(problem.id) as { graph_json: string } | undefined;
+    const prev = await store.latestAttemptGraph(userId, problem.id);
     if (prev) {
       try {
-        changes = renderDiffLines(diffGraphs(JSON.parse(prev.graph_json) as GraphDSL, graph));
+        changes = renderDiffLines(diffGraphs(JSON.parse(prev) as GraphDSL, graph));
       } catch {
         changes = undefined;
       }
     }
   }
 
-  const { system, user } = buildScoringPrompt({ problem, graph, sim, checks, gates, changes, twist });
-  const { value: raw, cached } = await cachedCompleteJson<unknown>(loadLlmConfig(db()), system, user, {
-    maxTokens: 16000,
-    temperature: 0.2,
-  });
-  const score = validateScore(raw, graph);
+  // Established practice for THIS problem and THIS drawing, so the review rests
+  // on documented engineering rather than on whatever the model recalls.
+  const brief = referenceBriefFor({ problem, graph, limit: 8 });
 
-  const info = db()
-    .prepare(
-      `INSERT INTO attempts (problem_id, round, graph_json, score_json, overall, twist_text)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      problem.id,
-      round,
-      JSON.stringify(graph),
-      JSON.stringify(score),
-      score.overall,
-      twist?.text ?? null,
-    );
+  const { system, user } = buildScoringPrompt({
+    problem,
+    graph,
+    sim,
+    checks,
+    gates,
+    changes,
+    twist,
+    reference: brief.text,
+  });
+  const { value: raw, cached } = await cachedCompleteJson<unknown>(
+    await loadLlmConfig(store, userId),
+    system,
+    user,
+    { maxTokens: 16000, temperature: 0.2 },
+  );
+  const score = validateScore(raw, graph, brief.allowed);
+  score.references = brief.sources;
+
+  const attemptId = await store.insertAttempt(userId, {
+    problemId: problem.id,
+    round,
+    graphJson: JSON.stringify(graph),
+    scoreJson: JSON.stringify(score),
+    overall: score.overall,
+    twistText: twist?.text ?? null,
+  });
 
   for (const [concept, value] of Object.entries(score.concept_scores)) {
-    upsertMastery(db(), concept, value);
+    await store.upsertMastery(userId, concept, value);
   }
 
-  return c.json({ attemptId: Number(info.lastInsertRowid), score, sim: sim ?? null, checks, cached });
+  return c.json({ attemptId, score, sim: sim ?? null, checks, cached });
 });
 
-scoringRoutes.get('/attempts', (c) => {
-  const problemId = c.req.query('problemId');
-  const rows = (
-    problemId
-      ? db().prepare('SELECT * FROM attempts WHERE problem_id = ? ORDER BY id DESC').all(problemId)
-      : db().prepare('SELECT * FROM attempts ORDER BY id DESC LIMIT 100').all()
-  ) as unknown as AttemptRow[];
+scoringRoutes.get('/attempts', requireUser, async (c) => {
+  const rows = await (await storage()).listAttempts(
+    c.get('userId'),
+    c.req.query('problemId') ?? undefined,
+  );
   return c.json(rows.map(rowToAttempt));
 });
 
-scoringRoutes.get('/attempts/:id', (c) => {
-  const row = db()
-    .prepare('SELECT * FROM attempts WHERE id = ?')
-    .get(Number(c.req.param('id'))) as AttemptRow | undefined;
+scoringRoutes.get('/attempts/:id', requireUser, async (c) => {
+  const row = await (await storage()).getAttempt(c.get('userId'), Number(c.req.param('id')));
   if (!row) return c.json({ error: { code: 'not_found', message: 'No such attempt' } }, 404);
   return c.json(rowToAttempt(row));
 });
 
 /** Ask the architect about the design currently on the canvas. */
-scoringRoutes.post('/critique', async (c) => {
+scoringRoutes.post('/critique', requireUser, async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     problemId?: string;
     graph?: unknown;
     question?: string;
     selectedNodeIds?: unknown;
   };
-  const problem = findProblem(String(body.problemId ?? ''));
+  const store = await storage();
+  const userId = c.get('userId');
+  const problem = await findProblem(store, userId, String(body.problemId ?? ''));
   if (!problem) return c.json({ error: { code: 'not_found', message: 'Unknown problem id' } }, 404);
   const question = String(body.question ?? '').trim();
   if (!question) return c.json({ error: { code: 'bad_request', message: 'Ask a question first.' } }, 400);
@@ -172,18 +173,23 @@ scoringRoutes.post('/critique', async (c) => {
   const selectedNodeIds = (Array.isArray(body.selectedNodeIds) ? body.selectedNodeIds : []).filter(
     (x): x is string => typeof x === 'string',
   );
-  const { system, user } = buildCritiquePrompt(problem, graph, question, selectedNodeIds);
-  const { value: raw } = await cachedCompleteJson<unknown>(loadLlmConfig(db()), system, user, {
-    maxTokens: 4000,
-    temperature: 0.4,
-  });
+  // The question itself is part of the retrieval query — asking about retries
+  // should surface the retry material even if the problem never says the word.
+  const brief = referenceBriefFor({ problem, graph, text: question, limit: 4 });
+  const { system, user } = buildCritiquePrompt(problem, graph, question, selectedNodeIds, brief.text);
+  const { value: raw } = await cachedCompleteJson<unknown>(
+    await loadLlmConfig(store, userId),
+    system,
+    user,
+    { maxTokens: 4000, temperature: 0.4 },
+  );
   const critique = validateCritique(raw, graph);
 
   // The coach hints; it does not build. Whatever the model wanted, an empty
   // canvas gets no ghost components, and a question never earns more than one.
   critique.suggested_additions = graph.nodes.length === 0 ? [] : critique.suggested_additions.slice(0, 1);
   if (graph.nodes.length === 0) critique.canvas_markup = [];
-  return c.json(critique);
+  return c.json({ ...critique, references: brief.sources });
 });
 
 /**
@@ -191,14 +197,16 @@ scoringRoutes.post('/critique', async (c) => {
  * the second half of the learning loop: the review asked, the learner thought,
  * this says whether the thinking held — and mastery moves accordingly.
  */
-scoringRoutes.post('/socratic', async (c) => {
+scoringRoutes.post('/socratic', requireUser, async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     problemId?: string;
     graph?: unknown;
     question?: string;
     answer?: string;
   };
-  const problem = findProblem(String(body.problemId ?? ''));
+  const store = await storage();
+  const userId = c.get('userId');
+  const problem = await findProblem(store, userId, String(body.problemId ?? ''));
   if (!problem) return c.json({ error: { code: 'not_found', message: 'Unknown problem id' } }, 404);
   const question = String(body.question ?? '').trim();
   const answer = String(body.answer ?? '').trim();
@@ -216,17 +224,20 @@ scoringRoutes.post('/socratic', async (c) => {
   }
 
   const graph = sanitizeGraph(body.graph);
-  const { system, user } = buildSocraticPrompt(problem, graph, question, answer);
-  const { value: raw } = await cachedCompleteJson<unknown>(loadLlmConfig(db()), system, user, {
-    maxTokens: 2500,
-    temperature: 0.2,
-  });
+  const brief = referenceBriefFor({ problem, graph, text: question, limit: 4 });
+  const { system, user } = buildSocraticPrompt(problem, graph, question, answer, brief.text);
+  const { value: raw } = await cachedCompleteJson<unknown>(
+    await loadLlmConfig(store, userId),
+    system,
+    user,
+    { maxTokens: 2500, temperature: 0.2 },
+  );
   const graded = validateSocratic(raw);
 
   for (const [concept, value] of Object.entries(graded.concept_scores)) {
-    upsertMastery(db(), concept, value);
+    await store.upsertMastery(userId, concept, value);
   }
-  return c.json(graded);
+  return c.json({ ...graded, references: brief.sources });
 });
 
 /** Run the deterministic simulator without spending a token. */

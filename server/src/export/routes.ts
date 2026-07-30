@@ -3,10 +3,26 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { normalizeScore } from '@loadbearing/shared';
 import type { Attempt, GraphDSL, Problem, ScoreResult } from '@loadbearing/shared';
-import { db } from '../db.js';
+import { storage } from '../storage/index.js';
+import type { AttemptRow } from '../storage/types.js';
+import { requireUser, type AppEnv } from '../auth/middleware.js';
 import { findProblem } from '../problems/routes.js';
 
-export const exportRoutes = new Hono();
+export const exportRoutes = new Hono<AppEnv>();
+
+/** Writing into an Obsidian vault only makes sense where there is a filesystem. */
+const CAN_WRITE_FILES = !process.env.VERCEL;
+
+const toAttempt = (r: AttemptRow): Attempt => ({
+  id: r.id,
+  problemId: r.problemId,
+  round: r.round,
+  graph: JSON.parse(r.graphJson) as GraphDSL,
+  score: normalizeScore(JSON.parse(r.scoreJson) as Partial<ScoreResult>),
+  overall: r.overall,
+  ...(r.twistText ? { twistText: r.twistText } : {}),
+  createdAt: r.createdAt,
+});
 
 const VAULT_DIR = process.env.LOADBEARING_EXPORT_DIR ?? 'D:\\Obsidian_notes_206\\Notes\\Loadbearing';
 
@@ -228,34 +244,26 @@ ${s.socratic_questions.length ? s.socratic_questions.map((q) => `- ${q}`).join('
 `;
 }
 
-exportRoutes.post('/export/:attemptId', (c) => {
-  const id = Number(c.req.param('attemptId'));
-  const row = db().prepare('SELECT * FROM attempts WHERE id = ?').get(id) as
-    | {
-        id: number;
-        problem_id: string;
-        round: number;
-        graph_json: string;
-        score_json: string;
-        overall: number;
-        twist_text: string | null;
-        created_at: string;
-      }
-    | undefined;
+exportRoutes.post('/export/:attemptId', requireUser, async (c) => {
+  if (!CAN_WRITE_FILES) {
+    return c.json(
+      {
+        error: {
+          code: 'no_filesystem',
+          message: 'This deployment has no writable filesystem, so it cannot write into your vault.',
+          hint: 'Use "copy as text" instead, or run Loadbearing locally to export straight into Obsidian.',
+        },
+      },
+      501,
+    );
+  }
+  const store = await storage();
+  const userId = c.get('userId');
+  const row = await store.getAttempt(userId, Number(c.req.param('attemptId')));
   if (!row) return c.json({ error: { code: 'not_found', message: 'No such attempt' } }, 404);
 
-  const attempt: Attempt = {
-    id: row.id,
-    problemId: row.problem_id,
-    round: row.round,
-    graph: JSON.parse(row.graph_json) as GraphDSL,
-    score: normalizeScore(JSON.parse(row.score_json) as Partial<ScoreResult>),
-    overall: row.overall,
-    ...(row.twist_text ? { twistText: row.twist_text } : {}),
-    createdAt: row.created_at,
-  };
-
-  const problem = findProblem(attempt.problemId);
+  const attempt = toAttempt(row);
+  const problem = await findProblem(store, userId, attempt.problemId);
   const title = problem?.title ?? attempt.problemId;
   const level = problem?.level ?? 0;
 
@@ -277,24 +285,14 @@ exportRoutes.post('/export/:attemptId', (c) => {
 });
 
 /** The same two documents, returned as text for copying into a PR or a doc. */
-exportRoutes.get('/export/:attemptId/text', (c) => {
-  const id = Number(c.req.param('attemptId'));
-  const row = db().prepare('SELECT * FROM attempts WHERE id = ?').get(id) as
-    | Record<string, unknown>
-    | undefined;
+exportRoutes.get('/export/:attemptId/text', requireUser, async (c) => {
+  const store = await storage();
+  const userId = c.get('userId');
+  const row = await store.getAttempt(userId, Number(c.req.param('attemptId')));
   if (!row) return c.json({ error: { code: 'not_found', message: 'No such attempt' } }, 404);
 
-  const attempt: Attempt = {
-    id: Number(row.id),
-    problemId: String(row.problem_id),
-    round: Number(row.round),
-    graph: JSON.parse(String(row.graph_json)) as GraphDSL,
-    score: normalizeScore(JSON.parse(String(row.score_json)) as Partial<ScoreResult>),
-    overall: Number(row.overall),
-    ...(row.twist_text ? { twistText: String(row.twist_text) } : {}),
-    createdAt: String(row.created_at),
-  };
-  const problem = findProblem(attempt.problemId);
+  const attempt = toAttempt(row);
+  const problem = await findProblem(store, userId, attempt.problemId);
   const title = problem?.title ?? attempt.problemId;
   const format = c.req.query('format') === 'adr' ? 'adr' : 'review';
   return c.json({

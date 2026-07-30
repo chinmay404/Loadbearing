@@ -75,7 +75,20 @@ export function QuickAdd() {
   const [q, setQ] = useState('');
   const [cursor, setCursor] = useState(0);
   const addAtCenter = useCanvas((s) => s.addArchNodeAtCenter);
+  const edgeInsertTarget = useCanvas((s) => s.edgeInsertTarget);
+  const setEdgeInsertTarget = useCanvas((s) => s.setEdgeInsertTarget);
+  const insertNodeOnEdge = useCanvas((s) => s.insertNodeOnEdge);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // The same picker serves two jobs: place a component, or fill a gap in an
+  // existing connection. Only the destination differs, so it is one component.
+  const insertingIntoEdge = edgeInsertTarget !== null;
+  const visible = open || insertingIntoEdge;
+
+  const close = () => {
+    setOpen(false);
+    setEdgeInsertTarget(null);
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -86,15 +99,20 @@ export function QuickAdd() {
         setOpen(true);
       } else if (e.key === 'Escape') {
         setOpen(false);
+        setEdgeInsertTarget(null);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [setEdgeInsertTarget]);
 
   useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
+    if (visible) {
+      setQ('');
+      setCursor(0);
+      inputRef.current?.focus();
+    }
+  }, [visible]);
 
   const hits = useMemo<(NodeSpec & { matchedAlias?: string })[]>(() => {
     const needle = q.trim().toLowerCase();
@@ -127,13 +145,14 @@ export function QuickAdd() {
       })) as (NodeSpec & { matchedAlias?: string })[];
   }, [q]);
 
-  if (!open) return null;
+  if (!visible) return null;
 
   const place = (index: number) => {
     const spec = hits[index];
     if (!spec) return;
-    addAtCenter(spec.type);
-    setOpen(false);
+    if (edgeInsertTarget) insertNodeOnEdge(edgeInsertTarget, spec.type);
+    else addAtCenter(spec.type);
+    close();
   };
 
   return (
@@ -147,13 +166,18 @@ export function QuickAdd() {
         placeItems: 'start center',
         paddingTop: '12vh',
       }}
-      onClick={() => setOpen(false)}
+      onClick={close}
     >
       <div
         className="card"
         style={{ width: 'min(440px, 90%)', padding: 0, overflow: 'hidden' }}
         onClick={(e) => e.stopPropagation()}
       >
+        {insertingIntoEdge && (
+          <div className="stencil" style={{ padding: '6px 11px', borderBottom: '1px solid var(--rule)' }}>
+            inserting into the selected connection — it will be rewired through the component you pick
+          </div>
+        )}
         <input
           ref={inputRef}
           value={q}
@@ -161,7 +185,7 @@ export function QuickAdd() {
             setQ(e.target.value);
             setCursor(0);
           }}
-          placeholder="Add a component…"
+          placeholder={insertingIntoEdge ? 'Put which component in between?' : 'Add a component…'}
           style={{ border: 'none', borderBottom: '1px solid var(--rule)', borderRadius: 0, padding: '9px 11px' }}
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown') {

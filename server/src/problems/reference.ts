@@ -6,25 +6,13 @@
 import type { Hono } from 'hono';
 import { ARCH_NODE_TYPES } from '@loadbearing/shared';
 import type { GraphDSL } from '@loadbearing/shared';
-import { db } from '../db.js';
+import { storage } from '../storage/index.js';
+import { requireUser, type AppEnv } from '../auth/middleware.js';
 import { cachedCompleteJson } from '../llm/cache.js';
 import { loadLlmConfig } from '../llm/settings.js';
+import { referenceBriefFor } from '../reference/inject.js';
 import { sanitizeGraph } from '../scoring/validate.js';
 import { findProblem } from './routes.js';
-
-let tableReady = false;
-
-function ensureTable(): void {
-  if (tableReady) return;
-  db().exec(`
-    CREATE TABLE IF NOT EXISTS reference_designs (
-      problem_id TEXT PRIMARY KEY,
-      graph_json TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `);
-  tableReady = true;
-}
 
 // Static text first, problem-specific data last — the prompt prefix stays
 // byte-identical across problems, so provider-side prefix caching can bite.
@@ -66,43 +54,48 @@ Rules:
 - "stickies" holds the 2-3 capacity-math notes a reviewer would jot in the margin: the back-of-envelope sums that justify the rps figures and replica counts.
 - The design must MEET the problem's constraints — team size, budget, simplicity. No gold-plating: every component must earn its place under THIS problem's numbers, and a small team must be able to run it.
 - The design must be simulatable: flows connected end to end through nodes that exist, with realistic capacities so it holds the problem's stated load.
+- Where the reference material below covers a decision, follow it rather than improvising, and name the practice in the relevant node's annotation.
 
 Allowed node types (use these exact strings): ${ARCH_NODE_TYPES.join(', ')}`;
 
-export function registerReferenceRoutes(r: Hono): void {
-  r.post('/problems/:id/reference', async (c) => {
-    const problem = findProblem(c.req.param('id'));
+export function registerReferenceRoutes(r: Hono<AppEnv>): void {
+  r.post('/problems/:id/reference', requireUser, async (c) => {
+    const store = await storage();
+    const userId = c.get('userId');
+    const problem = await findProblem(store, userId, c.req.param('id'));
     if (!problem) {
       return c.json({ error: { code: 'not_found', message: 'No such problem' } }, 404);
     }
 
-    ensureTable();
-    const row = db()
-      .prepare('SELECT graph_json FROM reference_designs WHERE problem_id = ?')
-      .get(problem.id) as { graph_json: string } | undefined;
-    if (row) {
+    const stored = await store.getReference(problem.id);
+    if (stored) {
       try {
-        const graph = JSON.parse(row.graph_json) as GraphDSL;
-        return c.json({ graph, cached: true });
+        return c.json({ graph: JSON.parse(stored) as GraphDSL, cached: true });
       } catch {
         // A stored row that no longer parses is corrupt — fall through and regenerate.
       }
     }
 
-    const user = JSON.stringify(problem);
+    const brief = referenceBriefFor({ problem });
+    const user = `${JSON.stringify(problem)}${brief.text ? `\n\n${brief.text}` : ''}`;
     // Generous budget: reasoning models think before they answer, and a
     // truncated reply salvages into a useless fragment. The validate hook keeps
     // any such fragment out of the cache so a retry genuinely retries.
-    const { value } = await cachedCompleteJson<unknown>(loadLlmConfig(db()), SYSTEM_PROMPT, user, {
-      maxTokens: 9000,
-      temperature: 0.3,
-      validate: (v) => {
-        const g = (v as { graph?: unknown })?.graph ?? v;
-        const nodes = (g as { nodes?: unknown })?.nodes;
-        const flows = (g as { flows?: unknown })?.flows;
-        return Array.isArray(nodes) && nodes.length >= 3 && Array.isArray(flows) && flows.length >= 1;
+    const { value } = await cachedCompleteJson<unknown>(
+      await loadLlmConfig(store, userId),
+      SYSTEM_PROMPT,
+      user,
+      {
+        maxTokens: 9000,
+        temperature: 0.3,
+        validate: (v) => {
+          const g = (v as { graph?: unknown })?.graph ?? v;
+          const nodes = (g as { nodes?: unknown })?.nodes;
+          const flows = (g as { flows?: unknown })?.flows;
+          return Array.isArray(nodes) && nodes.length >= 3 && Array.isArray(flows) && flows.length >= 1;
+        },
       },
-    });
+    );
 
     // Some models wrap the design in { "graph": ... } — accept both shapes.
     const graph = sanitizeGraph((value as { graph?: unknown })?.graph ?? value);
@@ -119,13 +112,7 @@ export function registerReferenceRoutes(r: Hono): void {
       );
     }
 
-    db()
-      .prepare(
-        `INSERT INTO reference_designs (problem_id, graph_json) VALUES (?, ?)
-         ON CONFLICT(problem_id) DO UPDATE SET graph_json = excluded.graph_json, created_at = datetime('now')`,
-      )
-      .run(problem.id, JSON.stringify(graph));
-
-    return c.json({ graph, cached: false });
+    await store.putReference(problem.id, JSON.stringify(graph));
+    return c.json({ graph, cached: false, sources: brief.sources });
   });
 }

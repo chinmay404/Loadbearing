@@ -5,6 +5,7 @@ import type {
   MasteryEntry,
   Problem,
   ProblemSummary,
+  ScoreReference,
   ScoreResult,
   SettingsView,
   SimConfig,
@@ -26,11 +27,24 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Called whenever the server says the session is gone. The app registers a
+ * handler that drops back to the sign-in screen, so an expired cookie surfaces
+ * as "sign in again" instead of as a scattering of failed panels.
+ */
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+  onUnauthorized = fn;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {
       ...init,
+      // The session is an HttpOnly cookie, and the dev server is a different
+      // origin from the API, so it has to be sent explicitly.
+      credentials: 'include',
       headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
     });
   } catch {
@@ -44,13 +58,50 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const body = text ? (JSON.parse(text) as unknown) : null;
   if (!res.ok) {
     const e = (body as { error?: { code?: string; message?: string; hint?: string; raw?: string } })?.error;
+    if (res.status === 401) onUnauthorized?.();
     throw new ApiError(e?.message ?? `Request failed (${res.status})`, e?.code ?? 'http_error', e?.hint, e?.raw);
   }
   return body as T;
 }
 
+export interface PlaybookEntryView {
+  id: string;
+  title: string;
+  source: string;
+  sourceKind: string;
+  rule: string;
+  numbers: string;
+  failure: string;
+  concepts: string[];
+  score?: number;
+  because?: string[];
+}
+
 export const api = {
-  health: () => req<{ ok: boolean; llmConfigured: boolean; fake: boolean }>('/health'),
+  health: () =>
+    req<{
+      ok: boolean;
+      storage: 'sqlite' | 'postgres';
+      signedIn: boolean;
+      username?: string;
+      llmConfigured: boolean;
+      houseKey: boolean;
+      fake: boolean;
+    }>('/health'),
+
+  register: (body: { username: string; password: string }) =>
+    req<{ username: string; inherited: number }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  login: (body: { username: string; password: string }) =>
+    req<{ username: string }>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+  logout: () => req<{ ok: true }>('/auth/logout', { method: 'POST' }),
+  me: () => req<{ username: string }>('/auth/me'),
+
+  playbook: () => req<PlaybookEntryView[]>('/playbook'),
+  relevantPlaybook: (body: { problemId?: string; graph?: GraphDSL; text?: string; limit?: number }) =>
+    req<PlaybookEntryView[]>('/playbook/relevant', { method: 'POST', body: JSON.stringify(body) }),
 
   problems: () => req<ProblemSummary[]>('/problems'),
   problem: (id: string) => req<Problem>(`/problems/${id}`),
@@ -79,7 +130,11 @@ export const api = {
     graph: GraphDSL;
     question: string;
     selectedNodeIds?: string[];
-  }) => req<CritiqueResponse>('/critique', { method: 'POST', body: JSON.stringify(body) }),
+  }) =>
+    req<CritiqueResponse & { references?: ScoreReference[] }>('/critique', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   simulate: (body: { graph: GraphDSL; config: SimConfig }) =>
     req<SimResult>('/simulate', { method: 'POST', body: JSON.stringify(body) }),
@@ -92,10 +147,12 @@ export const api = {
       drillConcepts: string[];
     }>('/review-queue'),
   socratic: (body: { problemId: string; graph: GraphDSL; question: string; answer: string }) =>
-    req<{ verdict: 'strong' | 'partial' | 'miss'; feedback: string; concept_scores: Record<string, number> }>(
-      '/socratic',
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
+    req<{
+      verdict: 'strong' | 'partial' | 'miss';
+      feedback: string;
+      concept_scores: Record<string, number>;
+      references?: ScoreReference[];
+    }>('/socratic', { method: 'POST', body: JSON.stringify(body) }),
 
   settings: () => req<SettingsView>('/settings'),
   saveSettings: (body: { provider: string; baseUrl?: string; model: string; apiKey?: string }) =>

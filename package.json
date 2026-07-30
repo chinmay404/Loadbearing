@@ -6,13 +6,30 @@
     "server",
     "client"
   ],
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
     "dev": "npm-run-all -p dev:server dev:client",
     "dev:server": "npm --workspace server run dev",
     "dev:client": "npm --workspace client run dev",
-    "test": "npm --workspace server run test"
+    "build": "npm --workspace client run build",
+    "test": "npm-run-all test:shared test:server",
+    "test:shared": "npm --workspace shared run test",
+    "test:server": "npm --workspace server run test",
+    "typecheck": "npm-run-all typecheck:api typecheck:server typecheck:client",
+    "typecheck:api": "tsc --noEmit -p tsconfig.json",
+    "typecheck:server": "npm --workspace server run typecheck",
+    "typecheck:client": "npm --workspace client run typecheck"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "hono": "^4.6.14",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
-    "npm-run-all": "^4.1.5"
+    "@types/node": "^22.10.2",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.7.2"
   }
 }

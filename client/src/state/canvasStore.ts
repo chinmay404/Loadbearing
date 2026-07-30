@@ -90,6 +90,17 @@ interface CanvasState extends Snapshot {
   setEdgeKind: (id: string, kind: EdgeKind) => void;
   setEdgeLabel: (id: string, label: string) => void;
   deleteSelection: () => void;
+  /** Drag one end of an existing edge onto a different component. */
+  reconnectEdge: (edgeId: string, next: Connection) => boolean;
+  /** Drop the edge entirely, leaving both components in place. */
+  detachEdge: (edgeId: string) => void;
+  /** Puts an existing component in the middle of an edge: A→B becomes A→X→B. */
+  spliceNodeIntoEdge: (edgeId: string, nodeId: string) => boolean;
+  /** Creates a component of `type` on the edge's midpoint and splices it in. */
+  insertNodeOnEdge: (edgeId: string, type: ArchNodeType) => string | null;
+  /** Set while the component picker is being used to fill a gap in an edge. */
+  edgeInsertTarget: string | null;
+  setEdgeInsertTarget: (edgeId: string | null) => void;
 
   // flows
   addFlow: () => string;
@@ -147,6 +158,25 @@ const edgeStyle = (kind: EdgeKind): Partial<Edge> => ({
   data: { kind },
 });
 
+const kindOf = (e: Edge): EdgeKind => ((e.data as { kind?: EdgeKind } | undefined)?.kind ?? 'sync');
+
+/**
+ * A declared flow is an ordered list of node ids, so inserting a component
+ * between two of them has to update the flow too — otherwise the request path
+ * the simulator uses still skips the component that was just put in its way,
+ * and the numbers quietly stop describing the drawing.
+ */
+function spliceFlowSteps(flows: Flow[], from: string, to: string, middle: string): Flow[] {
+  return flows.map((f) => {
+    const steps: string[] = [];
+    for (let i = 0; i < f.steps.length; i += 1) {
+      steps.push(f.steps[i]!);
+      if (f.steps[i] === from && f.steps[i + 1] === to) steps.push(middle);
+    }
+    return steps.length === f.steps.length ? f : { ...f, steps };
+  });
+}
+
 export const useCanvas = create<CanvasState>((set, get) => ({
   ...EMPTY,
   problemId: null,
@@ -196,13 +226,19 @@ export const useCanvas = create<CanvasState>((set, get) => ({
           }) as Node<StickyData, 'sticky'>,
       ),
     ];
-    const edges: Edge[] = doc.edges.map((e) => ({
-      id: e.id,
-      source: e.from,
-      target: e.to,
-      label: e.label || undefined,
-      ...edgeStyle(e.kind),
-    }));
+    // Dropping an AI-suggested component used to leave its edges behind, and a
+    // saved document carries them forever. An edge with a missing end is not a
+    // connection, so it does not survive a load.
+    const nodeIds = new Set(nodes.map((n) => n.id));
+    const edges: Edge[] = doc.edges
+      .filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to))
+      .map((e) => ({
+        id: e.id,
+        source: e.from,
+        target: e.to,
+        label: e.label || undefined,
+        ...edgeStyle(e.kind),
+      }));
     set({
       problemId,
       nodes,
@@ -340,6 +376,107 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       dirty: true,
     })),
 
+  /**
+   * Moving an endpoint keeps the edge's identity — its kind and its label travel
+   * with it — because re-pointing a connection is an edit to that connection,
+   * not a delete and a redraw.
+   */
+  reconnectEdge: (edgeId, next) => {
+    if (!next.source || !next.target || next.source === next.target) return false;
+    let ok = false;
+    set((s) => {
+      const old = s.edges.find((e) => e.id === edgeId);
+      if (!old) return {};
+      const duplicate = s.edges.some(
+        (e) => e.id !== edgeId && e.source === next.source && e.target === next.target,
+      );
+      if (duplicate) return {};
+      ok = true;
+      return {
+        past: [...s.past.slice(-49), snap(s)],
+        future: [],
+        edges: s.edges.map((e) =>
+          e.id === edgeId
+            ? {
+                ...e,
+                source: next.source!,
+                target: next.target!,
+                sourceHandle: next.sourceHandle ?? null,
+                targetHandle: next.targetHandle ?? null,
+              }
+            : e,
+        ),
+        dirty: true,
+      };
+    });
+    return ok;
+  },
+
+  detachEdge: (edgeId) =>
+    set((s) => ({
+      past: [...s.past.slice(-49), snap(s)],
+      future: [],
+      edges: s.edges.filter((e) => e.id !== edgeId),
+      dirty: true,
+    })),
+
+  spliceNodeIntoEdge: (edgeId, nodeId) => {
+    let ok = false;
+    set((s) => {
+      const edge = s.edges.find((e) => e.id === edgeId);
+      if (!edge || edge.source === nodeId || edge.target === nodeId) return {};
+      const node = s.nodes.find((n) => n.id === nodeId);
+      if (!node || node.type !== 'arch') return {};
+      ok = true;
+      const kind = kindOf(edge);
+      // The label describes what travels over the connection, so it stays on the
+      // first hop and the second is left unlabelled rather than duplicated.
+      const first: Edge = {
+        id: uid('e'),
+        source: edge.source,
+        target: nodeId,
+        ...(edge.label ? { label: edge.label } : {}),
+        ...edgeStyle(kind),
+      };
+      const second: Edge = {
+        id: uid('e'),
+        source: nodeId,
+        target: edge.target,
+        ...edgeStyle(kind),
+      };
+      return {
+        past: [...s.past.slice(-49), snap(s)],
+        future: [],
+        edges: [...s.edges.filter((e) => e.id !== edgeId), first, second],
+        flows: spliceFlowSteps(s.flows, edge.source, edge.target, nodeId),
+        dirty: true,
+      };
+    });
+    return ok;
+  },
+
+  insertNodeOnEdge: (edgeId, type) => {
+    const { edges, nodes } = get();
+    const edge = edges.find((e) => e.id === edgeId);
+    if (!edge) return null;
+    const from = nodes.find((n) => n.id === edge.source);
+    const to = nodes.find((n) => n.id === edge.target);
+    if (!from || !to) return null;
+
+    // Sit on the midpoint, nudged clear of the line so the new box does not
+    // land underneath the edge it was inserted into.
+    const mid = {
+      x: (from.position.x + to.position.x) / 2,
+      y: (from.position.y + to.position.y) / 2 + 70,
+    };
+    const id = get().addArchNode(type, mid);
+    get().spliceNodeIntoEdge(edgeId, id);
+    return id;
+  },
+
+  edgeInsertTarget: null,
+  setEdgeInsertTarget: (edgeInsertTarget) => set({ edgeInsertTarget }),
+
   deleteSelection: () =>
     set((s) => {
       const doomed = new Set(s.nodes.filter((n) => n.selected).map((n) => n.id));
@@ -416,10 +553,18 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   setMarkup: (markup) => set({ markup }),
 
   clearAi: () =>
-    set((s) => ({
-      markup: [],
-      nodes: s.nodes.filter((n) => !(n.type === 'arch' && n.data.ghost)),
-    })),
+    set((s) => {
+      // The ghosts' edges have to go with them, or the saved document keeps
+      // connections pointing at components that no longer exist.
+      const doomed = new Set(
+        s.nodes.filter((n) => n.type === 'arch' && n.data.ghost).map((n) => n.id),
+      );
+      return {
+        markup: [],
+        nodes: s.nodes.filter((n) => !doomed.has(n.id)),
+        edges: s.edges.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)),
+      };
+    }),
 
   addGhosts: (suggestions) =>
     set((s) => {

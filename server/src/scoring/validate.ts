@@ -32,7 +32,12 @@ const strArray = (v: unknown): string[] =>
  * (drops unknown concepts, clamps numbers) and strict where the UI would break
  * (dimensions must exist).
  */
-export function validateScore(raw: unknown, graph: GraphDSL): ScoreResult {
+export function validateScore(
+  raw: unknown,
+  graph: GraphDSL,
+  /** Citation keys the grader was shown. Anything else it cites is invented and dropped. */
+  allowedRefs: Set<string> = new Set(),
+): ScoreResult {
   const problems: string[] = [];
   if (typeof raw !== 'object' || raw === null) throw new ScoreShapeError(['response was not an object']);
   const o = raw as Record<string, unknown>;
@@ -71,6 +76,7 @@ export function validateScore(raw: unknown, graph: GraphDSL): ScoreResult {
       severity: (['high', 'medium', 'low'] as const).includes(f.severity as 'high')
         ? (f.severity as 'high' | 'medium' | 'low')
         : 'medium',
+      refs: strArray(f.refs).filter((r) => allowedRefs.has(r)),
     }))
     .filter((f) => f.detail.trim() !== '' || f.title !== 'Unnamed failure');
 
@@ -161,6 +167,9 @@ export function validateScore(raw: unknown, graph: GraphDSL): ScoreResult {
     canvas_markup,
     suggested_additions,
     flow_reviews,
+    // Filled in by the route from what was actually retrieved — never by the model.
+    references: [],
+    references_used: strArray(o.references_used).filter((r) => allowedRefs.has(r)),
   };
 }
 

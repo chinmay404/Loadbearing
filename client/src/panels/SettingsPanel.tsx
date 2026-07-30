@@ -137,6 +137,12 @@ export function SettingsPanel() {
             placeholder={view?.apiKeyMasked ? 'leave blank to keep the stored key' : 'sk-…'}
             autoComplete="off"
           />
+          {view?.usingHouseKey && (
+            <p className="stencil" style={{ marginTop: 4 }}>
+              you are borrowing this instance&apos;s key — save your own to bill your reviews to your own
+              account and pick the model that goes with it
+            </p>
+          )}
         </div>
 
         <div className="row">

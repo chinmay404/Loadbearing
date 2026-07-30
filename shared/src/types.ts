@@ -232,6 +232,17 @@ export interface CriticalFailure {
   detail: string;
   concept: string;
   severity: 'high' | 'medium' | 'low';
+  /** Playbook entry ids this finding rests on. Empty means the grader had no citation. */
+  refs?: string[];
+}
+
+/** A playbook entry that was put in front of the grader, and why it surfaced. */
+export interface ScoreReference {
+  id: string;
+  title: string;
+  source: string;
+  sourceKind: string;
+  because: string[];
 }
 
 export interface TeachingBlock {
@@ -297,6 +308,10 @@ export interface ScoreResult {
   decision_summary: string;
   /** Alternatives a reviewer would have weighed, and why they lose here. */
   alternatives: { option: string; why_not: string }[];
+  /** Established practice the review was grounded in — attached server-side, not by the model. */
+  references: ScoreReference[];
+  /** The subset of those the grader said it actually leaned on. */
+  references_used: string[];
 }
 
 /**
@@ -326,6 +341,8 @@ export function normalizeScore(raw: Partial<ScoreResult> | null | undefined): Sc
     at_10x: s.at_10x ?? '',
     decision_summary: s.decision_summary ?? '',
     alternatives: s.alternatives ?? [],
+    references: s.references ?? [],
+    references_used: s.references_used ?? [],
   };
 }
 
@@ -399,6 +416,8 @@ export interface SettingsView {
   baseUrl: string;
   model: string;
   apiKeyMasked: string;
+  /** True when this account has no key of its own and is falling back to the instance's. */
+  usingHouseKey: boolean;
 }
 
 export interface MasteryEntry {
