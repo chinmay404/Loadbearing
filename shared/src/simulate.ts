@@ -132,6 +132,23 @@ export const DEFAULT_CAPACITY: Record<ArchNodeType, number> = {
   mcp_server: 200,
   agent_memory: 3_000,
   pii_redactor: 1_500,
+  legacy_system: 80,
+  strangler_facade: 8_000,
+  reconciler: 20,
+  model_server: 8,
+  dataset_store: 500,
+  // A training run is not request-serving work. One job at a time, measured in
+  // hours — which is exactly why it must never appear on a user-facing flow.
+  fine_tune_job: 1,
+  cell_router: 20_000,
+  idempotency_store: 20_000,
+  service_registry: 5_000,
+  sync_engine: 400,
+  offline_store: 5_000,
+  chaos_injector: 100,
+  budget_guard: 5_000,
+  siem: 2_000,
+  consent_store: 3_000,
   // One reviewer, not one server. Replicas are people here, and that is the
   // point: a human step on a synchronous path shows up in the arithmetic as one.
   human_review: 1,
@@ -231,6 +248,21 @@ export const DEFAULT_LATENCY: Record<ArchNodeType, number> = {
   mcp_server: 120,
   agent_memory: 15,
   pii_redactor: 25,
+  legacy_system: 400,
+  strangler_facade: 8,
+  reconciler: 1_500,
+  model_server: 900,
+  dataset_store: 40,
+  fine_tune_job: 1_800_000,
+  cell_router: 5,
+  idempotency_store: 3,
+  service_registry: 5,
+  sync_engine: 60,
+  offline_store: 2,
+  chaos_injector: 10,
+  budget_guard: 5,
+  siem: 50,
+  consent_store: 10,
   human_review: 60_000,
 };
 
@@ -328,6 +360,23 @@ export const DEFAULT_COST: Record<ArchNodeType, number> = {
   mcp_server: 60,
   agent_memory: 80,
   pii_redactor: 50,
+  legacy_system: 800,
+  strangler_facade: 60,
+  reconciler: 90,
+  // GPUs, billed whether or not anyone asks a question.
+  model_server: 1_200,
+  dataset_store: 60,
+  fine_tune_job: 900,
+  cell_router: 80,
+  idempotency_store: 70,
+  service_registry: 50,
+  sync_engine: 120,
+  // On the user's device: it costs you nothing and you cannot scale it.
+  offline_store: 0,
+  chaos_injector: 40,
+  budget_guard: 30,
+  siem: 400,
+  consent_store: 60,
   human_review: 4_000,
 };
 
@@ -374,6 +423,8 @@ const DATASTORE_TYPES: ReadonlySet<ArchNodeType> = new Set([
   'materialized_view',
   'ledger_db',
   'agent_memory',
+  'idempotency_store',
+  'consent_store',
 ]);
 /** Losing a zone loses these unless they are spread across AZs. */
 const STATEFUL_TYPES: ReadonlySet<ArchNodeType> = new Set([
@@ -390,6 +441,10 @@ const STATEFUL_TYPES: ReadonlySet<ArchNodeType> = new Set([
   'data_lake',
   'feature_store',
   'agent_memory',
+  'idempotency_store',
+  'consent_store',
+  'dataset_store',
+  'siem',
   'queue',
   'stream',
   'event_bus',
@@ -455,7 +510,7 @@ function attachedReplicas(
   return out;
 }
 /** Nodes whose presence in every flow is not interesting SPOF news. */
-const NON_INFRA_TYPES: ReadonlySet<ArchNodeType> = new Set(['client', 'mobile_client', 'group']);
+const NON_INFRA_TYPES: ReadonlySet<ArchNodeType> = new Set(['client', 'mobile_client', 'group', 'offline_store']);
 /** Flow kinds where a human is waiting for the response. */
 const SYNCHRONOUS_FLOW_KINDS: ReadonlySet<Flow['kind']> = new Set(['read', 'write']);
 const SLOW_DEPENDENCY_MS = 200;

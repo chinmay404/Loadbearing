@@ -67,7 +67,7 @@ export interface Blueprint extends BlueprintLike {
   /** One line: what this is for. */
   summary: string;
   /** Which family it belongs to, for grouping in the picker. */
-  family: 'AI systems' | 'Data & caching' | 'Correctness' | 'Async' | 'Reliability';
+  family: 'AI systems' | 'Data & caching' | 'Correctness' | 'Async' | 'Reliability' | 'Migration';
   /** Concept ids this blueprint exercises, so it can be offered against a rubric. */
   concepts: string[];
   /** What the blueprint deliberately leaves for you to decide. */
@@ -588,6 +588,169 @@ export const BLUEPRINTS: Blueprint[] = [
     ],
   },
   {
+    id: 'strangler-migration',
+    name: 'Strangler migration',
+    summary: 'Replace a system that is still running, one route at a time, with a way back.',
+    family: 'Migration',
+    concepts: ['deployment-safety', 'consistency-models', 'distributed-transactions', 'observability'],
+    decisions: [
+      'What the routing key is — route, tenant, or percentage — and who can change it',
+      'Which store is authoritative while both are being written, and for how long',
+      'What the reconciler does when the two disagree: prefer one, or stop and page someone',
+    ],
+    nodes: [
+      { key: 'client', type: 'client', label: 'Client', annotation: '', at: { x: 0, y: 0 } },
+      {
+        key: 'facade',
+        type: 'strangler_facade',
+        label: 'Strangler Facade',
+        annotation: 'Routes per route or per tenant. Flipping one rule back is the entire rollback plan, which is why the plan works.',
+        at: { x: COL, y: 0 },
+      },
+      {
+        key: 'flags',
+        type: 'feature_flags',
+        label: 'Routing Rules',
+        annotation: 'The routing decision lives here, not in a deploy. Changing who is on the new path must not need a release.',
+        at: { x: COL, y: -ROW },
+      },
+      {
+        key: 'legacy',
+        type: 'legacy_system',
+        label: 'Legacy System',
+        annotation: 'Cannot be changed and cannot be scaled by you. Its capacity is the ceiling on the old path for as long as it carries traffic.',
+        at: { x: COL * 2, y: ROW },
+      },
+      {
+        key: 'legacydb',
+        type: 'sql_db',
+        label: 'Legacy Store',
+        annotation: 'Still authoritative for whatever the legacy path writes. Read it directly at your peril — the schema is its own.',
+        at: { x: COL * 3, y: ROW },
+      },
+      {
+        key: 'svc',
+        type: 'service',
+        label: 'New Service',
+        annotation: 'The replacement, taking one slice of traffic at a time so a problem is one slice wide.',
+        at: { x: COL * 2, y: -ROW * 0.3 },
+        attrs: { capacityRps: 400, replicas: 2 },
+      },
+      {
+        key: 'newdb',
+        type: 'sql_db',
+        label: 'New Store',
+        annotation: 'Modelled for the access patterns you have now, not the ones the legacy schema was shaped by.',
+        at: { x: COL * 3, y: -ROW * 0.3 },
+      },
+      {
+        key: 'recon',
+        type: 'reconciler',
+        label: 'Reconciler',
+        annotation: 'Compares both stores on a schedule and repairs the drift. Without it, "we will migrate the data later" means "we will discover the difference later".',
+        at: { x: COL * 4, y: ROW * 0.4 },
+      },
+      {
+        key: 'obs',
+        type: 'observability',
+        label: 'Comparison Metrics',
+        annotation: 'Same request through both paths, results diffed. This is how you learn the new path is correct before it carries everything.',
+        at: { x: COL * 2, y: -ROW * 1.4 },
+      },
+    ],
+    edges: [
+      { from: 'client', to: 'facade', kind: 'sync' },
+      { from: 'facade', to: 'flags', kind: 'sync', label: 'which path?' },
+      { from: 'facade', to: 'svc', kind: 'sync', label: 'migrated routes' },
+      { from: 'facade', to: 'legacy', kind: 'sync', label: 'everything else' },
+      { from: 'svc', to: 'newdb', kind: 'sync' },
+      { from: 'legacy', to: 'legacydb', kind: 'sync' },
+      { from: 'recon', to: 'newdb', kind: 'async', label: 'compare' },
+      { from: 'recon', to: 'legacydb', kind: 'async', label: 'compare' },
+      { from: 'svc', to: 'obs', kind: 'async', label: 'result diff' },
+    ],
+    flows: [
+      {
+        name: 'request on the migrated path',
+        kind: 'write',
+        steps: ['client', 'facade', 'svc', 'newdb'],
+        rps: 200,
+        description: 'The slice already moved across.',
+      },
+      {
+        name: 'request still on the legacy path',
+        kind: 'write',
+        steps: ['client', 'facade', 'legacy', 'legacydb'],
+        rps: 40,
+        description: 'Everything not yet migrated. The legacy capacity is the constraint here.',
+      },
+    ],
+  },
+  {
+    id: 'offline-first-sync',
+    name: 'Offline-first sync',
+    summary: 'A client that works with no network, and a server that can reconcile what it did.',
+    family: 'Correctness',
+    concepts: ['consistency-models', 'idempotency', 'schema-design'],
+    decisions: [
+      'Conflict resolution: last-write-wins, per-field merge, or ask the user',
+      'Whether a change id is assigned on the device or by the server',
+      'How much history the device keeps, and what a fresh install has to download',
+    ],
+    nodes: [
+      {
+        key: 'app',
+        type: 'mobile_client',
+        label: 'Mobile App',
+        annotation: 'Reads and writes locally first, always. The network is an optimisation, not a requirement.',
+        at: { x: 0, y: 0 },
+      },
+      {
+        key: 'local',
+        type: 'offline_store',
+        label: 'Offline Store',
+        annotation: 'On the device: holds writes the server has never seen. You cannot scale it, back it up, or query it in an incident.',
+        at: { x: COL, y: 0 },
+      },
+      {
+        key: 'sync',
+        type: 'sync_engine',
+        label: 'Sync Engine',
+        annotation: 'Change tracking both ways, resumable, and one explicit conflict rule. Ambiguity here becomes data loss on someone else’s phone.',
+        at: { x: COL * 2, y: 0 },
+      },
+      {
+        key: 'idem',
+        type: 'idempotency_store',
+        label: 'Change Ledger',
+        annotation: 'Change ids already applied. A device that retries after a dropped connection must not apply its edit twice.',
+        at: { x: COL * 3, y: -ROW },
+      },
+      {
+        key: 'db',
+        type: 'sql_db',
+        label: 'Server Store',
+        annotation: 'Authoritative once a change is accepted, and the source for a fresh device’s first sync.',
+        at: { x: COL * 3, y: 0 },
+      },
+    ],
+    edges: [
+      { from: 'app', to: 'local', kind: 'sync', label: 'write locally first' },
+      { from: 'local', to: 'sync', kind: 'async', label: 'queued changes' },
+      { from: 'sync', to: 'idem', kind: 'sync', label: 'seen this change?' },
+      { from: 'sync', to: 'db', kind: 'sync', label: 'apply' },
+    ],
+    flows: [
+      {
+        name: 'offline write reaches the server',
+        kind: 'write',
+        steps: ['app', 'local', 'sync', 'db'],
+        rps: 100,
+        description: 'The write already succeeded on the device. This is it catching up.',
+      },
+    ],
+  },
+  {
     id: 'async-jobs',
     name: 'Async job pipeline',
     summary: 'Work taken off the request path, with the failure paths drawn rather than assumed.',
@@ -639,6 +802,7 @@ export const BLUEPRINT_FAMILIES = [
   'Correctness',
   'Async',
   'Reliability',
+  'Migration',
 ] as const;
 
 export const BLUEPRINT_BY_ID: Record<string, Blueprint> = Object.fromEntries(

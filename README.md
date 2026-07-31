@@ -25,7 +25,7 @@ and add your own API key. To try the UI without a model at all, pick "Offline st
    systems (RAG with eval gates, agent sandboxing, LLM cost control). Each one carries real numbers
    (RPS, data size, p99 budget), hard constraints (team size, monthly budget, existing stack) and the
    tension that makes it hard.
-2. **Draw the design.** Click or drag from a palette of 27 typed components. Connections are typed
+2. **Draw the design.** Click or drag from a palette of 108 typed components. Connections are typed
    too: sync call, async event, replication. Annotate every box with the *mechanism* that matters
    ("idempotency key = order_id", "cache-aside, TTL 60s, coalesce on miss") — the grader reads
    annotations, and a box labelled "Cache" with no strategy earns nothing. Sticky notes and a
@@ -86,7 +86,20 @@ and add your own API key. To try the UI without a model at all, pick "Offline st
   mitigations, and the at-10× note. Straight into your vault, or copied for a PR description.
 - **Take the diagram with you.** Copy as Mermaid for a README or PR, or download `.drawio` with
   positions intact for people who do not have Loadbearing.
-- **Ctrl+K** to add any component by name — faster than hunting a palette of eighty.
+- **Ctrl+K** to add any component by name — faster than hunting a palette of a hundred.
+- **Subsystems, not just parts.** *Components → Subsystems* holds nine prebuilt sub-architectures —
+  RAG query, document ingest, extraction to a schema, a tool-using agent, cache-aside reads, an
+  idempotent write with an outbox, an async job pipeline, a strangler migration, offline-first sync.
+  Each lands fully editable, and each card states which decisions it deliberately did **not** make
+  for you. Save your own selection as a template and it is available on every sheet.
+- **Hand it to a coding agent.** *Copy for coding agent* turns the sheet into a build specification:
+  components with their sizing, request paths as ordered steps, invariants derived from your
+  connection kinds, the capacity assumed, the gaps the rule engine found — stated so an agent does
+  not silently "fix" them — acceptance checks from your flows and load scenarios, and the graph as
+  JSON.
+- **Ordering and pinning.** `Ctrl+]` / `Ctrl+[` move the selection through the stack, `L` pins it
+  against dragging and deletion. Boundaries have connection handles, so one group can connect to
+  another.
 - **Rewire without redrawing.** Drag either end of a connection onto a different component to
   re-point it (the connection keeps its kind and label); drop the end on empty paper to disconnect.
   To put something *in between* two components, drag a component on top of the line and it is spliced
@@ -201,13 +214,16 @@ npm test
 npm run typecheck
 ```
 
-214 tests: 134 in `shared` (simulator, compatibility, scenario gates, diffs, retrieval) and 80 in
-`server` (storage, auth, LLM adapters, JSON salvage, the problem bank). The storage suite runs against
+330 tests: 216 in `shared` (simulator, compatibility, scenario gates, diffs, retrieval, and every
+blueprint held to being a real design) and 114 in `server` (storage, auth, LLM adapters, JSON salvage,
+the serverless request adapter, the coding-agent brief). The storage suite runs against
 both backends from one set of assertions — set `DATABASE_URL` and the Postgres half stops being
 skipped, which is how the two dialects are kept honest. `FAKE_LLM=1` runs the whole loop with a canned
 grader.
 
 ## Keyboard
 
-`V` select · `N` sticky note · `P` pen · `E` erase ink · `Delete` remove selection ·
-`Ctrl+Z` / `Ctrl+Shift+Z` undo / redo
+`V` select · `N` sticky note · `P` pen · `E` erase ink · `L` pin/unpin selection ·
+`Delete` remove selection · `Ctrl+Z` / `Ctrl+Shift+Z` undo / redo ·
+`Ctrl+]` / `Ctrl+[` forward / backward in the stack (add `Shift` to jump to either end) ·
+`Ctrl+K` add a component by name

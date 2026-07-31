@@ -98,6 +98,30 @@ export const ARCH_NODE_TYPES = [
   'feature_flags',
   'secrets_manager',
   'ci_cd',
+  // Migration and legacy. Most architecture work is replacing something that is
+  // still running, and none of that was expressible: the system being replaced,
+  // the facade that routes between old and new, and the job that repairs the
+  // drift between two stores that are both being written to.
+  'legacy_system',
+  'strangler_facade',
+  'reconciler',
+  // Self-hosted inference and the data behind a model, as distinct from a metered
+  // API — the capacity and cost arithmetic is not remotely the same.
+  'model_server',
+  'dataset_store',
+  'fine_tune_job',
+  // Concepts the rubric already scores but nothing could draw.
+  'cell_router',
+  'idempotency_store',
+  'service_registry',
+  'sync_engine',
+  'offline_store',
+  // Practices you run rather than serve traffic through. Included because a
+  // design that never draws them never budgets for them either.
+  'chaos_injector',
+  'budget_guard',
+  'siem',
+  'consent_store',
   'group',
 ] as const;
 

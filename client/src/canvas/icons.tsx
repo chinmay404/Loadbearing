@@ -837,6 +837,158 @@ export const NODE_ICONS: Record<ArchNodeType, (props: { size?: number }) => JSX.
     </Glyph>
   ),
 
+  /** A rack with a chip in it: inference on hardware you own. */
+  model_server: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="3" y="4" width="18" height="16" rx="1.8" />
+      <rect x="8" y="8.5" width="8" height="7" rx="1" />
+      <path d="M11 8.5V6.5M13 8.5V6.5M11 17.5v-2M13 17.5v-2" />
+      <path d="M6.5 8.5v7M17.5 8.5v7" />
+    </Glyph>
+  ),
+
+  /** Stacked layers with a version tick: data you can point a result back at. */
+  dataset_store: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M12 3 21 7.5 12 12 3 7.5Z" />
+      <path d="M3 12l9 4.5 9-4.5" />
+      <path d="M3 16.5 12 21l9-4.5" />
+    </Glyph>
+  ),
+
+  /** A dial being turned: weights adjusted over a long run. */
+  fine_tune_job: ({ size }) => (
+    <Glyph size={size}>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 12l4-3" />
+      <path d="M12 4v2M20 12h-2M12 20v-2M4 12h2" />
+    </Glyph>
+  ),
+
+  /** A restarted arrow with a wrench: something being deliberately broken. */
+  chaos_injector: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M20 6.5v4h-4" />
+      <path d="M19.4 10.5A8 8 0 1 0 12 20" />
+      <path d="M8.5 8.5 15 15" strokeDasharray="2.5 2" />
+      <path d="M6.5 6.5 9 9" />
+    </Glyph>
+  ),
+
+  /** A gauge against a hard stop. */
+  budget_guard: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M4 17a8 8 0 1 1 16 0" />
+      <path d="M12 17 16.5 10" />
+      <path d="M20 17v3M4 17v3" />
+      <path d="M18.5 6.5 20 5" />
+    </Glyph>
+  ),
+
+  // ---------- Migration & legacy ----------
+
+  /** A cabinet with a dial: the machine that predates all of this. */
+  legacy_system: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="4.5" y="3" width="15" height="18" rx="1.4" />
+      <path d="M4.5 9h15M4.5 15h15" />
+      <circle cx="9" cy="6" r="1.1" />
+      <path d="M13 12h3.5M13 18h3.5" />
+    </Glyph>
+  ),
+
+  /** One inbound line splitting into two paths, old and new. */
+  strangler_facade: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M2.5 12h5" />
+      <path d="M7.5 12c4 0 4-6.5 8-6.5h6" />
+      <path d="M7.5 12c4 0 4 6.5 8 6.5h6" strokeDasharray="2.5 2" />
+      <circle cx="7.5" cy="12" r="1.6" />
+    </Glyph>
+  ),
+
+  /** Two stacks with a two-way arrow between them: drift being repaired. */
+  reconciler: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="2.5" y="6" width="6" height="12" rx="1.2" />
+      <rect x="15.5" y="6" width="6" height="12" rx="1.2" />
+      <path d="M9.5 10h5M13 8.5l1.5 1.5L13 11.5" />
+      <path d="M14.5 14h-5M11 12.5 9.5 14l1.5 1.5" />
+    </Glyph>
+  ),
+
+  // ---------- Concepts that had no component ----------
+
+  /** Traffic sorted into separate, sealed compartments. */
+  cell_router: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M12 2.5v4" />
+      <rect x="2.5" y="7.5" width="5.5" height="5.5" rx="1" />
+      <rect x="9.25" y="7.5" width="5.5" height="5.5" rx="1" />
+      <rect x="16" y="7.5" width="5.5" height="5.5" rx="1" />
+      <path d="M5.25 13v4M12 13v4M18.75 13v4" />
+    </Glyph>
+  ),
+
+  /** A key beside a stored result: the same key returns the same answer. */
+  idempotency_store: ({ size }) => (
+    <Glyph size={size}>
+      <circle cx="7" cy="8" r="2.8" />
+      <path d="M9.4 9.6 14 14.2M12.4 13 11 14.4M14 14.2l-1.4 1.4" />
+      <rect x="13.5" y="4" width="7.5" height="6" rx="1.2" />
+      <path d="M15.5 7h3.5" />
+    </Glyph>
+  ),
+
+  /** A directory card with a heartbeat: who is up, and where. */
+  service_registry: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="3" y="4" width="18" height="16" rx="1.8" />
+      <path d="M6.5 8.5h11" />
+      <path d="M6.5 15h2l1.5-3 2 5 1.5-2h3.5" />
+    </Glyph>
+  ),
+
+  /** Two arcs turning into one another: device and server converging. */
+  sync_engine: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M4 10a8 8 0 0 1 13.5-3.4" />
+      <path d="M20 14a8 8 0 0 1-13.5 3.4" />
+      <path d="M17.5 3.2v3.6h-3.6" />
+      <path d="M6.5 20.8v-3.6h3.6" />
+    </Glyph>
+  ),
+
+  /** A phone holding its own small database. */
+  offline_store: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="6" y="2.5" width="12" height="19" rx="2.2" />
+      <ellipse cx="12" cy="10" rx="3.6" ry="1.4" />
+      <path d="M8.4 10v4c0 .8 1.6 1.4 3.6 1.4s3.6-.6 3.6-1.4v-4" />
+      <path d="M10.6 19.2h2.8" />
+    </Glyph>
+  ),
+
+  // ---------- Security additions ----------
+
+  /** A shield over a stream of events. */
+  siem: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M12 2.7 19.5 5.5v6c0 4.4-3.2 8-7.5 9.8-4.3-1.8-7.5-5.4-7.5-9.8v-6Z" />
+      <path d="M8 11.5h2l1.4-2.6 1.8 4.6 1.2-2h2" />
+    </Glyph>
+  ),
+
+  /** A signed checkbox: what they agreed to, on the record. */
+  consent_store: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="4" y="3" width="16" height="18" rx="1.6" />
+      <path d="M7.5 8.5h4M7.5 12h6" />
+      <path d="M7.5 16.5c1.6-1.6 2.6.9 4 0s2.6-1.4 4.5-.6" />
+      <path d="M14.5 7.5l1.6 1.6 2.4-2.6" />
+    </Glyph>
+  ),
+
   /** A field with its middle blacked out. */
   pii_redactor: ({ size }) => (
     <Glyph size={size}>
