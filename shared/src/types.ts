@@ -165,7 +165,13 @@ export interface NodeAttrs {
    * second. The slider multiplies it. Without a source, nothing is offered.
    */
   trafficRps?: number;
-  /** Replicas an autoscaler may grow to. Capacity arrives a minute late. */
+  /**
+   * The floor an autoscaling group never drops below. This is what serves the first
+   * moments of a spike, because capacity above it arrives a minute late — so "min 1,
+   * max 50" is a design that meets a sudden rush with one container.
+   */
+  autoscaleMin?: number;
+  /** The ceiling it may grow to. Beyond this, load sheds however much is offered. */
   autoscaleMax?: number;
 }
 
@@ -467,6 +473,20 @@ export interface SimNodeResult {
   droppedRps: number;
   queueDepth: number;
   state: NodeState;
+  /**
+   * Replicas at the worst moment — consistent with every other number here, which is
+   * also the worst moment. For an autoscaling group this is the count that met the
+   * spike, which is the one that decides what the spike cost.
+   */
+  replicas: number;
+  /**
+   * Replicas at the end of the run. Differs from `replicas` exactly when an autoscaler
+   * moved, and the pair is the interesting thing: "min 1, max 50" that only ever
+   * reached 3 is a different design from one that pinned at 50.
+   */
+  replicasSettled: number;
+  /** True when nothing about this component limits traffic — a client, a control plane. */
+  unlimited: boolean;
 }
 
 export interface SimFlowResult {

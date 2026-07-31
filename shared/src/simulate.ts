@@ -38,11 +38,17 @@ import type {
 } from './types.js';
 
 /**
- * Long enough for a backlog to show, short enough that a grader's run is instant —
- * and deliberately shorter than the autoscaler's lag, so a design is judged on the
- * capacity it has rather than the capacity it might acquire.
+ * Long enough to see an autoscaler arrive and a backlog drain, short enough that a
+ * grader's run is instant.
+ *
+ * This was 45s, chosen so a design would be judged on the capacity it has rather than
+ * the capacity it might acquire. That was the wrong call: it is shorter than the
+ * autoscaler's lag, so a group configured to reach fifty replicas could never reach
+ * any of them, and the report said nothing about the thing the author was relying on.
+ * The honest answer is to run past the lag and describe BOTH — what the first minute
+ * costs, and where it settles.
  */
-export const REPORT_HORIZON_S = 45;
+export const REPORT_HORIZON_S = 150;
 
 /** A flow that completes less than 1% of what it was offered is simply broken. */
 export const BROKEN_COMPLETION_RATIO = 0.01;
@@ -99,16 +105,23 @@ export function simulate(graph: GraphDSL, config: SimConfig): SimResult {
 export function report(graph: GraphDSL, engine: EngineResult): SimResult {
   const byId = new Map(engine.worst.map((h) => [h.nodeId, h]));
   const nodesById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const settled = new Map(engine.final.map((h) => [h.nodeId, h.replicas]));
 
   const nodes: SimNodeResult[] = engine.worst.map((h) => ({
     nodeId: h.nodeId,
     incomingRps: h.arrivingRps,
-    capacityRps: h.capacityRps,
+    // Infinity does not survive JSON — it arrives at the browser as null and gets
+    // rendered as a capacity of zero. Anything that never constrains traffic says so
+    // with a flag instead, and reports the load it carried as its capacity.
+    capacityRps: Number.isFinite(h.capacityRps) ? h.capacityRps : h.arrivingRps,
+    unlimited: !Number.isFinite(h.capacityRps),
     utilization: h.utilization,
     latencyMs: h.latencyMs,
     droppedRps: h.droppedRps,
     queueDepth: engine.peakBacklog[h.nodeId] ?? h.backlog,
     state: h.down && !h.bypassed ? 'down' : h.state,
+    replicas: h.replicas,
+    replicasSettled: settled.get(h.nodeId) ?? h.replicas,
   }));
 
   const flows = flowResults(graph, engine, byId);
@@ -323,7 +336,35 @@ function buildVerdict(
   const brokenNote =
     brokenCount > 0 ? ` ${brokenCount} path${brokenCount === 1 ? '' : 's'} stopped completely.` : '';
   const recovery = engine.recoveredAtS !== null ? ` It recovered ${engine.recoveredAtS}s in.` : '';
-  return `At ${int(peak)} rps it loses ${pct(lost)} of requests.${where}${brokenNote}${recovery}`;
+  return `At ${int(peak)} rps it loses ${pct(lost)} of requests.${where}${brokenNote}${recovery}${settling(engine, nodesById)}`;
+}
+
+/**
+ * What autoscaling did about it. A design that loses a quarter of its requests for the
+ * first minute and then holds is a different design from one that never recovers, and
+ * the difference is exactly what someone who configured an autoscaling group wants to
+ * be told.
+ */
+function settling(engine: EngineResult, nodesById: Map<string, GraphNode>): string {
+  const lastTick = engine.ticks[engine.ticks.length - 1];
+  const worstTick = engine.ticks.reduce(
+    (w, t) => (!w || t.successRate < w.successRate ? t : w),
+    null as (typeof engine.ticks)[number] | null,
+  );
+  if (!lastTick || !worstTick || lastTick.successRate - worstTick.successRate < 0.01) return '';
+
+  const startedAt = new Map(engine.worst.map((h) => [h.nodeId, h.replicas]));
+  const grew = engine.final
+    .map((h) => ({ hop: h, added: h.replicas - (startedAt.get(h.nodeId) ?? h.replicas) }))
+    .filter((g) => g.added > 0)
+    .sort((a, b) => b.added - a.added)[0];
+
+  const settled =
+    lastTick.successRate >= 0.999
+      ? 'then holds everything'
+      : `then settles at ${pct(1 - lastTick.successRate)} lost`;
+  const who = grew ? ` once ${nodesById.get(grew.hop.nodeId)?.label ?? grew.hop.nodeId} scaled to ×${grew.hop.replicas}` : '';
+  return ` It ${settled}${who}.`;
 }
 
 export default simulate;

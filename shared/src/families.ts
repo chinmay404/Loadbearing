@@ -72,6 +72,14 @@ export const FAMILY: Record<ArchNodeType, Family> = {
   strangler_facade: 'routing',
 
   // ---- running code --------------------------------------------------------
+  /**
+   * A pool of workers, not a scheduler. Nobody draws the Kubernetes control plane in
+   * a request path; when this box appears between a balancer and a database, it is
+   * the containers serving the traffic — so it constrains traffic, and it scales.
+   * Treating it as a control plane made an autoscaling group report 0% utilisation
+   * while 400 rps flowed straight through it.
+   */
+  container_platform: 'compute',
   service: 'compute',
   monolith: 'compute',
   serverless_fn: 'compute',
@@ -160,7 +168,6 @@ export const FAMILY: Record<ArchNodeType, Family> = {
   fine_tune_job: 'ai',
 
   // ---- beside the system, not on the path ---------------------------------
-  container_platform: 'control',
   observability: 'control',
   ci_cd: 'control',
   iam: 'control',

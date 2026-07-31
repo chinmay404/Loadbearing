@@ -281,6 +281,12 @@ const MAX_PATH_DEPTH = 24;
 const EPSILON = 1e-9;
 /** Seconds for an autoscaler to add capacity — why a spike hurts before it helps. */
 export const AUTOSCALE_LAG_S = 60;
+/**
+ * What an autoscaler aims for, rather than 100%. Nobody targets full utilisation:
+ * scaling to exactly the offered load leaves no headroom for the next increment and
+ * guarantees a second scaling event while the first is still arriving.
+ */
+export const AUTOSCALE_TARGET_UTILIZATION = 0.7;
 
 // ----------------------------------------------------------------- helpers ---
 
@@ -355,9 +361,16 @@ function perReplicaCapacity(node: GraphNode, serviceMs: number): number {
   return concurrency / (serviceMs / 1000);
 }
 
+/**
+ * How many replicas exist to begin with. An autoscaling group starts at its floor:
+ * "min 1, max 50" means one container is what meets the first seconds of a spike, and
+ * saying so is the entire point of modelling the floor separately from the ceiling.
+ */
 function replicasOf(node: GraphNode): number {
-  const r = node.attrs?.replicas;
-  return typeof r === 'number' && r > 0 ? Math.floor(r) : 1;
+  const explicit = node.attrs?.replicas;
+  const stated = typeof explicit === 'number' && explicit > 0 ? Math.floor(explicit) : 1;
+  const floor = node.attrs?.autoscaleMin;
+  return typeof floor === 'number' && floor > 0 ? Math.max(Math.floor(floor), stated) : stated;
 }
 
 function absorbOf(node: GraphNode): number {
@@ -873,15 +886,18 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
       peakBacklog.set(node.id, Math.max(peakBacklog.get(node.id) ?? 0, next));
     }
 
-    // Autoscaling, arriving late on purpose: capacity a minute after it was needed
-    // is why a spike hurts before it helps.
+    // Autoscaling, arriving late on purpose: capacity a minute after it was needed is
+    // why a spike hurts before it helps, and why the floor matters more than the
+    // ceiling for anything that arrives suddenly. It scales back down too, so a design
+    // is not credited with capacity it stopped paying for.
     if (t > 0 && t % AUTOSCALE_LAG_S === 0) {
       for (const node of prep.nodes) {
         const r = runtime.get(node.id)!;
         const ceiling = node.attrs?.autoscaleMax;
         if (typeof ceiling !== 'number' || ceiling <= 0 || r.perReplica <= 0) continue;
-        const wanted = Math.ceil(r.arriving / r.perReplica);
-        scaledReplicas.set(node.id, Math.max(replicasOf(node), Math.min(ceiling, wanted)));
+        const wanted = Math.ceil(r.arriving / (r.perReplica * AUTOSCALE_TARGET_UTILIZATION));
+        const floor = replicasOf(node);
+        scaledReplicas.set(node.id, Math.max(floor, Math.min(Math.floor(ceiling), wanted)));
       }
     }
 

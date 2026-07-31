@@ -15,7 +15,8 @@ const FIELD_LABEL: Record<keyof NodeAttrs, string> = {
   concurrency: 'Concurrent requests (per replica)',
   timeoutMs: 'Caller gives up after (ms)',
   trafficRps: 'Traffic starts here (rps)',
-  autoscaleMax: 'Autoscale up to (replicas)',
+  autoscaleMin: 'Autoscale floor (replicas) — meets the spike',
+  autoscaleMax: 'Autoscale ceiling (replicas) — arrives a minute late',
 };
 
 export function InspectorPanel() {

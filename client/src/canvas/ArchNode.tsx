@@ -16,7 +16,10 @@ const MARKER_GLYPH: Record<string, string> = {
 function attrChips(data: ArchNodeData): string[] {
   const a = data.attrs ?? {};
   const out: string[] = [];
-  if (a.replicas && a.replicas > 1) out.push(`×${a.replicas}`);
+  // An autoscaling range says more than a replica count, and it is the floor that
+  // meets a spike — so show the range when there is one.
+  if (a.autoscaleMax && a.autoscaleMax > 1) out.push(`×${a.autoscaleMin ?? a.replicas ?? 1}–${a.autoscaleMax}`);
+  else if (a.replicas && a.replicas > 1) out.push(`×${a.replicas}`);
   if (a.capacityRps) out.push(`${a.capacityRps >= 1000 ? `${a.capacityRps / 1000}k` : a.capacityRps} rps`);
   if (a.latencyMs !== undefined) out.push(`${a.latencyMs}ms`);
   if (a.cacheHitRate !== undefined) out.push(`hit ${Math.round(a.cacheHitRate * 100)}%`);
@@ -181,21 +184,56 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
   );
 }
 
+/** Seconds once milliseconds stop being readable: 80000ms tells nobody anything. */
+function duration(ms: number): string {
+  if (!Number.isFinite(ms)) return '—';
+  if (ms >= 10_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms)}ms`;
+}
+
+/**
+ * What the replica count did. An autoscaler that went from one to five is the story;
+ * a fixed count is barely worth the space.
+ */
+function scaling(sim: SimNodeResult): string {
+  if (sim.replicasSettled > sim.replicas) return ` · ×${sim.replicas}→${sim.replicasSettled}`;
+  return sim.replicas > 1 ? ` · ×${sim.replicas}` : '';
+}
+
 function SimBadge({ sim }: { sim: SimNodeResult }) {
-  const pct = Number.isFinite(sim.utilization) ? Math.min(sim.utilization, 2) / 2 : 1;
+  const bar = Number.isFinite(sim.utilization) ? Math.min(sim.utilization, 2) / 2 : 1;
+  const overloaded = sim.utilization > 1;
+  // How much of what arrived did not get served. This is the number that matters once
+  // a component is past its limit — "2000% utilised" is arithmetic, "sheds 95%" is the
+  // finding.
+  const shedPct = sim.incomingRps > 0 ? Math.round((sim.droppedRps / sim.incomingRps) * 100) : 0;
+
   return (
     <div className="util">
       <div className="bar">
-        <span style={{ width: `${Math.max(2, pct * 100)}%` }} />
+        <span style={{ width: `${Math.max(2, bar * 100)}%` }} />
       </div>
       <div className="util-text">
-        <span>
-          {Number.isFinite(sim.utilization) ? `${Math.round(sim.utilization * 100)}%` : 'over'} ·{' '}
-          {Math.round(sim.incomingRps)} rps
+        <span
+          title={
+            sim.unlimited
+              ? 'Nothing about this component limits traffic, so it has no utilisation.'
+              : `${Math.round(sim.incomingRps)} rps arriving against ${Math.round(sim.capacityRps)} rps of capacity${sim.replicas > 1 ? ` across ${sim.replicas} replicas` : ''}.`
+          }
+        >
+          {sim.unlimited
+            ? `passes ${Math.round(sim.incomingRps)} rps`
+            : `${Math.round(Math.min(sim.utilization, 9.99) * 100)}% · ${Math.round(sim.incomingRps)} rps`}
         </span>
-        <span>
-          {Math.round(sim.latencyMs)}ms
-          {sim.droppedRps > 0 ? ` · -${Math.round(sim.droppedRps)}` : ''}
+        <span
+          title={
+            overloaded
+              ? `Past its capacity, so its latency is at the ceiling the model reports rather than a number to plan against. ${Math.round(sim.droppedRps)} rps never got served.`
+              : 'Service time plus queue wait.'
+          }
+        >
+          {shedPct > 0 ? `sheds ${shedPct}%` : duration(sim.latencyMs)}
+          {scaling(sim)}
         </span>
       </div>
     </div>

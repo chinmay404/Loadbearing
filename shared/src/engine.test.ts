@@ -493,6 +493,62 @@ describe('traffic patterns', () => {
   });
 });
 
+describe('an autoscaling group', () => {
+  const pool = (attrs: NodeAttrs) =>
+    graph(
+      [node('web', 'client', { trafficRps: 900 }), node('pool', 'container_platform', attrs)],
+      [edge('web', 'pool')],
+    );
+
+  it('constrains traffic — it is workers, not a scheduler', () => {
+    // Drawn between a balancer and a database, this box is the containers serving the
+    // requests. Treating it as a control plane reported 0% utilisation while 400 rps
+    // flowed straight through an autoscaling group.
+    const result = runEngine(pool({ capacityRps: 300, autoscaleMin: 1, autoscaleMax: 10 }), scenario());
+    const hop = result.final.find((h) => h.nodeId === 'pool')!;
+
+    expect(hop.capacityRps).toBeCloseTo(300, 0);
+    expect(hop.utilization).toBeGreaterThan(1);
+    expect(hop.droppedRps).toBeGreaterThan(0);
+  });
+
+  it('starts at its floor, so "min 1" meets a spike with one container', () => {
+    const result = runEngine(pool({ capacityRps: 300, autoscaleMin: 1, autoscaleMax: 50 }), scenario());
+    expect(result.final.find((h) => h.nodeId === 'pool')!.replicas).toBe(1);
+  });
+
+  it('starts higher when the floor is raised, and copes immediately', () => {
+    const result = runEngine(pool({ capacityRps: 300, autoscaleMin: 5, autoscaleMax: 50 }), scenario());
+    const hop = result.final.find((h) => h.nodeId === 'pool')!;
+
+    expect(hop.replicas).toBe(5);
+    expect(hop.droppedRps).toBe(0);
+    expect(last(result.ticks).successRate).toBeCloseTo(1, 2);
+  });
+
+  it('grows to the ceiling and no further', () => {
+    const result = runEngine(
+      pool({ capacityRps: 300, autoscaleMin: 1, autoscaleMax: 2 }),
+      scenario({ horizonS: AUTOSCALE_LAG_S * 2 + 5 }),
+    );
+    const hop = result.final.find((h) => h.nodeId === 'pool')!;
+
+    expect(hop.replicas).toBe(2);
+    // Still short of 900 rps, because the ceiling is the ceiling.
+    expect(hop.droppedRps).toBeGreaterThan(0);
+  });
+
+  it('leaves headroom rather than scaling to exactly the load', () => {
+    const result = runEngine(
+      pool({ capacityRps: 100, autoscaleMin: 1, autoscaleMax: 100 }),
+      scenario({ horizonS: AUTOSCALE_LAG_S + 5 }),
+    );
+    // 900 rps at 100 rps each needs 9 replicas to be full; an autoscaler aiming at 70%
+    // asks for 13, because scaling to the brim guarantees scaling again immediately.
+    expect(result.final.find((h) => h.nodeId === 'pool')!.replicas).toBe(13);
+  });
+});
+
 describe('scaling, late', () => {
   it('adds capacity only after the damage is done', () => {
     const g = graph(

@@ -56,7 +56,16 @@ export const CATEGORY_ORDER: NodeCategory[] = [
 ];
 
 // Common inspector field sets, so the knobs stay consistent across types.
-const STATELESS: (keyof NodeAttrs)[] = ['capacityRps', 'replicas', 'latencyMs', 'monthlyCost'];
+// Stateless compute is exactly the thing that scales horizontally, so the autoscale
+// range belongs here rather than on a handful of special cases.
+const STATELESS: (keyof NodeAttrs)[] = [
+  'capacityRps',
+  'replicas',
+  'latencyMs',
+  'autoscaleMin',
+  'autoscaleMax',
+  'monthlyCost',
+];
 const STATELESS_HA: (keyof NodeAttrs)[] = [
   'capacityRps',
   'replicas',
@@ -65,6 +74,19 @@ const STATELESS_HA: (keyof NodeAttrs)[] = [
   'monthlyCost',
 ];
 const MANAGED: (keyof NodeAttrs)[] = ['capacityRps', 'latencyMs', 'multiAz', 'monthlyCost'];
+/**
+ * Compute that grows with load. The floor and the ceiling are separate decisions and
+ * the floor is the one that matters in the first minute of a spike, so both are asked
+ * for rather than inferred.
+ */
+const SCALED: (keyof NodeAttrs)[] = [
+  'capacityRps',
+  'latencyMs',
+  'autoscaleMin',
+  'autoscaleMax',
+  'concurrency',
+  'monthlyCost',
+];
 /** Anything that absorbs traffic instead of forwarding it. */
 const CACHED: (keyof NodeAttrs)[] = [
   'capacityRps',
@@ -259,12 +281,19 @@ const CATALOG = [
   },
   {
     type: 'container_platform',
-    label: 'Container Platform',
+    label: 'Autoscaling Workers',
     category: 'Compute',
     color: '#ad5a2e',
-    hint: 'Schedules containers, restarts dead ones and owns autoscaling — a control plane, not a request hop.',
-    defaults: { capacityRps: 50000, replicas: 1, latencyMs: 1, multiAz: true, monthlyCost: 75 },
-    attrFields: MANAGED,
+    hint: 'A pool of containers that grows with load — and arrives a minute late, so the floor is what meets a spike.',
+    defaults: {
+      capacityRps: 300,
+      replicas: 1,
+      latencyMs: 40,
+      autoscaleMin: 1,
+      autoscaleMax: 10,
+      monthlyCost: 30,
+    },
+    attrFields: SCALED,
   },
   {
     type: 'vm',
