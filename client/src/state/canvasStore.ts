@@ -87,9 +87,16 @@ interface CanvasState extends Snapshot {
   onNodesChange: (changes: NodeChange<AnyNode>[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (c: Connection) => void;
-  addArchNode: (type: ArchNodeType, position: { x: number; y: number }) => string;
+  addArchNode: (
+    type: ArchNodeType,
+    position: { x: number; y: number },
+    overrides?: { label?: string; annotation?: string; attrs?: NodeAttrs },
+  ) => string;
   /** Places a node near the middle of what the user is currently looking at. */
-  addArchNodeAtCenter: (type: ArchNodeType) => string;
+  addArchNodeAtCenter: (
+    type: ArchNodeType,
+    overrides?: { label?: string; annotation?: string; attrs?: NodeAttrs },
+  ) => string;
   setViewportCenter: (c: { x: number; y: number }) => void;
   addSticky: (position: { x: number; y: number }) => void;
   updateNodeData: (id: string, patch: Partial<ArchNodeData>) => void;
@@ -427,7 +434,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       dirty: true,
     })),
 
-  addArchNode: (type, position) => {
+  addArchNode: (type, position, overrides) => {
     const spec = NODE_SPEC[type];
     const id = uid('n');
     const node: Node<ArchNodeData, 'arch'> = {
@@ -437,9 +444,9 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       ...(type === 'group' ? { style: { width: 300, height: 220 }, zIndex: GROUP_Z } : {}),
       data: {
         archType: type,
-        label: spec.label,
-        annotation: '',
-        attrs: { ...spec.defaults },
+        label: overrides?.label ?? spec.label,
+        annotation: overrides?.annotation ?? '',
+        attrs: { ...spec.defaults, ...(overrides?.attrs ?? {}) },
       },
     };
     set((s) => ({
@@ -451,14 +458,15 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     return id;
   },
 
-  addArchNodeAtCenter: (type) => {
+  addArchNodeAtCenter: (type, overrides) => {
     const { viewportCenter, nodes } = get();
     // Cascade slightly so repeated clicks do not stack into one pile.
     const offset = (nodes.length % 6) * 26;
-    return get().addArchNode(type, {
-      x: viewportCenter.x - 80 + offset,
-      y: viewportCenter.y - 30 + offset,
-    });
+    return get().addArchNode(
+      type,
+      { x: viewportCenter.x - 80 + offset, y: viewportCenter.y - 30 + offset },
+      overrides,
+    );
   },
 
   setViewportCenter: (viewportCenter) => set({ viewportCenter }),

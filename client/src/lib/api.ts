@@ -2,6 +2,7 @@ import type {
   Attempt,
   BlueprintLike,
   CritiqueResponse,
+  CustomObject,
   GraphDSL,
   MasteryEntry,
   Problem,
@@ -190,6 +191,12 @@ export const api = {
     req<{ markdown: string; filename: string }>(`/projects/${encodeURIComponent(id)}/brief`, {
       method: 'POST',
     }),
+
+  customObjects: () => req<CustomObject[]>('/custom-objects'),
+  saveCustomObject: (body: Omit<CustomObject, 'id' | 'createdAt'>) =>
+    req<CustomObject>('/custom-objects', { method: 'POST', body: JSON.stringify(body) }),
+  deleteCustomObject: (id: string) =>
+    req<{ ok: true }>(`/custom-objects/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   templates: () => req<UserTemplate[]>('/templates'),
   saveTemplate: (body: { name: string; summary: string } & Omit<BlueprintLike, 'name'>) =>

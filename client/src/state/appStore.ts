@@ -44,6 +44,11 @@ interface AppState {
   projectId: string | null;
   /** Set while one of that project's canvases is open on the drawing board. */
   canvasId: string | null;
+  /**
+   * Bumped whenever the user's own component types change. The palette watches it
+   * rather than polling, so saving an object makes it appear immediately.
+   */
+  customObjectsVersion: number;
 
   setView: (v: View) => void;
   setLeftTab: (t: LeftTab) => void;
@@ -59,6 +64,8 @@ interface AppState {
   openProject: (id: string) => void;
   openCanvas: (projectId: string, canvasId: string) => void;
   closeProject: () => void;
+  /** Tells the palette its list of custom objects is stale. */
+  bumpCustomObjects: () => void;
   setHealth: (h: {
     serverUp: boolean;
     llmConfigured: boolean;
@@ -95,6 +102,7 @@ export const useApp = create<AppState>((set) => ({
   houseKey: false,
   projectId: null,
   canvasId: null,
+  customObjectsVersion: 0,
 
   setView: (view) => set({ view }),
   setLeftTab: (leftTab) => set({ leftTab }),
@@ -153,6 +161,8 @@ export const useApp = create<AppState>((set) => ({
     }),
 
   closeProject: () => set({ view: 'projects', projectId: null, canvasId: null }),
+
+  bumpCustomObjects: () => set((s) => ({ customObjectsVersion: s.customObjectsVersion + 1 })),
   setHealth: ({ serverUp, llmConfigured, stubMode, username, storageKind, houseKey }) =>
     set({
       serverUp,

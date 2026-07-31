@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import type { NodeAttrs } from '@loadbearing/shared';
+import type { ArchNodeType, NodeAttrs } from '@loadbearing/shared';
+import { api, ApiError } from '../lib/api';
+import { useApp } from '../state/appStore';
 import { useCanvas } from '../state/canvasStore';
 import { NODE_SPEC } from './nodeCatalog';
 
@@ -95,6 +97,13 @@ export function NodeTools() {
               ))}
             </div>
           )}
+
+          <SaveAsObject
+            name={label}
+            baseType={archData.archType}
+            note={annotation}
+            attrs={archData.attrs}
+          />
         </>
       ) : (
         <div style={{ fontSize: 12 }}>
@@ -175,5 +184,50 @@ function AttrField({
         style={{ width: 78, padding: '2px 4px', fontSize: 11 }}
       />
     </span>
+  );
+}
+
+/**
+ * Turns the component you have just tuned into one of your own types, so the next
+ * time you need a layout-aware chunker you pick it rather than rebuilding it.
+ *
+ * The base type travels with it, which is what keeps it a real component: the
+ * simulator, the structural rules and the grader all still see a chunker.
+ */
+function SaveAsObject({
+  name,
+  baseType,
+  note,
+  attrs,
+}: {
+  name: string;
+  baseType: ArchNodeType;
+  note: string;
+  attrs: NodeAttrs;
+}) {
+  const setNotice = useApp((s) => s.setNotice);
+  const setError = useApp((s) => s.setError);
+  const bumpObjects = useApp((s) => s.bumpCustomObjects);
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <button
+      className="ghost"
+      disabled={busy || !name.trim()}
+      title="Keep this as one of your own component types, available in the palette on every sheet"
+      onClick={() => {
+        setBusy(true);
+        void api
+          .saveCustomObject({ name: name.trim(), baseType, note, attrs })
+          .then((o) => {
+            bumpObjects();
+            setNotice(`"${o.name}" saved as one of your objects — it is in the palette now.`);
+          })
+          .catch((e) => setError({ message: (e as ApiError).message, hint: (e as ApiError).hint }))
+          .finally(() => setBusy(false));
+      }}
+    >
+      {busy ? <span className="spinner" /> : null} Save as my own object
+    </button>
   );
 }

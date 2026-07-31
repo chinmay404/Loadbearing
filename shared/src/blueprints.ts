@@ -54,6 +54,27 @@ export interface BlueprintLike {
   flows: BlueprintFlow[];
 }
 
+/**
+ * A component type the user defined — a named preset over one of the built-in
+ * types.
+ *
+ * The catalogue names categories of thing, not every variant of them: there is one
+ * `chunker`, but a fixed-size chunker, a recursive one, a layout-aware one and a
+ * sentence-window one are different decisions with different failure modes. Rather
+ * than guess which variants matter, this lets the person who knows name their own
+ * and reuse them. The base type still decides the icon and how the simulator and
+ * the rule engine treat it, so a custom object is a real component, not a label.
+ */
+export interface CustomObject {
+  id: string;
+  name: string;
+  baseType: ArchNodeType;
+  /** Pre-filled reasoning, so the variant explains itself every time it is placed. */
+  note: string;
+  attrs: NodeAttrs;
+  createdAt: string;
+}
+
 /** A subsystem the user saved from their own canvas, to reuse on any sheet. */
 export interface UserTemplate extends BlueprintLike {
   id: string;
