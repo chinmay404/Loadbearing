@@ -99,7 +99,7 @@ interface CanvasState extends Snapshot {
     overrides?: { label?: string; annotation?: string; attrs?: NodeAttrs },
   ) => string;
   setViewportCenter: (c: { x: number; y: number }) => void;
-  addSticky: (position: { x: number; y: number }) => void;
+  addSticky: (position: { x: number; y: number }) => string;
   updateNodeData: (id: string, patch: Partial<ArchNodeData>) => void;
   updateStickyText: (id: string, text: string) => void;
   updateNodeAttrs: (id: string, patch: NodeAttrs) => void;
@@ -221,8 +221,7 @@ export const shapeOf = (e: Edge): NonNullable<EdgeGeometry['shape']> =>
 /** Middle of a node in canvas coordinates, for routing arithmetic. */
 function centreOf(n: AnyNode, all: AnyNode[]): { x: number; y: number } {
   const at = absolutePosition(n, all);
-  const w = Number(n.style?.width ?? n.measured?.width ?? 168);
-  const h = Number(n.style?.height ?? n.measured?.height ?? 64);
+  const { w, h } = sizeOf(n);
   return { x: at.x + w / 2, y: at.y + h / 2 };
 }
 
@@ -242,10 +241,40 @@ function distanceToSegment(
 /** Boundaries live behind the components they contain, unless moved deliberately. */
 const GROUP_Z = -1;
 
-const sizeOf = (n: AnyNode): { w: number; h: number } => ({
-  w: Number(n.style?.width ?? n.measured?.width ?? 168),
-  h: Number(n.style?.height ?? n.measured?.height ?? 64),
-});
+const numeric = (v: unknown): number | null => {
+  const n = typeof v === 'string' ? Number(v) : v;
+  return typeof n === 'number' && Number.isFinite(n) ? n : null;
+};
+
+/**
+ * The size the user deliberately gave a node, or null if it is still sized by its
+ * contents.
+ *
+ * `width`/`height` come first because that is where React Flow puts a resize:
+ * `applyNodeChanges` writes a `dimensions` change with `setAttributes` to those
+ * fields, never into `style`, and `getNodeInlineStyleDimensions` reads them in the
+ * same order when it renders. Reading `style` first — which this did — meant every
+ * boundary reported the 300x220 it was created at no matter how far it was dragged,
+ * so that is the size that got saved and the size it came back as.
+ */
+export const explicitSize = (n: AnyNode): { w: number; h: number } | null => {
+  const w = numeric(n.width ?? n.style?.width);
+  const h = numeric(n.height ?? n.style?.height);
+  return w !== null && h !== null ? { w, h } : null;
+};
+
+/**
+ * How big a node is on the sheet: the size it was given, else the size the DOM
+ * measured, else a sensible default for tests and the first frame.
+ */
+export const sizeOf = (n: AnyNode): { w: number; h: number } => {
+  const set = explicitSize(n);
+  if (set) return set;
+  return {
+    w: numeric(n.measured?.width) ?? 168,
+    h: numeric(n.measured?.height) ?? 64,
+  };
+};
 
 /**
  * Where a node actually sits on the sheet. A child's stored position is relative
@@ -390,7 +419,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
             type: 'arch',
             position: n.position,
             ...(n.parentId ? { parentId: n.parentId, extent: 'parent' as const } : {}),
-            ...(n.size ? { style: { width: n.size.w, height: n.size.h } } : {}),
+            ...(n.size ? { width: n.size.w, height: n.size.h } : {}),
             // A boundary defaults behind everything so components sit inside it,
             // but a saved order always wins — the user may have deliberately
             // pulled one forward.
@@ -410,6 +439,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
             id: s.id,
             type: 'sticky',
             position: s.position,
+            ...(s.size ? { width: s.size.w, height: s.size.h } : {}),
             data: { text: s.text },
           }) as Node<StickyData, 'sticky'>,
       ),
@@ -485,7 +515,10 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       id,
       type: 'arch',
       position,
-      ...(type === 'group' ? { style: { width: 300, height: 220 }, zIndex: GROUP_Z } : {}),
+      // A boundary starts at a usable size instead of collapsing to its label.
+      // These are the fields a resize writes, so dragging the handle replaces them
+      // rather than leaving a stale `style` behind.
+      ...(type === 'group' ? { width: 300, height: 220, zIndex: GROUP_Z } : {}),
       data: {
         archType: type,
         label: overrides?.label ?? spec.label,
@@ -516,8 +549,9 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   setViewportCenter: (viewportCenter) => set({ viewportCenter }),
 
   addSticky: (position) => {
+    const id = uid('s');
     const node: Node<StickyData, 'sticky'> = {
-      id: uid('s'),
+      id,
       type: 'sticky',
       position,
       data: { text: '' },
@@ -528,6 +562,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       nodes: [...s.nodes, node],
       dirty: true,
     }));
+    return id;
   },
 
   updateNodeData: (id, patch) =>
@@ -812,7 +847,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
         ...(n.parent && idFor.has(n.parent)
           ? { parentId: idFor.get(n.parent)!, extent: 'parent' as const }
           : {}),
-        ...(n.size ? { style: { width: n.size.w, height: n.size.h } } : {}),
+        ...(n.size ? { width: n.size.w, height: n.size.h } : {}),
         data: {
           archType: n.type,
           label: n.label,
@@ -889,9 +924,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
         annotation: n.data.annotation,
         at: { x: Math.round(n.position.x - minX), y: Math.round(n.position.y - minY) },
         attrs: n.data.attrs,
-        ...(n.style?.width && n.style?.height
-          ? { size: { w: Number(n.style.width), h: Number(n.style.height) } }
-          : {}),
+        ...(explicitSize(n) ? { size: explicitSize(n)! } : {}),
         ...(n.parentId && included.has(n.parentId) ? { parent: n.parentId } : {}),
       })),
       edges: s.edges
@@ -1317,9 +1350,9 @@ export const useCanvas = create<CanvasState>((set, get) => ({
           attrs: n.data.attrs,
           position: n.position,
           ...(n.parentId ? { parentId: n.parentId } : {}),
-          ...(n.style?.width && n.style?.height
-            ? { size: { w: Number(n.style.width), h: Number(n.style.height) } }
-            : {}),
+          // Only a size the user set: serialising a measured size would freeze
+          // every component at whatever the browser laid out on one machine.
+          ...(explicitSize(n) ? { size: explicitSize(n)! } : {}),
           ...(typeof n.zIndex === 'number' ? { z: n.zIndex } : {}),
           ...(n.draggable === false || n.data.locked ? { locked: true } : {}),
         })),
@@ -1337,7 +1370,12 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       }),
       stickies: s.nodes
         .filter((n): n is Node<StickyData, 'sticky'> => n.type === 'sticky')
-        .map((n) => ({ id: n.id, text: n.data.text, position: n.position })),
+        .map((n) => ({
+          id: n.id,
+          text: n.data.text,
+          position: n.position,
+          ...(explicitSize(n) ? { size: explicitSize(n)! } : {}),
+        })),
       strokes: s.strokes,
       flows: s.flows,
     };

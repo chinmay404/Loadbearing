@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Problem, ProblemSummary, ScoreResult, SimResult } from '@loadbearing/shared';
+import type { ChatTurn, Problem, ProblemSummary, ScoreResult, SimResult } from '@loadbearing/shared';
 
 export type View =
   | 'problems'
@@ -49,6 +49,15 @@ interface AppState {
    * rather than polling, so saving an object makes it appear immediately.
    */
   customObjectsVersion: number;
+  /**
+   * The coaching conversation for the sheet on screen. It lives here rather than
+   * in the Ask panel because the panel unmounts every time the rail changes tab,
+   * and a conversation that dies when you glance at the feedback is not a
+   * conversation. `chatFor` is the sheet it belongs to, so a different sheet
+   * fetches its own instead of inheriting this one.
+   */
+  chat: ChatTurn[];
+  chatFor: string | null;
 
   setView: (v: View) => void;
   setLeftTab: (t: LeftTab) => void;
@@ -66,6 +75,10 @@ interface AppState {
   closeProject: () => void;
   /** Tells the palette its list of custom objects is stale. */
   bumpCustomObjects: () => void;
+  /** Replaces the thread — used when one is loaded for a sheet, or cleared. */
+  setChat: (problemId: string, turns: ChatTurn[]) => void;
+  /** Shows a turn immediately; the server is the one that keeps it. */
+  appendChat: (turn: ChatTurn) => void;
   setHealth: (h: {
     serverUp: boolean;
     llmConfigured: boolean;
@@ -103,6 +116,8 @@ export const useApp = create<AppState>((set) => ({
   projectId: null,
   canvasId: null,
   customObjectsVersion: 0,
+  chat: [],
+  chatFor: null,
 
   setView: (view) => set({ view }),
   setLeftTab: (leftTab) => set({ leftTab }),
@@ -163,6 +178,10 @@ export const useApp = create<AppState>((set) => ({
   closeProject: () => set({ view: 'projects', projectId: null, canvasId: null }),
 
   bumpCustomObjects: () => set((s) => ({ customObjectsVersion: s.customObjectsVersion + 1 })),
+
+  setChat: (chatFor, chat) => set({ chatFor, chat }),
+  appendChat: (turn) => set((s) => ({ chat: [...s.chat, turn] })),
+
   setHealth: ({ serverUp, llmConfigured, stubMode, username, storageKind, houseKey }) =>
     set({
       serverUp,
@@ -192,5 +211,7 @@ export const useApp = create<AppState>((set) => ({
       activeTwist: null,
       previousOverall: null,
       error: null,
+      chat: [],
+      chatFor: null,
     }),
 }));

@@ -5,7 +5,7 @@
 // reach. Testing the store instead tests the logic and skips the theatre.
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useCanvas } from './canvasStore';
+import { sizeOf, useCanvas } from './canvasStore';
 
 const store = () => useCanvas.getState();
 
@@ -14,18 +14,25 @@ const place = (type: Parameters<ReturnType<typeof store>['addArchNode']>[0], x: 
   store().addArchNode(type, { x, y });
 
 /**
- * React Flow supplies measurements; without a renderer the tests provide them.
- * Both `style` and `measured` are set because a resized boundary carries its size
- * in `style` (NodeResizer writes it there) and that is what the store reads first.
+ * React Flow's measurement pass, as it actually arrives: a `dimensions` change
+ * with no `setAttributes`, which records what the DOM measured and nothing more.
+ * This is all an unresized component ever gets.
  */
 function measure(id: string, w: number, h: number) {
-  useCanvas.setState((s) => ({
-    nodes: s.nodes.map((n) =>
-      n.id === id
-        ? { ...n, style: { ...(n.style ?? {}), width: w, height: h }, measured: { width: w, height: h } }
-        : n,
-    ),
-  }));
+  store().onNodesChange([{ id, type: 'dimensions', dimensions: { width: w, height: h } }]);
+}
+
+/**
+ * A drag of the resize handle, as NodeResizer actually reports it: `setAttributes`
+ * makes React Flow write an explicit `width`/`height` on the node. It does NOT
+ * touch `style` — an earlier version of these tests faked the resize by setting
+ * `style` directly, which is why they passed while resizing was in fact broken.
+ */
+function resize(id: string, w: number, h: number) {
+  store().onNodesChange([
+    { id, type: 'dimensions', resizing: true, setAttributes: true, dimensions: { width: w, height: h } },
+  ]);
+  store().onNodesChange([{ id, type: 'dimensions', resizing: false, dimensions: { width: w, height: h } }]);
 }
 
 function select(...ids: string[]) {
@@ -210,7 +217,7 @@ describe('reshaping a connection', () => {
 describe('boundaries', () => {
   it('adopts a component dropped inside it, and keeps it where it looked', () => {
     const group = place('group', 100, 100);
-    measure(group, 300, 220);
+    resize(group, 300, 220);
     const svc = place('service', 150, 150);
     measure(svc, 168, 64);
 
@@ -223,7 +230,7 @@ describe('boundaries', () => {
 
   it('releases a component dragged out of it', () => {
     const group = place('group', 100, 100);
-    measure(group, 300, 220);
+    resize(group, 300, 220);
     const svc = place('service', 150, 150);
     measure(svc, 168, 64);
     store().reparentDroppedNodes([svc]);
@@ -242,9 +249,9 @@ describe('boundaries', () => {
 
   it('picks the innermost boundary when they are nested', () => {
     const outer = place('group', 0, 0);
-    measure(outer, 800, 600);
+    resize(outer, 800, 600);
     const inner = place('group', 100, 100);
-    measure(inner, 200, 200);
+    resize(inner, 200, 200);
     store().reparentDroppedNodes([inner]);
     expect(node(inner)!.parentId).toBe(outer);
 
@@ -256,9 +263,9 @@ describe('boundaries', () => {
 
   it('never puts a boundary inside itself or its own contents', () => {
     const group = place('group', 0, 0);
-    measure(group, 600, 600);
+    resize(group, 600, 600);
     const child = place('group', 50, 50);
-    measure(child, 400, 400);
+    resize(child, 400, 400);
     store().reparentDroppedNodes([child]);
     expect(node(child)!.parentId).toBe(group);
 
@@ -273,7 +280,7 @@ describe('boundaries', () => {
     const svc = place('service', 150, 150);
     measure(svc, 100, 40);
     const group = place('group', 100, 100);
-    measure(group, 400, 400);
+    resize(group, 400, 400);
     store().reparentDroppedNodes([svc]);
 
     const ids = store().nodes.map((n) => n.id);
@@ -285,6 +292,45 @@ describe('boundaries', () => {
     const b = place('group', 500, 0);
     store().onConnect({ source: a, target: b, sourceHandle: null, targetHandle: null });
     expect(store().edges.length).toBe(1);
+  });
+});
+
+describe('a resized boundary', () => {
+  it('saves the size it was dragged to, not the size it spawned at', () => {
+    const group = place('group', 40, 40);
+    resize(group, 640, 480);
+
+    const saved = store().toDoc().nodes.find((n) => n.id === group);
+    expect(saved?.size).toEqual({ w: 640, h: 480 });
+  });
+
+  it('comes back that size after a reload', () => {
+    const group = place('group', 40, 40);
+    resize(group, 640, 480);
+
+    // Exactly what a page load does: serialise, then hydrate from the document.
+    store().loadProblem('test', store().toDoc());
+    expect(sizeOf(node(group)!)).toEqual({ w: 640, h: 480 });
+  });
+
+  it('adopts a component dropped in the area it was enlarged to cover', () => {
+    const group = place('group', 0, 0);
+    resize(group, 700, 500);
+    // Well outside the 300x220 it spawned at, so this only works if the drop test
+    // reads the size the boundary actually has.
+    const svc = place('service', 500, 380);
+    measure(svc, 168, 64);
+
+    expect(store().reparentDroppedNodes([svc]).attached).toBe(1);
+    expect(node(svc)!.parentId).toBe(group);
+  });
+
+  it('keeps a resized note at its size too', () => {
+    const sticky = store().addSticky({ x: 0, y: 0 });
+    resize(sticky, 320, 240);
+
+    store().loadProblem('test', store().toDoc());
+    expect(sizeOf(node(sticky)!)).toEqual({ w: 320, h: 240 });
   });
 });
 

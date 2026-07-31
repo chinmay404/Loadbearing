@@ -116,6 +116,12 @@ export interface Storage {
   getDesign(userId: string, problemId: string): Promise<{ graphJson: string; updatedAt: string } | null>;
   putDesign(userId: string, problemId: string, graphJson: string): Promise<void>;
 
+  // ---- coaching conversation (one thread per problem sheet) ----
+  /** The stored turns as JSON, or null when nothing has been asked yet. */
+  getChat(userId: string, problemId: string): Promise<string | null>;
+  putChat(userId: string, problemId: string, turnsJson: string): Promise<void>;
+  deleteChat(userId: string, problemId: string): Promise<void>;
+
   // ---- projects and their canvases ----
   createProject(userId: string, name: string, summary: string): Promise<ProjectRow>;
   listProjects(userId: string): Promise<(ProjectRow & { canvasCount: number })[]>;

@@ -214,6 +214,23 @@ for (const backend of backends) {
       expect(await s.getDesign(b.id, 'p1')).toBeNull();
     });
 
+    it('chats: one thread per user and sheet, replaced wholesale', async () => {
+      const s = await fresh();
+      const a = await s.createUser(uniq('ca'), 'h');
+      const b = await s.createUser(uniq('cb'), 'h');
+      expect(await s.getChat(a.id, 'p1')).toBeNull();
+
+      await s.putChat(a.id, 'p1', '[{"role":"me","text":"first"}]');
+      await s.putChat(a.id, 'p1', '[{"role":"me","text":"first"},{"role":"ai","text":"reply"}]');
+      expect(await s.getChat(a.id, 'p1')).toBe('[{"role":"me","text":"first"},{"role":"ai","text":"reply"}]');
+      // Another sheet and another account are separate conversations.
+      expect(await s.getChat(a.id, 'p2')).toBeNull();
+      expect(await s.getChat(b.id, 'p1')).toBeNull();
+
+      await s.deleteChat(a.id, 'p1');
+      expect(await s.getChat(a.id, 'p1')).toBeNull();
+    });
+
     it('reference designs are shared across users', async () => {
       const s = await fresh();
       const a = await s.createUser(uniq('ra'), 'h');

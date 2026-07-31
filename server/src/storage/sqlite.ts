@@ -152,6 +152,14 @@ export class SqliteStorage implements Storage {
         PRIMARY KEY (user_id, problem_id)
       );
 
+      CREATE TABLE IF NOT EXISTS chats (
+        user_id TEXT NOT NULL,
+        problem_id TEXT NOT NULL,
+        turns_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (user_id, problem_id)
+      );
+
       CREATE TABLE IF NOT EXISTS reference_designs (
         problem_id TEXT PRIMARY KEY,
         graph_json TEXT NOT NULL,
@@ -442,6 +450,28 @@ export class SqliteStorage implements Storage {
          ON CONFLICT(user_id, problem_id) DO UPDATE SET graph_json = excluded.graph_json, updated_at = datetime('now')`,
       )
       .run(userId, problemId, graphJson);
+  }
+
+  // ---- coaching conversation ----
+
+  async getChat(userId: string, problemId: string): Promise<string | null> {
+    const row = this.db
+      .prepare('SELECT turns_json FROM chats WHERE user_id = ? AND problem_id = ?')
+      .get(userId, problemId) as { turns_json: string } | undefined;
+    return row ? row.turns_json : null;
+  }
+
+  async putChat(userId: string, problemId: string, turnsJson: string): Promise<void> {
+    this.db
+      .prepare(
+        `INSERT INTO chats (user_id, problem_id, turns_json, updated_at) VALUES (?, ?, ?, datetime('now'))
+         ON CONFLICT(user_id, problem_id) DO UPDATE SET turns_json = excluded.turns_json, updated_at = datetime('now')`,
+      )
+      .run(userId, problemId, turnsJson);
+  }
+
+  async deleteChat(userId: string, problemId: string): Promise<void> {
+    this.db.prepare('DELETE FROM chats WHERE user_id = ? AND problem_id = ?').run(userId, problemId);
   }
 
   // ---- projects and their canvases ----

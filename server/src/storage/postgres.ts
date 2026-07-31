@@ -106,6 +106,16 @@ const SCHEMA: { table: string; create: string; indexes?: string[] }[] = [
     )`,
   },
   {
+    table: 'chats',
+    create: `CREATE TABLE chats (
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      problem_id TEXT NOT NULL,
+      turns_json TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, problem_id)
+    )`,
+  },
+  {
     table: 'reference_designs',
     create: `CREATE TABLE reference_designs (
       problem_id TEXT PRIMARY KEY,
@@ -508,6 +518,28 @@ export class PostgresStorage implements Storage {
        ON CONFLICT (user_id, problem_id) DO UPDATE SET graph_json = excluded.graph_json, updated_at = now()`,
       [userId, problemId, graphJson],
     );
+  }
+
+  // ---- coaching conversation ----
+
+  async getChat(userId: string, problemId: string): Promise<string | null> {
+    const row = await this.one<{ turns_json: string }>(
+      'SELECT turns_json FROM chats WHERE user_id = $1 AND problem_id = $2',
+      [userId, problemId],
+    );
+    return row ? row.turns_json : null;
+  }
+
+  async putChat(userId: string, problemId: string, turnsJson: string): Promise<void> {
+    await this.q(
+      `INSERT INTO chats (user_id, problem_id, turns_json, updated_at) VALUES ($1, $2, $3, now())
+       ON CONFLICT (user_id, problem_id) DO UPDATE SET turns_json = excluded.turns_json, updated_at = now()`,
+      [userId, problemId, turnsJson],
+    );
+  }
+
+  async deleteChat(userId: string, problemId: string): Promise<void> {
+    await this.q('DELETE FROM chats WHERE user_id = $1 AND problem_id = $2', [userId, problemId]);
   }
 
   // ---- projects and their canvases ----

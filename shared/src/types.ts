@@ -213,7 +213,12 @@ export interface CanvasDoc {
     locked?: boolean;
   })[];
   edges: (GraphEdge & EdgeGeometry)[];
-  stickies: { id: string; text: string; position: { x: number; y: number } }[];
+  stickies: {
+    id: string;
+    text: string;
+    position: { x: number; y: number };
+    size?: { w: number; h: number };
+  }[];
   strokes: { points: [number, number][]; color: string }[];
   flows: Flow[];
 }
@@ -507,3 +512,17 @@ export interface CritiqueResponse {
   canvas_markup: CanvasMarkup[];
   suggested_additions: SuggestedAddition[];
 }
+
+/**
+ * One turn of the coaching conversation. Kept per (user, sheet) so a follow-up
+ * like "why?" still has something to refer to — the coach is asked in a thread,
+ * not one disconnected question at a time.
+ */
+export interface ChatTurn {
+  role: 'me' | 'ai';
+  text: string;
+}
+
+/** How many turns are stored, and how many of them the coach is shown. */
+export const CHAT_HISTORY_KEPT = 60;
+export const CHAT_HISTORY_SHOWN = 8;

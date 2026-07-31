@@ -7,7 +7,15 @@ import {
   renderDiffLines,
   simulate,
 } from '@loadbearing/shared';
-import type { Attempt, GraphDSL, ScoreResult, SimConfig } from '@loadbearing/shared';
+import {
+  CHAT_HISTORY_KEPT,
+  CHAT_HISTORY_SHOWN,
+  type Attempt,
+  type ChatTurn,
+  type GraphDSL,
+  type ScoreResult,
+  type SimConfig,
+} from '@loadbearing/shared';
 import { storage } from '../storage/index.js';
 import type { AttemptRow } from '../storage/types.js';
 import { requireUser, type AppEnv } from '../auth/middleware.js';
@@ -154,6 +162,36 @@ scoringRoutes.get('/attempts/:id', requireUser, async (c) => {
   return c.json(rowToAttempt(row));
 });
 
+/** The stored conversation for a sheet, tolerating anything that is not turns. */
+function parseTurns(json: string | null): ChatTurn[] {
+  if (!json) return [];
+  try {
+    const raw: unknown = JSON.parse(json);
+    if (!Array.isArray(raw)) return [];
+    return raw.filter(
+      (t): t is ChatTurn =>
+        typeof t === 'object' &&
+        t !== null &&
+        ((t as ChatTurn).role === 'me' || (t as ChatTurn).role === 'ai') &&
+        typeof (t as ChatTurn).text === 'string',
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** The coaching conversation for one sheet. */
+scoringRoutes.get('/chat/:problemId', requireUser, async (c) => {
+  const store = await storage();
+  const turns = parseTurns(await store.getChat(c.get('userId'), c.req.param('problemId')));
+  return c.json({ turns });
+});
+
+scoringRoutes.delete('/chat/:problemId', requireUser, async (c) => {
+  await (await storage()).deleteChat(c.get('userId'), c.req.param('problemId'));
+  return c.json({ ok: true });
+});
+
 /** Ask the architect about the design currently on the canvas. */
 scoringRoutes.post('/critique', requireUser, async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
@@ -176,7 +214,19 @@ scoringRoutes.post('/critique', requireUser, async (c) => {
   // The question itself is part of the retrieval query — asking about retries
   // should surface the retry material even if the problem never says the word.
   const brief = referenceBriefFor({ problem, graph, text: question, limit: 4 });
-  const { system, user } = buildCritiquePrompt(problem, graph, question, selectedNodeIds, brief.text);
+
+  // The thread so far, read from storage rather than taken from the client: it is
+  // the same history the learner sees, and it cannot be rewritten by the caller.
+  // Without it every question arrived cold, so "why?" had nothing to refer to.
+  const history = parseTurns(await store.getChat(userId, problem.id));
+  const { system, user } = buildCritiquePrompt(
+    problem,
+    graph,
+    question,
+    selectedNodeIds,
+    brief.text,
+    history.slice(-CHAT_HISTORY_SHOWN),
+  );
   const { value: raw } = await cachedCompleteJson<unknown>(
     await loadLlmConfig(store, userId),
     system,
@@ -189,7 +239,25 @@ scoringRoutes.post('/critique', requireUser, async (c) => {
   // canvas gets no ghost components, and a question never earns more than one.
   critique.suggested_additions = graph.nodes.length === 0 ? [] : critique.suggested_additions.slice(0, 1);
   if (graph.nodes.length === 0) critique.canvas_markup = [];
-  return c.json({ ...critique, references: brief.sources });
+
+  // What the learner was pointing at is part of what they asked, so it is stored
+  // with the question rather than lost — the panel shows the same line back, and a
+  // later turn can still tell which component the thread was about.
+  const about = selectedNodeIds
+    .map((id) => graph.nodes.find((n) => n.id === id)?.label)
+    .filter((label): label is string => Boolean(label));
+  const asked = about.length ? `[about ${about.join(', ')}] ${question}` : question;
+
+  // Recorded only once there is an answer, so a failed request leaves no
+  // half-turn behind for the next question to refer to. Oldest turns fall off.
+  const stored: ChatTurn[] = [
+    ...history,
+    { role: 'me' as const, text: asked },
+    { role: 'ai' as const, text: critique.answer },
+  ].slice(-CHAT_HISTORY_KEPT);
+  await store.putChat(userId, problem.id, JSON.stringify(stored));
+
+  return c.json({ ...critique, references: brief.sources, turns: stored });
 });
 
 /**

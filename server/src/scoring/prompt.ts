@@ -1,4 +1,11 @@
-import type { GraphDSL, Problem, ScenarioVerdict, SimResult, TopologyFinding } from '@loadbearing/shared';
+import type {
+  ChatTurn,
+  GraphDSL,
+  Problem,
+  ScenarioVerdict,
+  SimResult,
+  TopologyFinding,
+} from '@loadbearing/shared';
 import { CONCEPT_CARDS } from '@loadbearing/shared';
 
 const GRADER_PERSONA = `You are a staff engineer running a rigorous architecture design review. You have shipped
@@ -354,6 +361,7 @@ export function buildCritiquePrompt(
   question: string,
   selectedNodeIds: string[] = [],
   reference = '',
+  history: ChatTurn[] = [],
 ): { system: string; user: string } {
   const system = `You are a staff engineer coaching a learner at a whiteboard. The learner learns by DOING:
 your job is to sharpen their thinking, never to do the design for them. The moment you hand over the
@@ -372,6 +380,9 @@ How you coach:
 - If it is small talk ("hi", "hello"), reply in one friendly sentence and invite a real question.
 - Ground everything in what they actually drew and this problem's numbers. Never invent components
   they did not draw when describing their design.
+- This is one continuing conversation. If earlier turns are shown, treat a short follow-up ("why?",
+  "and then?", "what about writes") as being about what you just discussed, and do not repeat a point
+  you have already made — take it further instead.
 
 You may also mark their canvas. Reply with ONLY a JSON object:
 {
@@ -395,11 +406,18 @@ Allowed node types: ${allowedNodeTypes()}`;
         .join('\n')}\nRead the question as being about these components specifically; anchor markup to them.\n`
     : '';
 
+  // Oldest first, so the last thing before the new question is the previous answer.
+  const historyBlock = history.length
+    ? `\n=== THE CONVERSATION SO FAR ===\n${history
+        .map((t) => `${t.role === 'me' ? 'LEARNER' : 'YOU'}: ${t.text}`)
+        .join('\n\n')}\n`
+    : '';
+
   const user = `${renderProblem(problem)}
 
 === THE DESIGN ON THE WHITEBOARD ===
 ${renderGraph(graph)}
-${selectionBlock}${reference ? `\n${reference}\nUse this material to keep your hint accurate. Do NOT dump it at them — one gap, one question.\n` : ''}
+${selectionBlock}${reference ? `\n${reference}\nUse this material to keep your hint accurate. Do NOT dump it at them — one gap, one question.\n` : ''}${historyBlock}
 === THE LEARNER ASKS ===
 ${question}`;
 

@@ -53,7 +53,14 @@ app.use('/api/*', attachUser);
 
 app.onError((err, c) => {
   const e = err as Error & { status?: number; hint?: string; problems?: string[]; raw?: string };
-  const status = typeof e.status === 'number' && e.status >= 400 && e.status < 600 ? e.status : 500;
+  const upstream = typeof e.status === 'number' && e.status >= 400 && e.status < 600 ? e.status : 500;
+  // 401 from this API means one thing to the client — your session is gone — and it
+  // signs the user out when it sees one. A provider rejecting the configured API
+  // key is a different failure, so it must not borrow that status: an unusable key
+  // used to throw the learner out of the sheet they were drawing. The provider's
+  // own message and hint still come through; only the status is ours.
+  const borrowedAuthFailure = e.name === 'LlmHttpError' && (upstream === 401 || upstream === 403);
+  const status = borrowedAuthFailure ? 502 : upstream;
   const code = e.name === 'LlmJsonError' ? 'llm_bad_json' : e.name === 'LlmHttpError' ? 'llm_http' : e.name;
   console.error(`[loadbearing] ${code}: ${e.message}`);
   return c.json(

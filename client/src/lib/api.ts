@@ -1,6 +1,7 @@
 import type {
   Attempt,
   BlueprintLike,
+  ChatTurn,
   CritiqueResponse,
   CustomObject,
   GraphDSL,
@@ -243,10 +244,15 @@ export const api = {
     question: string;
     selectedNodeIds?: string[];
   }) =>
-    req<CritiqueResponse & { references?: ScoreReference[] }>('/critique', {
+    req<CritiqueResponse & { references?: ScoreReference[]; turns?: ChatTurn[] }>('/critique', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+
+  /** The stored coaching thread for a sheet, and a way to start over. */
+  loadChat: (problemId: string) => req<{ turns: ChatTurn[] }>(`/chat/${encodeURIComponent(problemId)}`),
+  clearChat: (problemId: string) =>
+    req<{ ok: true }>(`/chat/${encodeURIComponent(problemId)}`, { method: 'DELETE' }),
 
   simulate: (body: { graph: GraphDSL; config: SimConfig }) =>
     req<SimResult>('/simulate', { method: 'POST', body: JSON.stringify(body) }),
