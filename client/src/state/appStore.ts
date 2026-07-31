@@ -1,7 +1,15 @@
 import { create } from 'zustand';
 import type { Problem, ProblemSummary, ScoreResult, SimResult } from '@loadbearing/shared';
 
-export type View = 'problems' | 'compose' | 'workspace' | 'dashboard' | 'reference' | 'settings';
+export type View =
+  | 'problems'
+  | 'compose'
+  | 'workspace'
+  | 'projects'
+  | 'project'
+  | 'dashboard'
+  | 'reference'
+  | 'settings';
 export type LeftTab = 'brief' | 'palette' | 'flows' | 'inspect' | 'checks';
 export type RightTab = 'feedback' | 'ask' | 'history';
 
@@ -32,6 +40,10 @@ interface AppState {
   storageKind: 'sqlite' | 'postgres' | null;
   /** True when the instance carries an API key that users without one can borrow. */
   houseKey: boolean;
+  /** Set while a project is open. Null everywhere else. */
+  projectId: string | null;
+  /** Set while one of that project's canvases is open on the drawing board. */
+  canvasId: string | null;
 
   setView: (v: View) => void;
   setLeftTab: (t: LeftTab) => void;
@@ -43,6 +55,10 @@ interface AppState {
   setSubmitting: (v: boolean) => void;
   setError: (e: { message: string; hint?: string } | null) => void;
   setNotice: (n: string | null) => void;
+  /** The project being worked on, and which of its canvases is open. */
+  openProject: (id: string) => void;
+  openCanvas: (projectId: string, canvasId: string) => void;
+  closeProject: () => void;
   setHealth: (h: {
     serverUp: boolean;
     llmConfigured: boolean;
@@ -77,6 +93,8 @@ export const useApp = create<AppState>((set) => ({
   authChecked: false,
   storageKind: null,
   houseKey: false,
+  projectId: null,
+  canvasId: null,
 
   setView: (view) => set({ view }),
   setLeftTab: (leftTab) => set({ leftTab }),
@@ -86,6 +104,8 @@ export const useApp = create<AppState>((set) => ({
   openProblem: (problem) =>
     set({
       problem,
+      projectId: null,
+      canvasId: null,
       view: 'workspace',
       leftTab: 'brief',
       rightTab: 'feedback',
@@ -113,6 +133,26 @@ export const useApp = create<AppState>((set) => ({
   setSubmitting: (submitting) => set({ submitting }),
   setError: (error) => set({ error, submitting: false }),
   setNotice: (notice) => set({ notice }),
+
+  // A project and a problem sheet are mutually exclusive: opening one closes the
+  // other, so the workspace never has to guess which thing it is showing.
+  openProject: (projectId) =>
+    set({ view: 'project', projectId, canvasId: null, problem: null, score: null, error: null }),
+
+  openCanvas: (projectId, canvasId) =>
+    set({
+      view: 'workspace',
+      projectId,
+      canvasId,
+      problem: null,
+      score: null,
+      lastSim: null,
+      attemptId: null,
+      leftTab: 'palette',
+      error: null,
+    }),
+
+  closeProject: () => set({ view: 'projects', projectId: null, canvasId: null }),
   setHealth: ({ serverUp, llmConfigured, stubMode, username, storageKind, houseKey }) =>
     set({
       serverUp,

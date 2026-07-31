@@ -17,11 +17,15 @@ import { SettingsPanel } from './panels/SettingsPanel';
 import { ComposePanel } from './panels/ComposePanel';
 import { ChecksPanel } from './panels/ChecksPanel';
 import { SignInPanel } from './panels/SignInPanel';
+import { ProjectsPanel } from './panels/ProjectsPanel';
+import { ProjectPanel } from './panels/ProjectPanel';
+import { ProjectWorkspace } from './panels/ProjectWorkspace';
 import { ErrorBoundary } from './ui/ErrorBoundary';
 import {
   IconBack,
   IconCompose,
   IconDrafting,
+  IconFolder,
   IconGauge,
   IconInstrument,
   IconManual,
@@ -31,6 +35,7 @@ import {
 const RAIL: { view: View; Icon: (p: { size?: number }) => JSX.Element; title: string }[] = [
   { view: 'problems', Icon: IconSheets, title: 'Problems' },
   { view: 'compose', Icon: IconCompose, title: 'Compose a sheet' },
+  { view: 'projects', Icon: IconFolder, title: 'Projects — systems you own' },
   { view: 'workspace', Icon: IconDrafting, title: 'Drawing board' },
   { view: 'dashboard', Icon: IconGauge, title: 'Progress' },
   { view: 'reference', Icon: IconManual, title: 'Design reference' },
@@ -52,6 +57,8 @@ export function App() {
   const username = useApp((s) => s.username);
   const authChecked = useApp((s) => s.authChecked);
   const signedOut = useApp((s) => s.signedOut);
+  const projectId = useApp((s) => s.projectId);
+  const canvasId = useApp((s) => s.canvasId);
 
   useEffect(() => {
     const ping = async () => {
@@ -148,7 +155,9 @@ export function App() {
       </nav>
 
       <main className="main">
-        {serverUp && (stubMode || !llmConfigured) && (
+        {/* A project canvas never calls a model, so warning about the grader there
+            is noise about a capability that view does not use. */}
+        {serverUp && !canvasId && (stubMode || !llmConfigured) && (
           <div
             className="banner warnb"
             style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 35, maxWidth: 640, margin: 0 }}
@@ -189,7 +198,10 @@ export function App() {
 
         {view === 'problems' && <ProblemBrowser />}
         {view === 'compose' && <ComposePanel />}
-        {view === 'workspace' && (problem ? <Workspace /> : <ProblemBrowser />)}
+        {view === 'projects' && <ProjectsPanel />}
+        {view === 'project' && (projectId ? <ProjectPanel /> : <ProjectsPanel />)}
+        {view === 'workspace' &&
+          (canvasId ? <ProjectWorkspace /> : problem ? <Workspace /> : <ProblemBrowser />)}
         {view === 'dashboard' && <Dashboard />}
         {view === 'reference' && <ReferencePanel />}
         {view === 'settings' && <SettingsPanel />}

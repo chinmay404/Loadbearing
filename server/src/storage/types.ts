@@ -38,9 +38,35 @@ export interface StatsAgg {
   avgOverall: number | null;
 }
 
+/** A real system being designed, as opposed to a practice problem. */
+export interface ProjectRow {
+  id: string;
+  name: string;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * One diagram inside a project. A system is rarely one picture: the request path,
+ * the ingest pipeline and the data layer are separate drawings of the same thing.
+ */
+export interface CanvasRow {
+  id: string;
+  projectId: string;
+  name: string;
+  /** What this particular view is for. Goes into the project's export. */
+  note: string;
+  graphJson: string;
+  position: number;
+  updatedAt: string;
+}
+
 export interface Storage {
   /** Which backend answered — surfaced on /api/health so deploys are checkable. */
   readonly kind: 'sqlite' | 'postgres';
+  /** Optional: close pooled connections. Tests use it; the app does not. */
+  close?: () => Promise<void>;
 
   /** Creates tables when missing and prunes expired cache rows. Idempotent. */
   init(): Promise<void>;
@@ -86,9 +112,26 @@ export interface Storage {
   getSetting(userId: string, key: string): Promise<string | null>;
   setSetting(userId: string, key: string, value: string): Promise<void>;
 
-  // ---- canvas designs ----
+  // ---- canvas designs (one per problem sheet) ----
   getDesign(userId: string, problemId: string): Promise<{ graphJson: string; updatedAt: string } | null>;
   putDesign(userId: string, problemId: string, graphJson: string): Promise<void>;
+
+  // ---- projects and their canvases ----
+  createProject(userId: string, name: string, summary: string): Promise<ProjectRow>;
+  listProjects(userId: string): Promise<(ProjectRow & { canvasCount: number })[]>;
+  getProject(userId: string, id: string): Promise<ProjectRow | null>;
+  updateProject(userId: string, id: string, patch: { name?: string; summary?: string }): Promise<void>;
+  deleteProject(userId: string, id: string): Promise<void>;
+
+  createCanvas(userId: string, projectId: string, name: string, note: string): Promise<CanvasRow>;
+  listCanvases(userId: string, projectId: string): Promise<CanvasRow[]>;
+  getCanvas(userId: string, id: string): Promise<CanvasRow | null>;
+  updateCanvas(
+    userId: string,
+    id: string,
+    patch: { name?: string; note?: string; graphJson?: string; position?: number },
+  ): Promise<void>;
+  deleteCanvas(userId: string, id: string): Promise<void>;
 
   // ---- reference designs (shared across users — the reference is per problem) ----
   getReference(problemId: string): Promise<string | null>;

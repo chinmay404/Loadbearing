@@ -8,7 +8,16 @@
 
 import pg from 'pg';
 import { adviseOnConnectionString } from './advice.js';
-import type { AttemptRow, MasteryRow, ReviewQueueRow, StatsAgg, Storage, UserRow } from './types.js';
+import type {
+  AttemptRow,
+  CanvasRow,
+  MasteryRow,
+  ProjectRow,
+  ReviewQueueRow,
+  StatsAgg,
+  Storage,
+  UserRow,
+} from './types.js';
 
 const MASTERY_ALPHA = 0.3;
 const CACHE_TTL_DAYS = 14;
@@ -27,8 +36,158 @@ interface RawAttempt {
   created_at: Date | string;
 }
 
+/**
+ * The schema, one entry per table, in dependency order. Adding a table here is
+ * all that is needed for it to appear on a deployment that already exists.
+ */
+const SCHEMA: { table: string; create: string; indexes?: string[] }[] = [
+  {
+    table: 'users',
+    create: `CREATE TABLE users (
+      id UUID PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      pass_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+  },
+  {
+    table: 'attempts',
+    create: `CREATE TABLE attempts (
+      id BIGSERIAL PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      problem_id TEXT NOT NULL,
+      round INTEGER NOT NULL DEFAULT 1,
+      graph_json TEXT NOT NULL,
+      score_json TEXT NOT NULL,
+      overall INTEGER NOT NULL,
+      twist_text TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    indexes: ['CREATE INDEX idx_attempts_user_problem ON attempts(user_id, problem_id)'],
+  },
+  {
+    table: 'mastery',
+    create: `CREATE TABLE mastery (
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      concept TEXT NOT NULL,
+      ema_score DOUBLE PRECISION NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ,
+      PRIMARY KEY (user_id, concept)
+    )`,
+  },
+  {
+    table: 'problems_custom',
+    create: `CREATE TABLE problems_custom (
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      id TEXT NOT NULL,
+      json TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, id)
+    )`,
+  },
+  {
+    table: 'settings',
+    create: `CREATE TABLE settings (
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      PRIMARY KEY (user_id, key)
+    )`,
+  },
+  {
+    table: 'designs',
+    create: `CREATE TABLE designs (
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      problem_id TEXT NOT NULL,
+      graph_json TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, problem_id)
+    )`,
+  },
+  {
+    table: 'reference_designs',
+    create: `CREATE TABLE reference_designs (
+      problem_id TEXT PRIMARY KEY,
+      graph_json TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+  },
+  {
+    table: 'llm_cache',
+    create: `CREATE TABLE llm_cache (
+      key TEXT PRIMARY KEY,
+      response TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+  },
+  {
+    table: 'projects',
+    create: `CREATE TABLE projects (
+      id UUID PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    indexes: ['CREATE INDEX idx_projects_user ON projects(user_id, updated_at DESC)'],
+  },
+  {
+    table: 'project_canvases',
+    create: `CREATE TABLE project_canvases (
+      id UUID PRIMARY KEY,
+      project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      graph_json TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    indexes: ['CREATE INDEX idx_canvases_project ON project_canvases(project_id, position)'],
+  },
+];
+
 const iso = (v: Date | string | null): string =>
   v === null ? '' : v instanceof Date ? v.toISOString() : String(v);
+
+interface RawProject {
+  id: string;
+  name: string;
+  summary: string;
+  created_at: Date | string;
+  updated_at: Date | string;
+  canvas_count?: string | number;
+}
+
+interface RawCanvas {
+  id: string;
+  project_id: string;
+  name: string;
+  note: string;
+  graph_json: string;
+  position: string | number;
+  updated_at: Date | string;
+}
+
+const toProject = (r: RawProject): ProjectRow => ({
+  id: r.id,
+  name: r.name,
+  summary: r.summary,
+  createdAt: iso(r.created_at),
+  updatedAt: iso(r.updated_at),
+});
+
+const toCanvas = (r: RawCanvas): CanvasRow => ({
+  id: r.id,
+  projectId: r.project_id,
+  name: r.name,
+  note: r.note,
+  graphJson: r.graph_json,
+  position: Number(r.position),
+  updatedAt: iso(r.updated_at),
+});
 
 const toAttempt = (r: RawAttempt): AttemptRow => ({
   id: Number(r.id),
@@ -85,89 +244,34 @@ export class PostgresStorage implements Storage {
     return rows.length > 0 ? rows[0]! : null;
   }
 
+  /**
+   * Creates whatever is missing, and only what is missing.
+   *
+   * The first version re-ran the whole DDL block on every cold start. CREATE TABLE
+   * IF NOT EXISTS still takes an ACCESS EXCLUSIVE lock when it does nothing, so a
+   * fleet of functions waking together serialised on catalog locks. The fix for
+   * that was to skip everything once `users` existed — which then meant a table
+   * added later never appeared on an already-deployed instance.
+   *
+   * So: one query for the table list, then DDL for the ones that are absent. The
+   * steady state is a single SELECT, and a new table still gets created. Note that
+   * this handles new TABLES, not changes to existing ones — altering a live column
+   * needs a considered migration, not a statement executed by whichever request
+   * happens to arrive first.
+   */
   async init(): Promise<void> {
-    // Every cold start used to re-run the whole DDL block. CREATE TABLE IF NOT
-    // EXISTS still takes an ACCESS EXCLUSIVE lock even when it does nothing, so a
-    // fleet of functions waking at once serialises on the same catalog locks —
-    // and a request that arrives mid-storm waits behind them. One cheap probe
-    // makes the common path a single SELECT.
-    //
-    // The cost is that a future schema change needs a real migration step rather
-    // than being picked up here. That is the correct trade: silent DDL on the
-    // request path is not a migration story either.
-    const existing = await this.one<{ one: number }>(
-      `SELECT 1 AS one FROM information_schema.tables
-       WHERE table_schema = 'public' AND table_name = 'users'`,
+    const rows = await this.q<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,
     );
-    if (existing) {
-      await this.pruneCache();
-      return;
+    const present = new Set(rows.map((r) => r.table_name));
+
+    for (const step of SCHEMA) {
+      if (present.has(step.table)) continue;
+      await this.q(step.create);
+      for (const index of step.indexes ?? []) await this.q(index);
+      console.log(`[loadbearing] created table ${step.table}`);
     }
 
-    await this.q(`
-      CREATE TABLE IF NOT EXISTS users (
-        id UUID PRIMARY KEY,
-        username TEXT NOT NULL UNIQUE,
-        pass_hash TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )`);
-    await this.q(`
-      CREATE TABLE IF NOT EXISTS attempts (
-        id BIGSERIAL PRIMARY KEY,
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        problem_id TEXT NOT NULL,
-        round INTEGER NOT NULL DEFAULT 1,
-        graph_json TEXT NOT NULL,
-        score_json TEXT NOT NULL,
-        overall INTEGER NOT NULL,
-        twist_text TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )`);
-    await this.q(`CREATE INDEX IF NOT EXISTS idx_attempts_user_problem ON attempts(user_id, problem_id)`);
-    await this.q(`
-      CREATE TABLE IF NOT EXISTS mastery (
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        concept TEXT NOT NULL,
-        ema_score DOUBLE PRECISION NOT NULL,
-        attempts INTEGER NOT NULL DEFAULT 0,
-        last_seen TIMESTAMPTZ,
-        PRIMARY KEY (user_id, concept)
-      )`);
-    await this.q(`
-      CREATE TABLE IF NOT EXISTS problems_custom (
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        id TEXT NOT NULL,
-        json TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (user_id, id)
-      )`);
-    await this.q(`
-      CREATE TABLE IF NOT EXISTS settings (
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        key TEXT NOT NULL,
-        value TEXT NOT NULL,
-        PRIMARY KEY (user_id, key)
-      )`);
-    await this.q(`
-      CREATE TABLE IF NOT EXISTS designs (
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        problem_id TEXT NOT NULL,
-        graph_json TEXT NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (user_id, problem_id)
-      )`);
-    await this.q(`
-      CREATE TABLE IF NOT EXISTS reference_designs (
-        problem_id TEXT PRIMARY KEY,
-        graph_json TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )`);
-    await this.q(`
-      CREATE TABLE IF NOT EXISTS llm_cache (
-        key TEXT PRIMARY KEY,
-        response TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )`);
     await this.pruneCache();
   }
 
@@ -404,6 +508,117 @@ export class PostgresStorage implements Storage {
        ON CONFLICT (user_id, problem_id) DO UPDATE SET graph_json = excluded.graph_json, updated_at = now()`,
       [userId, problemId, graphJson],
     );
+  }
+
+  // ---- projects and their canvases ----
+
+  async createProject(userId: string, name: string, summary: string): Promise<ProjectRow> {
+    const row = await this.one<RawProject>(
+      `INSERT INTO projects (id, user_id, name, summary) VALUES (gen_random_uuid(), $1, $2, $3)
+       RETURNING id, name, summary, created_at, updated_at`,
+      [userId, name, summary],
+    );
+    if (!row) throw new Error('Insert returned no project row');
+    return toProject(row);
+  }
+
+  async listProjects(userId: string): Promise<(ProjectRow & { canvasCount: number })[]> {
+    const rows = await this.q<RawProject>(
+      `SELECT p.id, p.name, p.summary, p.created_at, p.updated_at,
+              (SELECT COUNT(*) FROM project_canvases c WHERE c.project_id = p.id) AS canvas_count
+       FROM projects p WHERE p.user_id = $1 ORDER BY p.updated_at DESC, p.created_at DESC, p.id`,
+      [userId],
+    );
+    return rows.map((r) => ({ ...toProject(r), canvasCount: Number(r.canvas_count ?? 0) }));
+  }
+
+  async getProject(userId: string, id: string): Promise<ProjectRow | null> {
+    const row = await this.one<RawProject>(
+      'SELECT id, name, summary, created_at, updated_at FROM projects WHERE user_id = $1 AND id = $2',
+      [userId, id],
+    );
+    return row ? toProject(row) : null;
+  }
+
+  async updateProject(
+    userId: string,
+    id: string,
+    patch: { name?: string; summary?: string },
+  ): Promise<void> {
+    // COALESCE keeps the untouched column rather than needing a query per field.
+    await this.q(
+      `UPDATE projects SET name = COALESCE($3, name), summary = COALESCE($4, summary),
+              updated_at = now()
+       WHERE user_id = $1 AND id = $2`,
+      [userId, id, patch.name ?? null, patch.summary ?? null],
+    );
+  }
+
+  async deleteProject(userId: string, id: string): Promise<void> {
+    // The foreign key cascades, but being explicit costs nothing and does not
+    // depend on the constraint having been created the way this code assumes.
+    await this.q('DELETE FROM project_canvases WHERE user_id = $1 AND project_id = $2', [userId, id]);
+    await this.q('DELETE FROM projects WHERE user_id = $1 AND id = $2', [userId, id]);
+  }
+
+  async createCanvas(userId: string, projectId: string, name: string, note: string): Promise<CanvasRow> {
+    const row = await this.one<RawCanvas>(
+      `INSERT INTO project_canvases (id, project_id, user_id, name, note, graph_json, position)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, '{}',
+               (SELECT COALESCE(MAX(position), -1) + 1 FROM project_canvases WHERE project_id = $1))
+       RETURNING id, project_id, name, note, graph_json, position, updated_at`,
+      [projectId, userId, name, note],
+    );
+    if (!row) throw new Error('Insert returned no canvas row');
+    await this.touchProject(userId, projectId);
+    return toCanvas(row);
+  }
+
+  async listCanvases(userId: string, projectId: string): Promise<CanvasRow[]> {
+    const rows = await this.q<RawCanvas>(
+      `SELECT id, project_id, name, note, graph_json, position, updated_at
+       FROM project_canvases WHERE user_id = $1 AND project_id = $2 ORDER BY position, updated_at`,
+      [userId, projectId],
+    );
+    return rows.map(toCanvas);
+  }
+
+  async getCanvas(userId: string, id: string): Promise<CanvasRow | null> {
+    const row = await this.one<RawCanvas>(
+      `SELECT id, project_id, name, note, graph_json, position, updated_at
+       FROM project_canvases WHERE user_id = $1 AND id = $2`,
+      [userId, id],
+    );
+    return row ? toCanvas(row) : null;
+  }
+
+  async updateCanvas(
+    userId: string,
+    id: string,
+    patch: { name?: string; note?: string; graphJson?: string; position?: number },
+  ): Promise<void> {
+    const row = await this.one<{ project_id: string }>(
+      `UPDATE project_canvases
+       SET name = COALESCE($3, name), note = COALESCE($4, note),
+           graph_json = COALESCE($5, graph_json), position = COALESCE($6, position),
+           updated_at = now()
+       WHERE user_id = $1 AND id = $2
+       RETURNING project_id`,
+      [userId, id, patch.name ?? null, patch.note ?? null, patch.graphJson ?? null, patch.position ?? null],
+    );
+    if (row) await this.touchProject(userId, row.project_id);
+  }
+
+  async deleteCanvas(userId: string, id: string): Promise<void> {
+    await this.q('DELETE FROM project_canvases WHERE user_id = $1 AND id = $2', [userId, id]);
+  }
+
+  /** A project's timestamp reflects the newest work in it, not when it was named. */
+  private async touchProject(userId: string, projectId: string): Promise<void> {
+    await this.q('UPDATE projects SET updated_at = now() WHERE user_id = $1 AND id = $2', [
+      userId,
+      projectId,
+    ]);
   }
 
   // ---- reference designs ----

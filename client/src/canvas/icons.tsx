@@ -989,6 +989,14 @@ export const NODE_ICONS: Record<ArchNodeType, (props: { size?: number }) => JSX.
     </Glyph>
   ),
 
+  /** A dashed box waiting to be told what it is. */
+  custom: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" strokeDasharray="3 2.4" />
+      <path d="M12 9.5v5M9.5 12h5" />
+    </Glyph>
+  ),
+
   /** A field with its middle blacked out. */
   pii_redactor: ({ size }) => (
     <Glyph size={size}>

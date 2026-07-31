@@ -122,6 +122,10 @@ export const ARCH_NODE_TYPES = [
   'budget_guard',
   'siem',
   'consent_store',
+  // Anything the catalogue does not name. The label is yours; the simulator still
+  // costs it and the checks still see it, so a custom block is a real component
+  // rather than an annotation shaped like one.
+  'custom',
   'group',
 ] as const;
 

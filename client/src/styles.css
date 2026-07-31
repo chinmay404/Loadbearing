@@ -842,6 +842,34 @@ details.disclose[open] > summary {
   min-width: 220px;
   min-height: 160px;
 }
+/* A pinned component is not selectable, so this badge is the only control on it.
+   It has to stay clickable while the node itself ignores clicks. */
+.lock-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  z-index: 5;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ink-2);
+  border: 1px solid var(--brass-dim);
+  color: var(--brass);
+  cursor: pointer;
+  pointer-events: all;
+}
+.lock-badge:hover {
+  background: #241d0f;
+  color: var(--chalk);
+}
+.arch-node.locked {
+  opacity: 0.9;
+  border-style: dashed;
+}
+
 /* A boundary's handles sit quietly until you go near the frame, so they never
    compete with dragging components in and out of the group. */
 .group-handle {

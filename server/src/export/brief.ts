@@ -15,6 +15,84 @@ export interface BriefInput {
   problem?: Problem | undefined;
 }
 
+export interface ProjectView {
+  name: string;
+  note: string;
+  graph: GraphDSL;
+}
+
+/**
+ * A whole project as one specification. Handing an agent six diagrams separately
+ * makes it guess how they relate, and the relationships are the design — so the
+ * views are numbered, cross-referenced by the components they share, and the
+ * invariants are collected once across all of them rather than repeated per view.
+ */
+export function buildProjectBrief(project: {
+  name: string;
+  summary: string;
+  views: ProjectView[];
+}): string {
+  const drawn = project.views.filter((v) => v.graph.nodes.length > 0);
+  const everyNode = drawn.flatMap((v) => v.graph.nodes.map((n) => ({ view: v.name, node: n })));
+
+  // A component that appears in more than one view is a seam between them, and it
+  // is where an agent building the views separately would contradict itself.
+  const byLabel = new Map<string, string[]>();
+  for (const { view, node } of everyNode) {
+    const key = node.label.trim().toLowerCase();
+    const views = byLabel.get(key) ?? [];
+    if (!views.includes(view)) views.push(view);
+    byLabel.set(key, views);
+  }
+  const shared = [...byLabel.entries()]
+    .filter(([, views]) => views.length > 1)
+    .map(([label, views]) => `- **${label}** appears in ${views.join(', ')} — build it once.`);
+
+  const combined: GraphDSL = {
+    nodes: drawn.flatMap((v) => v.graph.nodes),
+    edges: drawn.flatMap((v) => v.graph.edges),
+    stickies: [],
+    flows: drawn.flatMap((v) => v.graph.flows),
+  };
+
+  return nl([
+    `# Implementation brief — ${project.name}`,
+    '',
+    project.summary ? project.summary : '_No project summary was written._',
+    '',
+    `This system is described across ${drawn.length} view${drawn.length === 1 ? '' : 's'}. They are`,
+    'views of ONE system, not separate systems: a component named in two views is the same component.',
+    '',
+    shared.length > 0
+      ? nl(['## Components shared between views', '', ...shared, ''])
+      : nl(['## Components shared between views', '', 'None — the views do not overlap.', '']),
+    ...drawn.map((v, i) =>
+      nl([
+        `# View ${i + 1}: ${v.name}`,
+        '',
+        v.note ? v.note : '_No note on what this view is for._',
+        '',
+        componentSection(v.graph),
+        flowSection(v.graph, (id) => v.graph.nodes.find((n) => n.id === id)?.label ?? id),
+        '',
+      ]),
+    ),
+    invariantSection(combined),
+    absentSection(checkTopology(combined)),
+    '## Machine-readable design',
+    '',
+    'One object per view. `steps` are node ids in request order, and ids are unique across views.',
+    '',
+    '```json',
+    JSON.stringify(
+      { project: project.name, views: drawn.map((v) => ({ name: v.name, note: v.note, graph: v.graph })) },
+      null,
+      2,
+    ),
+    '```',
+  ]);
+}
+
 const nl = (lines: (string | false | undefined)[]): string => lines.filter(Boolean).join('\n');
 
 export function buildImplementationBrief(input: BriefInput): { markdown: string; graph: GraphDSL } {

@@ -3,10 +3,27 @@
 // backend they are talking to.
 
 import { getDb, type Db } from '../db.js';
-import type { AttemptRow, MasteryRow, ReviewQueueRow, StatsAgg, Storage, UserRow } from './types.js';
+import type {
+  AttemptRow,
+  CanvasRow,
+  MasteryRow,
+  ProjectRow,
+  ReviewQueueRow,
+  StatsAgg,
+  Storage,
+  UserRow,
+} from './types.js';
 
 const MASTERY_ALPHA = 0.3; // ema = (1-alpha)*old + alpha*new
 const CACHE_TTL_DAYS = 14;
+
+/**
+ * datetime('now') has one-second granularity, so two projects touched in the same
+ * second sort arbitrarily and "most recently worked on" is a coin flip. Ordering
+ * has to be finer than a person can click. Same string shape, so comparisons and
+ * existing rows are unaffected.
+ */
+const NOW_MS = "strftime('%Y-%m-%d %H:%M:%f','now')";
 
 /** Column list for attempts, in the order rowToAttempt expects. */
 const ATTEMPT_COLS = 'id, problem_id, round, graph_json, score_json, overall, twist_text, created_at';
@@ -21,6 +38,43 @@ interface RawAttempt {
   twist_text: string | null;
   created_at: string;
 }
+
+interface RawProject {
+  id: string;
+  name: string;
+  summary: string;
+  created_at: string;
+  updated_at: string;
+  canvas_count?: number;
+}
+
+interface RawCanvas {
+  id: string;
+  project_id: string;
+  name: string;
+  note: string;
+  graph_json: string;
+  position: number;
+  updated_at: string;
+}
+
+const toProject = (r: RawProject): ProjectRow => ({
+  id: r.id,
+  name: r.name,
+  summary: r.summary,
+  createdAt: r.created_at,
+  updatedAt: r.updated_at,
+});
+
+const toCanvas = (r: RawCanvas): CanvasRow => ({
+  id: r.id,
+  projectId: r.project_id,
+  name: r.name,
+  note: r.note,
+  graphJson: r.graph_json,
+  position: Number(r.position),
+  updatedAt: r.updated_at,
+});
 
 const toAttempt = (r: RawAttempt): AttemptRow => ({
   id: r.id,
@@ -109,6 +163,28 @@ export class SqliteStorage implements Storage {
         response TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS project_canvases (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        graph_json TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_canvases_project ON project_canvases(project_id, position);
     `);
     // Cached model replies go stale as prompts evolve; two weeks is plenty.
     this.db.prepare(`DELETE FROM llm_cache WHERE created_at < datetime('now', ?)`).run(`-${CACHE_TTL_DAYS} days`);
@@ -366,6 +442,129 @@ export class SqliteStorage implements Storage {
          ON CONFLICT(user_id, problem_id) DO UPDATE SET graph_json = excluded.graph_json, updated_at = datetime('now')`,
       )
       .run(userId, problemId, graphJson);
+  }
+
+  // ---- projects and their canvases ----
+
+  async createProject(userId: string, name: string, summary: string): Promise<ProjectRow> {
+    const id = crypto.randomUUID();
+    this.db
+      .prepare('INSERT INTO projects (id, user_id, name, summary) VALUES (?, ?, ?, ?)')
+      .run(id, userId, name, summary);
+    const row = await this.getProject(userId, id);
+    if (!row) throw new Error('Project vanished immediately after insert');
+    return row;
+  }
+
+  async listProjects(userId: string): Promise<(ProjectRow & { canvasCount: number })[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT p.id, p.name, p.summary, p.created_at, p.updated_at,
+                (SELECT COUNT(*) FROM project_canvases c WHERE c.project_id = p.id) AS canvas_count
+         FROM projects p WHERE p.user_id = ? ORDER BY p.updated_at DESC, p.created_at DESC, p.id`,
+      )
+      .all(userId) as unknown as RawProject[];
+    return rows.map((r) => ({ ...toProject(r), canvasCount: Number(r.canvas_count ?? 0) }));
+  }
+
+  async getProject(userId: string, id: string): Promise<ProjectRow | null> {
+    const row = this.db
+      .prepare('SELECT id, name, summary, created_at, updated_at FROM projects WHERE user_id = ? AND id = ?')
+      .get(userId, id) as RawProject | undefined;
+    return row ? toProject(row) : null;
+  }
+
+  async updateProject(
+    userId: string,
+    id: string,
+    patch: { name?: string; summary?: string },
+  ): Promise<void> {
+    if (patch.name !== undefined) {
+      this.db
+        .prepare(`UPDATE projects SET name = ?, updated_at = ${NOW_MS} WHERE user_id = ? AND id = ?`)
+        .run(patch.name, userId, id);
+    }
+    if (patch.summary !== undefined) {
+      this.db
+        .prepare(`UPDATE projects SET summary = ?, updated_at = ${NOW_MS} WHERE user_id = ? AND id = ?`)
+        .run(patch.summary, userId, id);
+    }
+  }
+
+  async deleteProject(userId: string, id: string): Promise<void> {
+    // No cascade in this schema, so the children go first and explicitly.
+    this.db.prepare('DELETE FROM project_canvases WHERE user_id = ? AND project_id = ?').run(userId, id);
+    this.db.prepare('DELETE FROM projects WHERE user_id = ? AND id = ?').run(userId, id);
+  }
+
+  async createCanvas(userId: string, projectId: string, name: string, note: string): Promise<CanvasRow> {
+    const next = this.db
+      .prepare('SELECT COALESCE(MAX(position), -1) + 1 AS n FROM project_canvases WHERE project_id = ?')
+      .get(projectId) as { n: number };
+    const id = crypto.randomUUID();
+    this.db
+      .prepare(
+        `INSERT INTO project_canvases (id, project_id, user_id, name, note, graph_json, position)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(id, projectId, userId, name, note, '{}', next.n);
+    this.touchProject(userId, projectId);
+    const row = await this.getCanvas(userId, id);
+    if (!row) throw new Error('Canvas vanished immediately after insert');
+    return row;
+  }
+
+  async listCanvases(userId: string, projectId: string): Promise<CanvasRow[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, project_id, name, note, graph_json, position, updated_at
+         FROM project_canvases WHERE user_id = ? AND project_id = ? ORDER BY position, updated_at`,
+      )
+      .all(userId, projectId) as unknown as RawCanvas[];
+    return rows.map(toCanvas);
+  }
+
+  async getCanvas(userId: string, id: string): Promise<CanvasRow | null> {
+    const row = this.db
+      .prepare(
+        `SELECT id, project_id, name, note, graph_json, position, updated_at
+         FROM project_canvases WHERE user_id = ? AND id = ?`,
+      )
+      .get(userId, id) as RawCanvas | undefined;
+    return row ? toCanvas(row) : null;
+  }
+
+  async updateCanvas(
+    userId: string,
+    id: string,
+    patch: { name?: string; note?: string; graphJson?: string; position?: number },
+  ): Promise<void> {
+    const pairs: [string, string | number][] = [];
+    if (patch.name !== undefined) pairs.push(['name', patch.name]);
+    if (patch.note !== undefined) pairs.push(['note', patch.note]);
+    if (patch.graphJson !== undefined) pairs.push(['graph_json', patch.graphJson]);
+    if (patch.position !== undefined) pairs.push(['position', patch.position]);
+    for (const [column, value] of pairs) {
+      this.db
+        .prepare(
+          `UPDATE project_canvases SET ${column} = ?, updated_at = ${NOW_MS}
+           WHERE user_id = ? AND id = ?`,
+        )
+        .run(value, userId, id);
+    }
+    const row = await this.getCanvas(userId, id);
+    if (row) this.touchProject(userId, row.projectId);
+  }
+
+  async deleteCanvas(userId: string, id: string): Promise<void> {
+    this.db.prepare('DELETE FROM project_canvases WHERE user_id = ? AND id = ?').run(userId, id);
+  }
+
+  /** A project's timestamp reflects the newest work in it, not when it was named. */
+  private touchProject(userId: string, projectId: string): void {
+    this.db
+      .prepare(`UPDATE projects SET updated_at = ${NOW_MS} WHERE user_id = ? AND id = ?`)
+      .run(userId, projectId);
   }
 
   // ---- reference designs ----

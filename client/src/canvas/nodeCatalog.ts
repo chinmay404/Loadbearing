@@ -937,6 +937,17 @@ const CATALOG = [
     attrFields: MANAGED,
   },
 
+  // ----------------------------------------------------------------- Custom
+  {
+    type: 'custom',
+    label: 'Custom Block',
+    category: 'Layout',
+    color: '#9c968b',
+    hint: 'Anything this palette does not name. Rename it, write what it does, and set its own numbers — the simulator and the checks treat it like any other component.',
+    defaults: { capacityRps: 500, replicas: 1, latencyMs: 50, monthlyCost: 100 },
+    attrFields: STATELESS_HA,
+  },
+
   // ----------------------------------------------------------------------- Layout
   {
     type: 'group',

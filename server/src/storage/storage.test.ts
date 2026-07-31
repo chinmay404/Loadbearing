@@ -10,6 +10,8 @@ import type { Storage } from './types.js';
 
 const PG_URL = process.env.DATABASE_URL?.trim();
 
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 const backends: { name: string; make: () => Promise<Storage> }[] = [
   {
     name: 'sqlite',
@@ -224,6 +226,97 @@ for (const backend of backends) {
       // Both accounts see the same reference — it belongs to the problem.
       expect(await s.getReference(problemId)).toBe('{"nodes":[]}');
       expect(a.id).not.toBe(b.id);
+    });
+
+    it('projects: create, list with a canvas count, update, delete', async () => {
+      const s = await fresh();
+      const u = await s.createUser(uniq('proj'), 'h');
+
+      const p = await s.createProject(u.id, 'Acme payments', 'charges cards');
+      expect(p.name).toBe('Acme payments');
+      expect(p.id).toMatch(/[0-9a-f-]{36}/);
+
+      let list = await s.listProjects(u.id);
+      expect(list.length).toBe(1);
+      expect(list[0]!.canvasCount).toBe(0);
+
+      await s.createCanvas(u.id, p.id, 'System view', 'the whole thing');
+      list = await s.listProjects(u.id);
+      expect(list[0]!.canvasCount).toBe(1);
+
+      await s.updateProject(u.id, p.id, { name: 'Acme payments v2' });
+      expect((await s.getProject(u.id, p.id))?.name).toBe('Acme payments v2');
+      // An untouched field survives a partial update.
+      expect((await s.getProject(u.id, p.id))?.summary).toBe('charges cards');
+
+      await s.deleteProject(u.id, p.id);
+      expect(await s.getProject(u.id, p.id)).toBeNull();
+      expect(await s.listProjects(u.id)).toEqual([]);
+    });
+
+    it('a project belongs to one user and is invisible to another', async () => {
+      const s = await fresh();
+      const a = await s.createUser(uniq('pa'), 'h');
+      const b = await s.createUser(uniq('pb'), 'h');
+      const p = await s.createProject(a.id, 'Mine', '');
+
+      expect(await s.getProject(b.id, p.id)).toBeNull();
+      expect(await s.listProjects(b.id)).toEqual([]);
+      // And another account cannot rename or delete it.
+      await s.updateProject(b.id, p.id, { name: 'Theirs' });
+      expect((await s.getProject(a.id, p.id))?.name).toBe('Mine');
+      await s.deleteProject(b.id, p.id);
+      expect(await s.getProject(a.id, p.id)).not.toBeNull();
+    });
+
+    it('canvases: positions increment, drawings round-trip, deletes are scoped', async () => {
+      const s = await fresh();
+      const u = await s.createUser(uniq('cv'), 'h');
+      const p = await s.createProject(u.id, 'System', '');
+
+      const first = await s.createCanvas(u.id, p.id, 'System view', '');
+      const second = await s.createCanvas(u.id, p.id, 'Ingest', 'documents in');
+      expect(first.position).toBe(0);
+      expect(second.position).toBe(1);
+      expect(second.note).toBe('documents in');
+
+      await s.updateCanvas(u.id, second.id, { graphJson: '{"nodes":[{"id":"a"}]}' });
+      expect((await s.getCanvas(u.id, second.id))?.graphJson).toBe('{"nodes":[{"id":"a"}]}');
+      // A partial update leaves the name alone.
+      expect((await s.getCanvas(u.id, second.id))?.name).toBe('Ingest');
+
+      expect((await s.listCanvases(u.id, p.id)).map((c) => c.name)).toEqual(['System view', 'Ingest']);
+
+      await s.deleteCanvas(u.id, first.id);
+      expect((await s.listCanvases(u.id, p.id)).map((c) => c.name)).toEqual(['Ingest']);
+    });
+
+    it("deleting a project takes its canvases with it", async () => {
+      const s = await fresh();
+      const u = await s.createUser(uniq('cascade'), 'h');
+      const p = await s.createProject(u.id, 'Doomed', '');
+      const c = await s.createCanvas(u.id, p.id, 'View', '');
+
+      await s.deleteProject(u.id, p.id);
+      expect(await s.getCanvas(u.id, c.id)).toBeNull();
+      expect(await s.listCanvases(u.id, p.id)).toEqual([]);
+    });
+
+    it('working in a project moves it to the top of the list', async () => {
+      const s = await fresh();
+      const u = await s.createUser(uniq('touch'), 'h');
+      // Timestamps have finite resolution, so the two creations are separated
+      // rather than relying on the clock to distinguish two adjacent statements.
+      const older = await s.createProject(u.id, 'Older', '');
+      await wait(5);
+      const newer = await s.createProject(u.id, 'Newer', '');
+      expect((await s.listProjects(u.id))[0]!.id).toBe(newer.id);
+
+      // Editing a canvas in the older project is work on that project.
+      await wait(5);
+      const c = await s.createCanvas(u.id, older.id, 'View', '');
+      await s.updateCanvas(u.id, c.id, { graphJson: '{"nodes":[]}' });
+      expect((await s.listProjects(u.id))[0]!.id).toBe(older.id);
     });
 
     it('llm cache: get, put, overwrite, delete', async () => {

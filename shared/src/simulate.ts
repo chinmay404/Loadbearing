@@ -149,6 +149,7 @@ export const DEFAULT_CAPACITY: Record<ArchNodeType, number> = {
   budget_guard: 5_000,
   siem: 2_000,
   consent_store: 3_000,
+  custom: 500,
   // One reviewer, not one server. Replicas are people here, and that is the
   // point: a human step on a synchronous path shows up in the arithmetic as one.
   human_review: 1,
@@ -263,6 +264,7 @@ export const DEFAULT_LATENCY: Record<ArchNodeType, number> = {
   budget_guard: 5,
   siem: 50,
   consent_store: 10,
+  custom: 50,
   human_review: 60_000,
 };
 
@@ -377,6 +379,7 @@ export const DEFAULT_COST: Record<ArchNodeType, number> = {
   budget_guard: 30,
   siem: 400,
   consent_store: 60,
+  custom: 100,
   human_review: 4_000,
 };
 

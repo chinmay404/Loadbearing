@@ -30,6 +30,7 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
   const [editing, setEditing] = useState(false);
   const [annotating, setAnnotating] = useState(false);
   const updateNodeData = useCanvas((s) => s.updateNodeData);
+  const unlockNode = useCanvas((s) => s.unlockNode);
   const acceptGhost = useCanvas((s) => s.acceptGhost);
   const rejectGhost = useCanvas((s) => s.rejectGhost);
   // Filter outside the selector: a fresh array from a selector loops forever.
@@ -58,6 +59,7 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
             )}
           </div>
         </div>
+        {data.locked && <LockBadge onUnlock={() => unlockNode(id)} />}
         {/*
           A boundary is a thing you connect. "This VPC peers with that one", "this
           cell replicates to that cell", "traffic crosses from the public zone into
@@ -78,6 +80,7 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
     'arch-node',
     selected ? 'selected' : '',
     data.ghost ? 'ghost' : '',
+    data.locked ? 'locked' : '',
     sim || killed ? `state-${state}` : '',
   ]
     .filter(Boolean)
@@ -85,6 +88,7 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
 
   return (
     <div className={cls} style={{ ['--node-color' as string]: spec.color, position: 'relative' }}>
+      {data.locked && <LockBadge onUnlock={() => unlockNode(id)} />}
       <Handle type="target" position={Position.Left} />
       <Handle type="target" position={Position.Top} id="t" />
       <Handle type="source" position={Position.Right} />
@@ -199,3 +203,28 @@ function SimBadge({ sim }: { sim: SimNodeResult }) {
 }
 
 export const ArchNode = memo(ArchNodeInner);
+
+/**
+ * The way back out of a pin. A pinned component is not selectable, so no panel can
+ * offer to release it — the control has to live on the object, and it has to stop
+ * the click reaching the canvas underneath.
+ */
+function LockBadge({ onUnlock }: { onUnlock: () => void }) {
+  return (
+    <button
+      className="lock-badge"
+      title="Pinned — click to release"
+      aria-label="Unpin this component"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onUnlock();
+      }}
+    >
+      <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth={2}>
+        <rect x="5" y="11" width="14" height="10" rx="1.6" />
+        <path d="M8 11V7.5a4 4 0 0 1 8 0V11" />
+      </svg>
+    </button>
+  );
+}

@@ -88,6 +88,34 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+  canvasCount: number;
+}
+
+/** One diagram's metadata. The drawing itself is fetched per canvas. */
+export interface CanvasMeta {
+  id: string;
+  projectId: string;
+  name: string;
+  note: string;
+  position: number;
+  updatedAt: string;
+}
+
+export interface ProjectDetail {
+  id: string;
+  name: string;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+  canvases: CanvasMeta[];
+}
+
 export interface PlaybookEntryView {
   id: string;
   title: string;
@@ -128,6 +156,40 @@ export const api = {
     req<{ username: string }>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
   logout: () => req<{ ok: true }>('/auth/logout', { method: 'POST' }),
   me: () => req<{ username: string }>('/auth/me'),
+
+  projects: () => req<ProjectSummary[]>('/projects'),
+  project: (id: string) => req<ProjectDetail>(`/projects/${encodeURIComponent(id)}`),
+  createProject: (body: { name: string; summary: string }) =>
+    req<ProjectSummary & { firstCanvasId: string }>('/projects', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateProject: (id: string, body: { name?: string; summary?: string }) =>
+    req<ProjectSummary>(`/projects/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteProject: (id: string) =>
+    req<{ ok: true }>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  createCanvas: (projectId: string, body: { name: string; note?: string }) =>
+    req<CanvasMeta>(`/projects/${encodeURIComponent(projectId)}/canvases`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  canvas: (id: string) => req<CanvasMeta & { doc: CanvasDoc | null }>(`/canvases/${encodeURIComponent(id)}`),
+  saveCanvas: (id: string, body: { name?: string; note?: string; doc?: CanvasDoc }) =>
+    req<{ ok: true }>(`/canvases/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteCanvas: (id: string) =>
+    req<{ ok: true }>(`/canvases/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** Every view of the project as one build specification. */
+  projectBrief: (id: string) =>
+    req<{ markdown: string; filename: string }>(`/projects/${encodeURIComponent(id)}/brief`, {
+      method: 'POST',
+    }),
 
   templates: () => req<UserTemplate[]>('/templates'),
   saveTemplate: (body: { name: string; summary: string } & Omit<BlueprintLike, 'name'>) =>

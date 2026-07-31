@@ -29,6 +29,14 @@ export const IconSheets = ({ size }: P) => (
   </S>
 );
 
+/** A folder holding several sheets: one system, several views of it. */
+export const IconFolder = ({ size }: P) => (
+  <S size={size}>
+    <path d="M3 7.5a1.5 1.5 0 0 1 1.5-1.5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18Z" />
+    <path d="M7 13h10M7 16h6" />
+  </S>
+);
+
 export const IconCompose = ({ size }: P) => (
   <S size={size}>
     <path d="M4 6h9M4 10.5h6M4 15h8" />

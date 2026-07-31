@@ -86,6 +86,7 @@ function CanvasInner() {
   const setEdgeInsertTarget = useCanvas((s) => s.setEdgeInsertTarget);
   const restack = useCanvas((s) => s.restack);
   const toggleLock = useCanvas((s) => s.toggleLockOnSelection);
+  const reparent = useCanvas((s) => s.reparentDroppedNodes);
   const deleteSelection = useCanvas((s) => s.deleteSelection);
   const undo = useCanvas((s) => s.undo);
   const redo = useCanvas((s) => s.redo);
@@ -127,9 +128,11 @@ function CanvasInner() {
       const type = e.dataTransfer.getData('application/loadbearing-node') as ArchNodeType;
       if (!type) return;
       const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      addArchNode(type, { x: position.x - 80, y: position.y - 30 });
+      const id = addArchNode(type, { x: position.x - 80, y: position.y - 30 });
+      // Dropped inside a boundary means inside it, not merely on top of it.
+      reparent([id]);
     },
-    [addArchNode, screenToFlowPosition],
+    [addArchNode, reparent, screenToFlowPosition],
   );
 
   // Keep the store's idea of "the middle of the screen" fresh, so palette clicks
@@ -210,6 +213,19 @@ function CanvasInner() {
    */
   const onNodeDragStop = useCallback(
     (_e: unknown, node: Node) => {
+      // Wherever it landed, first decide which boundary it now belongs to. Moving
+      // a boundary afterwards has to take its contents with it, and that only
+      // happens if they are actually its children.
+      const moved = nodes.filter((n) => n.selected).map((n) => n.id);
+      const { attached, detached } = reparent(moved.length > 0 ? moved : [node.id]);
+      if (attached > 0) {
+        setNotice(
+          `Now inside that boundary — moving the boundary moves ${attached === 1 ? 'it' : 'them'} too.`,
+        );
+      } else if (detached > 0) {
+        setNotice('Taken out of the boundary.');
+      }
+
       if (node.type !== 'arch') return;
       if ((node.data as { archType?: string } | undefined)?.archType === 'group') return;
       // Already wired into something? Then the drag was a move, not an insert.
@@ -228,7 +244,7 @@ function CanvasInner() {
         setNotice('Spliced into that connection — the path now runs through this component.');
       }
     },
-    [edges, spliceNodeIntoEdge, setNotice],
+    [edges, nodes, reparent, spliceNodeIntoEdge, setNotice],
   );
 
   const onPaneClick = useCallback(

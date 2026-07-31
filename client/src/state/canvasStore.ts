@@ -34,6 +34,13 @@ export interface ArchNodeData extends Record<string, unknown> {
   attrs: NodeAttrs;
   /** Set when this node came from an AI suggestion and has not been accepted yet. */
   ghost?: { why: string };
+  /**
+   * Mirrors the React Flow interaction flags. Duplicated into data on purpose: a
+   * custom node component is not given `draggable`/`selectable`, so without this
+   * the node itself cannot draw its own lock badge — and the badge is the only way
+   * back once a locked node has stopped being selectable.
+   */
+  locked?: boolean;
 }
 
 export interface StickyData extends Record<string, unknown> {
@@ -99,6 +106,11 @@ interface CanvasState extends Snapshot {
   spliceNodeIntoEdge: (edgeId: string, nodeId: string) => boolean;
   /** Creates a component of `type` on the edge's midpoint and splices it in. */
   insertNodeOnEdge: (edgeId: string, type: ArchNodeType) => string | null;
+  /**
+   * Puts a component inside a boundary, or takes it out, based on where it was
+   * dropped. Once inside, moving the boundary moves everything in it.
+   */
+  reparentDroppedNodes: (ids: string[]) => { attached: number; detached: number };
   /** Set while the component picker is being used to fill a gap in an edge. */
   edgeInsertTarget: string | null;
   setEdgeInsertTarget: (edgeId: string | null) => void;
@@ -111,8 +123,12 @@ interface CanvasState extends Snapshot {
   // stacking and pinning
   /** Moves the selection in the stacking order. 'front'/'back' jump; ±1 steps. */
   restack: (where: 'front' | 'back' | 'forward' | 'backward') => void;
-  /** Pins or releases the selection. A pinned component cannot be dragged or deleted. */
+  /**
+   * Pins or releases the selection. A pinned component cannot be selected, dragged
+   * or deleted — clicks pass through it — so it is released from its own badge.
+   */
   setLocked: (locked: boolean) => void;
+  unlockNode: (id: string) => void;
   toggleLockOnSelection: () => void;
 
   // flows
@@ -176,6 +192,100 @@ const kindOf = (e: Edge): EdgeKind => ((e.data as { kind?: EdgeKind } | undefine
 /** Boundaries live behind the components they contain, unless moved deliberately. */
 const GROUP_Z = -1;
 
+const sizeOf = (n: AnyNode): { w: number; h: number } => ({
+  w: Number(n.style?.width ?? n.measured?.width ?? 168),
+  h: Number(n.style?.height ?? n.measured?.height ?? 64),
+});
+
+/**
+ * Where a node actually sits on the sheet. A child's stored position is relative
+ * to its parent, so anything comparing two nodes' locations has to walk the chain.
+ */
+export function absolutePosition(node: AnyNode, all: AnyNode[]): { x: number; y: number } {
+  let x = node.position.x;
+  let y = node.position.y;
+  let parentId = node.parentId;
+  const seen = new Set<string>([node.id]);
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId);
+    const parent = all.find((n) => n.id === parentId);
+    if (!parent) break;
+    x += parent.position.x;
+    y += parent.position.y;
+    parentId = parent.parentId;
+  }
+  return { x, y };
+}
+
+const isGroup = (n: AnyNode): boolean => n.type === 'arch' && n.data.archType === 'group';
+
+/**
+ * The innermost boundary containing a point. Innermost, because boundaries nest —
+ * an AI stack inside a VPC — and dropping into the outer one when you aimed at the
+ * inner one is the wrong answer.
+ */
+function groupContaining(
+  all: AnyNode[],
+  point: { x: number; y: number },
+  excludeIds: Set<string>,
+): AnyNode | null {
+  const candidates = all.filter((n) => isGroup(n) && !excludeIds.has(n.id));
+  let best: AnyNode | null = null;
+  let bestArea = Infinity;
+  for (const g of candidates) {
+    const at = absolutePosition(g, all);
+    const { w, h } = sizeOf(g);
+    if (point.x < at.x || point.y < at.y || point.x > at.x + w || point.y > at.y + h) continue;
+    const area = w * h;
+    if (area < bestArea) {
+      best = g;
+      bestArea = area;
+    }
+  }
+  return best;
+}
+
+/** Every descendant of a node, so a boundary is never dropped inside itself. */
+function descendantIds(all: AnyNode[], rootId: string): Set<string> {
+  const out = new Set<string>([rootId]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const n of all) {
+      if (n.parentId && out.has(n.parentId) && !out.has(n.id)) {
+        out.add(n.id);
+        grew = true;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * React Flow requires a parent to appear before its children in the node array,
+ * so any change to parentage has to reorder. Depth-first by parent chain, stable
+ * within a depth so nothing else shifts.
+ */
+function orderForParents(nodes: AnyNode[]): AnyNode[] {
+  const depth = (n: AnyNode): number => {
+    let d = 0;
+    let parentId = n.parentId;
+    const seen = new Set<string>([n.id]);
+    while (parentId && !seen.has(parentId) && d < 20) {
+      seen.add(parentId);
+      const parent = nodes.find((x) => x.id === parentId);
+      if (!parent) break;
+      d += 1;
+      parentId = parent.parentId;
+    }
+    return d;
+  };
+  return nodes
+    .map((n, i) => ({ n, i, d: depth(n) }))
+    .sort((a, b) => a.d - b.d || a.i - b.i)
+    .map((x) => x.n);
+}
+
 const zOf = (n: AnyNode): number =>
   typeof n.zIndex === 'number'
     ? n.zIndex
@@ -235,7 +345,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
             // but a saved order always wins — the user may have deliberately
             // pulled one forward.
             zIndex: typeof n.z === 'number' ? n.z : n.type === 'group' ? GROUP_Z : 0,
-            ...(n.locked ? { draggable: false, deletable: false } : {}),
+            ...(n.locked ? { draggable: false, deletable: false, selectable: false } : {}),
             data: {
               archType: n.type,
               label: n.label,
@@ -505,6 +615,52 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   edgeInsertTarget: null,
   setEdgeInsertTarget: (edgeInsertTarget) => set({ edgeInsertTarget }),
 
+  reparentDroppedNodes: (ids) => {
+    let attached = 0;
+    let detached = 0;
+    set((s) => {
+      let nodes = s.nodes;
+      for (const id of ids) {
+        const node = nodes.find((n) => n.id === id);
+        if (!node) continue;
+
+        const at = absolutePosition(node, nodes);
+        const { w, h } = sizeOf(node);
+        const centre = { x: at.x + w / 2, y: at.y + h / 2 };
+        // A boundary cannot go inside itself or anything it already contains.
+        const target = groupContaining(nodes, centre, descendantIds(nodes, id));
+        const currentParent = node.parentId ?? null;
+        const nextParent = target?.id ?? null;
+        if (currentParent === nextParent) continue;
+
+        // The stored position is relative to the parent, so it has to be
+        // recomputed or the component jumps the moment it changes hands.
+        const parentAt = target ? absolutePosition(target, nodes) : { x: 0, y: 0 };
+        const position = { x: at.x - parentAt.x, y: at.y - parentAt.y };
+        if (nextParent) attached += 1;
+        else detached += 1;
+
+        nodes = nodes.map((n) =>
+          n.id === id
+            ? ({
+                ...n,
+                position,
+                ...(nextParent ? { parentId: nextParent } : { parentId: undefined }),
+              } as AnyNode)
+            : n,
+        );
+      }
+      if (attached === 0 && detached === 0) return {};
+      return {
+        past: [...s.past.slice(-49), snap(s)],
+        future: [],
+        nodes: orderForParents(nodes),
+        dirty: true,
+      };
+    });
+    return { attached, detached };
+  },
+
   insertBlueprint: (blueprint) => {
     const { viewportCenter, nodes: existing } = get();
     // Land clear of whatever is already drawn rather than on top of it: a
@@ -661,19 +817,53 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       return {
         past: [...s.past.slice(-49), snap(s)],
         future: [],
-        // Still selectable when locked, or there would be no way to unlock it.
+        // A pinned component drops out of selection entirely, so a click passes
+        // through it to whatever is behind — which is the whole point of pinning a
+        // background boundary. It also stops being selected right now, or it would
+        // sit highlighted with no way to act on it.
         nodes: s.nodes.map((n) =>
-          n.selected ? { ...n, draggable: !locked, deletable: !locked } : n,
+          n.selected
+            ? {
+                ...n,
+                draggable: !locked,
+                deletable: !locked,
+                selectable: !locked,
+                selected: locked ? false : n.selected,
+                ...(n.type === 'arch'
+                  ? { data: { ...(n.data as ArchNodeData), locked } as ArchNodeData }
+                  : {}),
+              }
+            : n,
         ) as AnyNode[],
         dirty: true,
       };
     }),
 
+  unlockNode: (id) =>
+    set((s) => ({
+      past: [...s.past.slice(-49), snap(s)],
+      future: [],
+      nodes: s.nodes.map((n) =>
+        n.id === id
+          ? {
+              ...n,
+              draggable: true,
+              deletable: true,
+              selectable: true,
+              ...(n.type === 'arch'
+                ? { data: { ...(n.data as ArchNodeData), locked: false } as ArchNodeData }
+                : {}),
+            }
+          : n,
+      ) as AnyNode[],
+      dirty: true,
+    })),
+
   toggleLockOnSelection: () => {
     const chosen = get().nodes.filter((n) => n.selected);
     if (chosen.length === 0) return;
-    // Mixed selection locks everything: the predictable reading of one keystroke.
-    get().setLocked(chosen.some((n) => n.draggable !== false));
+    // Only unpinned things can be selected now, so this keystroke always pins.
+    get().setLocked(true);
   },
 
   deleteSelection: () =>
@@ -975,7 +1165,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
             ? { size: { w: Number(n.style.width), h: Number(n.style.height) } }
             : {}),
           ...(typeof n.zIndex === 'number' ? { z: n.zIndex } : {}),
-          ...(n.draggable === false ? { locked: true } : {}),
+          ...(n.draggable === false || n.data.locked ? { locked: true } : {}),
         })),
       edges: s.edges.map((e) => ({
         id: e.id,
