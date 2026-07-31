@@ -14,6 +14,7 @@ import type {
   BlueprintLike,
   CanvasDoc,
   CanvasMarkup,
+  EdgeGeometry,
   EdgeKind,
   Flow,
   FlowKind,
@@ -104,6 +105,13 @@ interface CanvasState extends Snapshot {
   updateNodeAttrs: (id: string, patch: NodeAttrs) => void;
   setEdgeKind: (id: string, kind: EdgeKind) => void;
   setEdgeLabel: (id: string, label: string) => void;
+  /** How the line is drawn — routing only, never anything the grader reads. */
+  setEdgeShape: (id: string, shape: NonNullable<EdgeGeometry['shape']>) => void;
+  /** Adds a bend at `point`, inserted at the position that keeps the path in order. */
+  addEdgeBend: (id: string, point: { x: number; y: number }) => void;
+  moveEdgeBend: (id: string, index: number, point: { x: number; y: number }) => void;
+  removeEdgeBend: (id: string, index: number) => void;
+  clearEdgeBends: (id: string) => void;
   deleteSelection: () => void;
   /** Drag one end of an existing edge onto a different component. */
   reconnectEdge: (edgeId: string, next: Connection) => boolean;
@@ -136,6 +144,8 @@ interface CanvasState extends Snapshot {
    */
   setLocked: (locked: boolean) => void;
   unlockNode: (id: string) => void;
+  /** Releases everything. The escape hatch that does not depend on finding a badge. */
+  unlockAll: () => number;
   toggleLockOnSelection: () => void;
 
   // flows
@@ -195,6 +205,34 @@ const edgeStyle = (kind: EdgeKind): Partial<Edge> => ({
 });
 
 const kindOf = (e: Edge): EdgeKind => ((e.data as { kind?: EdgeKind } | undefined)?.kind ?? 'sync');
+
+/** Bend points on a connection, in order. Empty when it runs straight through. */
+export const bendsOf = (e: Edge): { x: number; y: number }[] =>
+  ((e.data as EdgeGeometry | undefined)?.points ?? []).map((p) => ({ x: p.x, y: p.y }));
+
+export const shapeOf = (e: Edge): NonNullable<EdgeGeometry['shape']> =>
+  (e.data as EdgeGeometry | undefined)?.shape ?? 'smooth';
+
+/** Middle of a node in canvas coordinates, for routing arithmetic. */
+function centreOf(n: AnyNode, all: AnyNode[]): { x: number; y: number } {
+  const at = absolutePosition(n, all);
+  const w = Number(n.style?.width ?? n.measured?.width ?? 168);
+  const h = Number(n.style?.height ?? n.measured?.height ?? 64);
+  return { x: at.x + w / 2, y: at.y + h / 2 };
+}
+
+function distanceToSegment(
+  p: { x: number; y: number },
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSquared));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
 
 /** Boundaries live behind the components they contain, unless moved deliberately. */
 const GROUP_Z = -1;
@@ -383,6 +421,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
         target: e.to,
         label: e.label || undefined,
         ...edgeStyle(e.kind),
+        data: { kind: e.kind, ...(e.shape ? { shape: e.shape } : {}), ...(e.points ? { points: e.points } : {}) },
       }));
     set({
       problemId,
@@ -519,6 +558,76 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   setEdgeLabel: (id, label) =>
     set((s) => ({
       edges: s.edges.map((e) => (e.id === id ? { ...e, label: label || undefined } : e)),
+      dirty: true,
+    })),
+
+  setEdgeShape: (id, shape) =>
+    set((s) => ({
+      edges: s.edges.map((e) =>
+        e.id === id ? { ...e, data: { ...(e.data ?? {}), shape } } : e,
+      ),
+      dirty: true,
+    })),
+
+  addEdgeBend: (id, point) =>
+    set((s) => {
+      const edge = s.edges.find((e) => e.id === id);
+      if (!edge) return {};
+      const existing = bendsOf(edge);
+      const from = s.nodes.find((n) => n.id === edge.source);
+      const to = s.nodes.find((n) => n.id === edge.target);
+      // Insert where it belongs along the path rather than at the end, or a second
+      // bend added nearer the source would double the line back on itself.
+      const route = [
+        from ? centreOf(from, s.nodes) : point,
+        ...existing,
+        to ? centreOf(to, s.nodes) : point,
+      ];
+      let at = existing.length;
+      let best = Infinity;
+      for (let i = 0; i < route.length - 1; i += 1) {
+        const d = distanceToSegment(point, route[i]!, route[i + 1]!);
+        if (d < best) {
+          best = d;
+          at = i;
+        }
+      }
+      const points = [...existing.slice(0, at), point, ...existing.slice(at)];
+      return {
+        past: [...s.past.slice(-49), snap(s)],
+        future: [],
+        edges: s.edges.map((e) => (e.id === id ? { ...e, data: { ...(e.data ?? {}), points } } : e)),
+        dirty: true,
+      };
+    }),
+
+  moveEdgeBend: (id, index, point) =>
+    set((s) => ({
+      edges: s.edges.map((e) => {
+        if (e.id !== id) return e;
+        const points = bendsOf(e).map((p, i) => (i === index ? point : p));
+        return { ...e, data: { ...(e.data ?? {}), points } };
+      }),
+      dirty: true,
+    })),
+
+  removeEdgeBend: (id, index) =>
+    set((s) => ({
+      past: [...s.past.slice(-49), snap(s)],
+      future: [],
+      edges: s.edges.map((e) => {
+        if (e.id !== id) return e;
+        const points = bendsOf(e).filter((_, i) => i !== index);
+        return { ...e, data: { ...(e.data ?? {}), points } };
+      }),
+      dirty: true,
+    })),
+
+  clearEdgeBends: (id) =>
+    set((s) => ({
+      past: [...s.past.slice(-49), snap(s)],
+      future: [],
+      edges: s.edges.map((e) => (e.id === id ? { ...e, data: { ...(e.data ?? {}), points: [] } } : e)),
       dirty: true,
     })),
 
@@ -867,6 +976,30 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       dirty: true,
     })),
 
+  unlockAll: () => {
+    const count = get().nodes.filter((n) => n.draggable === false).length;
+    if (count === 0) return 0;
+    set((s) => ({
+      past: [...s.past.slice(-49), snap(s)],
+      future: [],
+      nodes: s.nodes.map((n) =>
+        n.draggable === false
+          ? ({
+              ...n,
+              draggable: true,
+              deletable: true,
+              selectable: true,
+              ...(n.type === 'arch'
+                ? { data: { ...(n.data as ArchNodeData), locked: false } as ArchNodeData }
+                : {}),
+            } as AnyNode)
+          : n,
+      ),
+      dirty: true,
+    }));
+    return count;
+  },
+
   toggleLockOnSelection: () => {
     const chosen = get().nodes.filter((n) => n.selected);
     if (chosen.length === 0) return;
@@ -1175,13 +1308,18 @@ export const useCanvas = create<CanvasState>((set, get) => ({
           ...(typeof n.zIndex === 'number' ? { z: n.zIndex } : {}),
           ...(n.draggable === false || n.data.locked ? { locked: true } : {}),
         })),
-      edges: s.edges.map((e) => ({
-        id: e.id,
-        from: e.source,
-        to: e.target,
-        kind: ((e.data as { kind?: EdgeKind } | undefined)?.kind ?? 'sync') as EdgeKind,
-        label: typeof e.label === 'string' ? e.label : '',
-      })),
+      edges: s.edges.map((e) => {
+        const geometry = (e.data ?? {}) as EdgeGeometry;
+        return {
+          id: e.id,
+          from: e.source,
+          to: e.target,
+          kind: ((e.data as { kind?: EdgeKind } | undefined)?.kind ?? 'sync') as EdgeKind,
+          label: typeof e.label === 'string' ? e.label : '',
+          ...(geometry.shape ? { shape: geometry.shape } : {}),
+          ...(geometry.points && geometry.points.length > 0 ? { points: geometry.points } : {}),
+        };
+      }),
       stickies: s.nodes
         .filter((n): n is Node<StickyData, 'sticky'> => n.type === 'sticky')
         .map((n) => ({ id: n.id, text: n.data.text, position: n.position })),

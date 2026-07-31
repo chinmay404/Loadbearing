@@ -192,6 +192,16 @@ export interface GraphDSL {
   flows: Flow[];
 }
 
+/**
+ * How a connection is drawn. Presentation only — the grader is told what connects
+ * to what and in which direction, never which way the line bends around a box.
+ */
+export interface EdgeGeometry {
+  shape?: 'smooth' | 'straight' | 'curved' | 'step';
+  /** Bend points in canvas coordinates, ordered from source to target. */
+  points?: { x: number; y: number }[];
+}
+
 /** What the client stores/restores (with geometry). Never sent to the LLM. */
 export interface CanvasDoc {
   nodes: (GraphNode & {
@@ -202,7 +212,7 @@ export interface CanvasDoc {
     /** Pinned: cannot be dragged or deleted until unlocked. */
     locked?: boolean;
   })[];
-  edges: GraphEdge[];
+  edges: (GraphEdge & EdgeGeometry)[];
   stickies: { id: string; text: string; position: { x: number; y: number } }[];
   strokes: { points: [number, number][]; color: string }[];
   flows: Flow[];

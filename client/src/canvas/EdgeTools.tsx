@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useCanvas } from '../state/canvasStore';
+import { bendsOf, shapeOf, useCanvas } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
 
 /**
@@ -17,6 +17,8 @@ export function EdgeTools() {
   const detachEdge = useCanvas((s) => s.detachEdge);
   const setEdgeKind = useCanvas((s) => s.setEdgeKind);
   const setEdgeLabel = useCanvas((s) => s.setEdgeLabel);
+  const setEdgeShape = useCanvas((s) => s.setEdgeShape);
+  const clearEdgeBends = useCanvas((s) => s.clearEdgeBends);
   const setNotice = useApp((s) => s.setNotice);
 
   const selected = edges.filter((e) => e.selected);
@@ -36,6 +38,8 @@ export function EdgeTools() {
     return n.type === 'arch' ? n.data.label : 'note';
   };
   const kind = (edge.data as { kind?: string } | undefined)?.kind ?? 'sync';
+  const shape = shapeOf(edge);
+  const bends = bendsOf(edge);
 
   const commit = () => setEdgeLabel(edge.id, label.trim());
 
@@ -87,6 +91,20 @@ export function EdgeTools() {
         ))}
       </div>
 
+      <div className="row wrap" style={{ gap: 3 }}>
+        <span className="stencil">shape</span>
+        {(['smooth', 'step', 'straight', 'curved'] as const).map((sh) => (
+          <button key={sh} className={shape === sh ? 'on' : ''} onClick={() => setEdgeShape(edge.id, sh)}>
+            {sh}
+          </button>
+        ))}
+        {bends.length > 0 && (
+          <button className="ghost" onClick={() => clearEdgeBends(edge.id)} title="Remove every bend">
+            straighten ({bends.length})
+          </button>
+        )}
+      </div>
+
       <div className="row wrap" style={{ gap: 4 }}>
         <button onClick={() => setEdgeInsertTarget(edge.id)}>Insert component between…</button>
         <button
@@ -100,8 +118,8 @@ export function EdgeTools() {
       </div>
 
       <p className="stencil" style={{ margin: 0 }}>
-        or drag either end of the line onto another component to re-point it — drop it on empty paper to
-        disconnect
+        drag the dashed dot on the line to bend it, drag a bend to move it, double-click a bend to remove
+        it · drag either end onto another component to re-point it, or onto empty paper to disconnect
       </p>
     </div>
   );

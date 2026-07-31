@@ -29,6 +29,7 @@ import { QuickAdd } from './QuickAdd';
 import { AiBar } from './AiBar';
 import { EdgeTools } from './EdgeTools';
 import { NodeTools } from './NodeTools';
+import { PinBar } from './PinBar';
 import { useCanvas } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
 
@@ -86,6 +87,7 @@ function CanvasInner() {
   const setEdgeInsertTarget = useCanvas((s) => s.setEdgeInsertTarget);
   const restack = useCanvas((s) => s.restack);
   const toggleLock = useCanvas((s) => s.toggleLockOnSelection);
+  const unlockAll = useCanvas((s) => s.unlockAll);
   const reparent = useCanvas((s) => s.reparentDroppedNodes);
   const deleteSelection = useCanvas((s) => s.deleteSelection);
   const undo = useCanvas((s) => s.undo);
@@ -112,6 +114,11 @@ function CanvasInner() {
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         deleteSelection();
+      } else if (e.key === 'L' && e.shiftKey) {
+        // Shift+L releases everything, so being unable to select a pinned
+        // component is never a dead end.
+        const n = unlockAll();
+        if (n > 0) setNotice(`Released ${n} pinned component${n === 1 ? '' : 's'}.`);
       } else if (e.key === 'l') toggleLock();
       else if (e.key === 'v') setTool('select');
       else if (e.key === 'p') setTool('pen');
@@ -120,7 +127,7 @@ function CanvasInner() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo, redo, deleteSelection, setTool, restack, toggleLock]);
+  }, [undo, redo, deleteSelection, setTool, restack, toggleLock, unlockAll, setNotice]);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -311,6 +318,7 @@ function CanvasInner() {
       <AiBar />
       <EdgeTools />
       <NodeTools />
+      <PinBar />
       <QuickAdd />
     </div>
   );

@@ -97,9 +97,15 @@ and add your own API key. To try the UI without a model at all, pick "Offline st
   connection kinds, the capacity assumed, the gaps the rule engine found — stated so an agent does
   not silently "fix" them — acceptance checks from your flows and load scenarios, and the graph as
   JSON.
-- **Ordering and pinning.** `Ctrl+]` / `Ctrl+[` move the selection through the stack, `L` pins it
-  against dragging and deletion. Boundaries have connection handles, so one group can connect to
-  another.
+- **Ordering, pinning and grouping.** `Ctrl+]` / `Ctrl+[` move the selection through the stack. `L`
+  pins it: a pinned component cannot be selected at all, so clicks pass through to whatever is behind
+  — release it from the badge on the object, or `Shift+L` to release everything. Drop a component
+  inside a boundary and it belongs to it, so moving the boundary moves its contents; boundaries nest,
+  and have connection handles of their own so one group can connect to another.
+- **Reshape a connection.** Select it and pick its routing — smooth, step, straight or curved — or
+  drag the dashed dot on the line to add a bend, then drag the bend where you want it. Double-click a
+  bend to remove it. Routing is presentation only: the grader is told what connects to what, never
+  which way the line went round a box.
 - **Rewire without redrawing.** Drag either end of a connection onto a different component to
   re-point it (the connection keeps its kind and label); drop the end on empty paper to disconnect.
   To put something *in between* two components, drag a component on top of the line and it is spliced
@@ -214,9 +220,10 @@ npm test
 npm run typecheck
 ```
 
-330 tests: 216 in `shared` (simulator, compatibility, scenario gates, diffs, retrieval, and every
+364 tests: 216 in `shared` (simulator, compatibility, scenario gates, diffs, retrieval, and every
 blueprint held to being a real design) and 114 in `server` (storage, auth, LLM adapters, JSON salvage,
-the serverless request adapter, the coding-agent brief). The storage suite runs against
+the serverless request adapter, the coding-agent brief) and 29 in `client` (the canvas store: splicing,
+grouping, reshaping, stacking, pinning, templates). The storage suite runs against
 both backends from one set of assertions — set `DATABASE_URL` and the Postgres half stops being
 skipped, which is how the two dialects are kept honest. `FAKE_LLM=1` runs the whole loop with a canned
 grader.
@@ -226,4 +233,5 @@ grader.
 `V` select · `N` sticky note · `P` pen · `E` erase ink · `L` pin/unpin selection ·
 `Delete` remove selection · `Ctrl+Z` / `Ctrl+Shift+Z` undo / redo ·
 `Ctrl+]` / `Ctrl+[` forward / backward in the stack (add `Shift` to jump to either end) ·
+`Shift+L` release everything pinned ·
 `Ctrl+K` add a component by name

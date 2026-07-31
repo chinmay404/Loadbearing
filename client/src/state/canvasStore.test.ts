@@ -122,6 +122,79 @@ describe('re-pointing and disconnecting', () => {
   });
 });
 
+describe('reshaping a connection', () => {
+  const connect = () => {
+    const a = place('service', 0, 0);
+    const b = place('sql_db', 600, 0);
+    store().onConnect({ source: a, target: b, sourceHandle: null, targetHandle: null });
+    return { a, b, edgeId: store().edges[0]!.id };
+  };
+
+  it('changes the routing style without touching what connects to what', () => {
+    const { a, b, edgeId } = connect();
+    store().setEdgeShape(edgeId, 'straight');
+    const e = store().edges[0]!;
+    expect((e.data as { shape?: string }).shape).toBe('straight');
+    expect((e.data as { kind?: string }).kind).toBe('sync');
+    expect([e.source, e.target]).toEqual([a, b]);
+  });
+
+  it('adds bends and keeps them in path order, not click order', () => {
+    const { edgeId } = connect();
+    // Add the far bend first, then a nearer one: the nearer must end up first.
+    store().addEdgeBend(edgeId, { x: 450, y: 120 });
+    store().addEdgeBend(edgeId, { x: 150, y: 120 });
+    const points = (store().edges[0]!.data as { points: { x: number }[] }).points;
+    expect(points.map((p) => p.x)).toEqual([150, 450]);
+  });
+
+  it('moves and removes a single bend', () => {
+    const { edgeId } = connect();
+    store().addEdgeBend(edgeId, { x: 300, y: 100 });
+    store().moveEdgeBend(edgeId, 0, { x: 320, y: 40 });
+    expect((store().edges[0]!.data as { points: { y: number }[] }).points[0]!.y).toBe(40);
+
+    store().removeEdgeBend(edgeId, 0);
+    expect((store().edges[0]!.data as { points: unknown[] }).points).toEqual([]);
+  });
+
+  it('straightens away every bend at once', () => {
+    const { edgeId } = connect();
+    store().addEdgeBend(edgeId, { x: 200, y: 100 });
+    store().addEdgeBend(edgeId, { x: 400, y: -100 });
+    store().clearEdgeBends(edgeId);
+    expect((store().edges[0]!.data as { points: unknown[] }).points).toEqual([]);
+  });
+
+  it('round-trips shape and bends through a saved document', () => {
+    const { edgeId } = connect();
+    store().setEdgeShape(edgeId, 'curved');
+    store().addEdgeBend(edgeId, { x: 300, y: 90 });
+
+    const doc = store().toDoc();
+    const saved = doc.edges[0]!;
+    expect(saved.shape).toBe('curved');
+    expect(saved.points).toEqual([{ x: 300, y: 90 }]);
+
+    store().loadProblem('test', doc);
+    const reloaded = store().edges[0]!.data as { shape?: string; points?: unknown[] };
+    expect(reloaded.shape).toBe('curved');
+    expect(reloaded.points).toEqual([{ x: 300, y: 90 }]);
+  });
+
+  it('keeps geometry out of what the grader is shown', () => {
+    const { edgeId } = connect();
+    store().setEdgeShape(edgeId, 'curved');
+    store().addEdgeBend(edgeId, { x: 300, y: 90 });
+
+    const graphEdge = store().toGraph().edges[0]! as unknown as Record<string, unknown>;
+    expect(graphEdge.points).toBeUndefined();
+    expect(graphEdge.shape).toBeUndefined();
+    // What it does carry is the part that means something.
+    expect(graphEdge.kind).toBe('sync');
+  });
+});
+
 describe('boundaries', () => {
   it('adopts a component dropped inside it, and keeps it where it looked', () => {
     const group = place('group', 100, 100);
@@ -255,6 +328,28 @@ describe('stacking and pinning', () => {
 
     expect(node(a)).toBeDefined();
     expect(node(b)).toBeUndefined();
+  });
+
+  it('releases everything at once, whatever is selected', () => {
+    const a = place('service', 0, 0);
+    const b = place('cache', 200, 0);
+    const c = place('sql_db', 400, 0);
+    select(a, b);
+    store().setLocked(true);
+    expect(store().nodes.filter((n) => n.draggable === false).length).toBe(2);
+
+    // Nothing is selected now — pinning cleared it — and the release must still work.
+    expect(store().nodes.some((n) => n.selected)).toBe(false);
+    expect(store().unlockAll()).toBe(2);
+    expect(store().nodes.filter((n) => n.draggable === false).length).toBe(0);
+    for (const id of [a, b, c]) expect(node(id)!.selectable).not.toBe(false);
+  });
+
+  it('releasing nothing is a no-op rather than an edit', () => {
+    place('service', 0, 0);
+    const before = store().past.length;
+    expect(store().unlockAll()).toBe(0);
+    expect(store().past.length).toBe(before);
   });
 
   it('unlocks from its own id, since it can no longer be selected', () => {
