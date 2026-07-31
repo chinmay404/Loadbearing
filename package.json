@@ -12,14 +12,17 @@
     "node": ">=22.5"
   },
   "scripts": {
-    "dev": "npm-run-all -p dev:server dev:client",
+    "dev": "npm-run-all build:shared --parallel dev:shared dev:server dev:client",
+    "dev:shared": "npm --workspace shared run dev",
     "dev:server": "npm --workspace server run dev",
     "dev:client": "npm --workspace client run dev",
-    "build": "npm --workspace client run build",
-    "test": "npm-run-all test:shared test:server",
+    "build": "npm-run-all build:shared build:client",
+    "build:shared": "npm run build --workspace @loadbearing/shared",
+    "build:client": "npm run build --workspace @loadbearing/client",
+    "test": "npm-run-all build:shared test:shared test:server",
     "test:shared": "npm --workspace shared run test",
     "test:server": "npm --workspace server run test",
-    "typecheck": "npm-run-all typecheck:api typecheck:server typecheck:client",
+    "typecheck": "npm-run-all build:shared typecheck:api typecheck:server typecheck:client",
     "typecheck:api": "tsc --noEmit -p tsconfig.json",
     "typecheck:server": "npm --workspace server run typecheck",
     "typecheck:client": "npm --workspace client run typecheck"
