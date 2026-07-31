@@ -745,6 +745,109 @@ export const NODE_ICONS: Record<ArchNodeType, (props: { size?: number }) => JSX.
     </Glyph>
   ),
 
+  // ---------- Pipeline stages ----------
+
+  /** A stack of documents: the corpus, before anything has been done to it. */
+  doc_source: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M8 3h6l4 4v9a1.5 1.5 0 0 1-1.5 1.5H8A1.5 1.5 0 0 1 6.5 16V4.5A1.5 1.5 0 0 1 8 3Z" />
+      <path d="M14 3v4h4" />
+      <path d="M4 7.5V19a2 2 0 0 0 2 2h9" />
+    </Glyph>
+  ),
+
+  /** A page with a scan line crossing it: text being lifted off the paper. */
+  doc_parser: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M6 3.5h8l4 4v13H6Z" />
+      <path d="M14 3.5v4h4" />
+      <path d="M3 12h18" />
+      <path d="M9 15.5h6M9 18h4" />
+    </Glyph>
+  ),
+
+  /** One block cut into three: where the boundaries fall. */
+  chunker: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="3" y="4.5" width="18" height="15" rx="1.6" />
+      <path d="M9 4.5v15" strokeDasharray="2.5 2" />
+      <path d="M15 4.5v15" strokeDasharray="2.5 2" />
+    </Glyph>
+  ),
+
+  /** A funnel narrowing prose into fixed fields. */
+  extractor: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M3.5 4.5h17l-6.5 7.5v6l-4 2.5v-8.5Z" />
+      <path d="M6.5 8h11" />
+    </Glyph>
+  ),
+
+  /** A shape with a tick: the output matched the schema. */
+  output_validator: ({ size }) => (
+    <Glyph size={size}>
+      <path d="M5 4.5h9l5 5V17a2.5 2.5 0 0 1-2.5 2.5H5Z" />
+      <path d="M14 4.5v5h5" />
+      <path d="M7.5 14.2l2.4 2.4 4.6-4.6" />
+    </Glyph>
+  ),
+
+  /** A magnifier over layered results: search, then rank. */
+  retriever: ({ size }) => (
+    <Glyph size={size}>
+      <circle cx="10.5" cy="10.5" r="5.5" />
+      <path d="M14.6 14.6 20 20" />
+      <path d="M7.5 9h6M7.5 12h4" />
+    </Glyph>
+  ),
+
+  /** A box inside a box: execution with a wall around it. */
+  tool_sandbox: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="2.5" y="4" width="19" height="16" rx="2" strokeDasharray="3 2.2" />
+      <rect x="7" y="8.5" width="10" height="7" rx="1.2" />
+      <path d="M9.5 12h5" />
+    </Glyph>
+  ),
+
+  /** A socket offering three plugs: tools advertised to a model. */
+  mcp_server: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="4" y="7" width="16" height="10" rx="1.8" />
+      <path d="M8 7V4M12 7V4M16 7V4" />
+      <path d="M8 17v3M16 17v3" />
+    </Glyph>
+  ),
+
+  /** A cylinder with a thread through it: state carried across steps. */
+  agent_memory: ({ size }) => (
+    <Glyph size={size}>
+      <ellipse cx="12" cy="6" rx="7" ry="2.6" />
+      <path d="M5 6v8c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6" />
+      <path d="M8.5 20.5c2-1.6 5.5-1.6 7.5 0" />
+    </Glyph>
+  ),
+
+  /** A person's outline, because that is what is in the loop. */
+  human_review: ({ size }) => (
+    <Glyph size={size}>
+      <circle cx="12" cy="7.5" r="3.4" />
+      <path d="M5.5 20.5c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5" />
+      <path d="M15.8 16.6l1.8 1.8 3-3" />
+    </Glyph>
+  ),
+
+  /** A field with its middle blacked out. */
+  pii_redactor: ({ size }) => (
+    <Glyph size={size}>
+      <rect x="3" y="5" width="18" height="14" rx="1.8" />
+      <path d="M6.5 9.5h4" />
+      <rect x="12" y="8.4" width="6" height="2.2" rx="0.6" strokeDasharray="0" />
+      <path d="M6.5 14.5h5" />
+      <rect x="13" y="13.4" width="4.5" height="2.2" rx="0.6" />
+    </Glyph>
+  ),
+
   /** Columns of features piped into the model that consumes them. */
   feature_store: ({ size }) => (
     <Glyph size={size}>

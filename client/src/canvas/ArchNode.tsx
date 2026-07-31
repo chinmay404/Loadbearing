@@ -58,6 +58,17 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
             )}
           </div>
         </div>
+        {/*
+          A boundary is a thing you connect. "This VPC peers with that one", "this
+          cell replicates to that cell", "traffic crosses from the public zone into
+          the private one" are all edges between groups, and without handles there
+          was no way to draw any of them. Placed on the frame rather than the fill
+          so they do not fight with dragging a component into the group.
+        */}
+        <Handle type="target" position={Position.Left} className="group-handle" />
+        <Handle type="target" position={Position.Top} id="t" className="group-handle" />
+        <Handle type="source" position={Position.Right} className="group-handle" />
+        <Handle type="source" position={Position.Bottom} id="b" className="group-handle" />
       </>
     );
   }

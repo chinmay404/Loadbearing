@@ -1,5 +1,6 @@
 import type {
   Attempt,
+  BlueprintLike,
   CritiqueResponse,
   GraphDSL,
   MasteryEntry,
@@ -13,6 +14,7 @@ import type {
   Stats,
   ConceptCard,
   CanvasDoc,
+  UserTemplate,
 } from '@loadbearing/shared';
 
 export class ApiError extends Error {
@@ -126,6 +128,19 @@ export const api = {
     req<{ username: string }>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
   logout: () => req<{ ok: true }>('/auth/logout', { method: 'POST' }),
   me: () => req<{ username: string }>('/auth/me'),
+
+  templates: () => req<UserTemplate[]>('/templates'),
+  saveTemplate: (body: { name: string; summary: string } & Omit<BlueprintLike, 'name'>) =>
+    req<UserTemplate>('/templates', { method: 'POST', body: JSON.stringify(body) }),
+  deleteTemplate: (id: string) =>
+    req<{ ok: true }>(`/templates/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  /** The current canvas as a build specification for a coding agent. */
+  implementationBrief: (body: { graph: GraphDSL; problemId?: string }) =>
+    req<{ markdown: string; filename: string }>('/export/brief', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   playbook: () => req<PlaybookEntryView[]>('/playbook'),
   relevantPlaybook: (body: { problemId?: string; graph?: GraphDSL; text?: string; limit?: number }) =>

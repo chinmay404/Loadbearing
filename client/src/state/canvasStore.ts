@@ -11,6 +11,7 @@ import {
 } from '@xyflow/react';
 import type {
   ArchNodeType,
+  BlueprintLike,
   CanvasDoc,
   CanvasMarkup,
   EdgeKind,
@@ -102,6 +103,18 @@ interface CanvasState extends Snapshot {
   edgeInsertTarget: string | null;
   setEdgeInsertTarget: (edgeId: string | null) => void;
 
+  /** Drops a prebuilt subsystem or saved template onto the sheet, fully editable. */
+  insertBlueprint: (blueprint: BlueprintLike) => string[];
+  /** Turns the current selection (or the whole sheet) into a reusable template. */
+  selectionAsTemplate: (name: string, summary: string) => BlueprintLike | null;
+
+  // stacking and pinning
+  /** Moves the selection in the stacking order. 'front'/'back' jump; ±1 steps. */
+  restack: (where: 'front' | 'back' | 'forward' | 'backward') => void;
+  /** Pins or releases the selection. A pinned component cannot be dragged or deleted. */
+  setLocked: (locked: boolean) => void;
+  toggleLockOnSelection: () => void;
+
   // flows
   addFlow: () => string;
   updateFlow: (id: string, patch: Partial<Flow>) => void;
@@ -160,6 +173,16 @@ const edgeStyle = (kind: EdgeKind): Partial<Edge> => ({
 
 const kindOf = (e: Edge): EdgeKind => ((e.data as { kind?: EdgeKind } | undefined)?.kind ?? 'sync');
 
+/** Boundaries live behind the components they contain, unless moved deliberately. */
+const GROUP_Z = -1;
+
+const zOf = (n: AnyNode): number =>
+  typeof n.zIndex === 'number'
+    ? n.zIndex
+    : n.type === 'arch' && n.data.archType === 'group'
+      ? GROUP_Z
+      : 0;
+
 /**
  * A declared flow is an ordered list of node ids, so inserting a component
  * between two of them has to update the flow too — otherwise the request path
@@ -208,6 +231,11 @@ export const useCanvas = create<CanvasState>((set, get) => ({
             position: n.position,
             ...(n.parentId ? { parentId: n.parentId, extent: 'parent' as const } : {}),
             ...(n.size ? { style: { width: n.size.w, height: n.size.h } } : {}),
+            // A boundary defaults behind everything so components sit inside it,
+            // but a saved order always wins — the user may have deliberately
+            // pulled one forward.
+            zIndex: typeof n.z === 'number' ? n.z : n.type === 'group' ? GROUP_Z : 0,
+            ...(n.locked ? { draggable: false, deletable: false } : {}),
             data: {
               archType: n.type,
               label: n.label,
@@ -296,7 +324,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       id,
       type: 'arch',
       position,
-      ...(type === 'group' ? { style: { width: 300, height: 220 }, zIndex: -1 } : {}),
+      ...(type === 'group' ? { style: { width: 300, height: 220 }, zIndex: GROUP_Z } : {}),
       data: {
         archType: type,
         label: spec.label,
@@ -477,10 +505,184 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   edgeInsertTarget: null,
   setEdgeInsertTarget: (edgeInsertTarget) => set({ edgeInsertTarget }),
 
+  insertBlueprint: (blueprint) => {
+    const { viewportCenter, nodes: existing } = get();
+    // Land clear of whatever is already drawn rather than on top of it: a
+    // blueprint dropped over an existing design is worse than no blueprint.
+    const rightEdge = existing.reduce((max, n) => Math.max(max, n.position.x + 200), -Infinity);
+    const originX = Number.isFinite(rightEdge)
+      ? Math.max(viewportCenter.x - 300, rightEdge + 90)
+      : viewportCenter.x - 300;
+    const originY = viewportCenter.y - 120;
+
+    // Blueprint keys are local, so every id is rewritten — inserting the same
+    // blueprint twice has to produce two independent copies.
+    const idFor = new Map(blueprint.nodes.map((n) => [n.key, uid('n')]));
+
+    const newNodes: Node<ArchNodeData, 'arch'>[] = blueprint.nodes.map((n) => {
+      const spec = NODE_SPEC[n.type];
+      return {
+        id: idFor.get(n.key)!,
+        type: 'arch',
+        position: { x: originX + n.at.x, y: originY + n.at.y },
+        selected: true,
+        zIndex: n.type === 'group' ? GROUP_Z : 0,
+        ...(n.parent && idFor.has(n.parent)
+          ? { parentId: idFor.get(n.parent)!, extent: 'parent' as const }
+          : {}),
+        ...(n.size ? { style: { width: n.size.w, height: n.size.h } } : {}),
+        data: {
+          archType: n.type,
+          label: n.label,
+          annotation: n.annotation,
+          attrs: { ...spec.defaults, ...(n.attrs ?? {}) },
+        },
+      };
+    });
+
+    const newEdges: Edge[] = blueprint.edges.flatMap((e) => {
+      const from = idFor.get(e.from);
+      const to = idFor.get(e.to);
+      if (!from || !to) return [];
+      return [
+        {
+          id: uid('e'),
+          source: from,
+          target: to,
+          ...(e.label ? { label: e.label } : {}),
+          ...edgeStyle(e.kind),
+        },
+      ];
+    });
+
+    const newFlows: Flow[] = blueprint.flows.map((f) => ({
+      id: uid('f'),
+      name: f.name,
+      kind: f.kind,
+      steps: f.steps.map((k) => idFor.get(k)).filter((x): x is string => Boolean(x)),
+      rps: f.rps,
+      description: f.description,
+    }));
+
+    set((s) => ({
+      past: [...s.past.slice(-49), snap(s)],
+      future: [],
+      nodes: [...s.nodes.map((n) => ({ ...n, selected: false })), ...newNodes] as AnyNode[],
+      edges: [...s.edges, ...newEdges],
+      flows: [...s.flows, ...newFlows],
+      dirty: true,
+    }));
+
+    return newNodes.map((n) => n.id);
+  },
+
+  selectionAsTemplate: (name, summary) => {
+    const s = get();
+    const chosen = s.nodes.filter(
+      (n): n is Node<ArchNodeData, 'arch'> => n.type === 'arch' && !n.data.ghost && Boolean(n.selected),
+    );
+    // Nothing selected means "save the whole sheet", which is what you want the
+    // first time you build a pattern you like.
+    const source =
+      chosen.length > 0
+        ? chosen
+        : (s.nodes.filter(
+            (n): n is Node<ArchNodeData, 'arch'> => n.type === 'arch' && !n.data.ghost,
+          ) as Node<ArchNodeData, 'arch'>[]);
+    if (source.length === 0) return null;
+
+    // Positions are stored relative to the group's own top-left, so the template
+    // lands wherever it is next dropped rather than at its original coordinates.
+    const minX = Math.min(...source.map((n) => n.position.x));
+    const minY = Math.min(...source.map((n) => n.position.y));
+    const included = new Set(source.map((n) => n.id));
+
+    return {
+      name,
+      summary,
+      nodes: source.map((n) => ({
+        key: n.id,
+        type: n.data.archType,
+        label: n.data.label,
+        annotation: n.data.annotation,
+        at: { x: Math.round(n.position.x - minX), y: Math.round(n.position.y - minY) },
+        attrs: n.data.attrs,
+        ...(n.style?.width && n.style?.height
+          ? { size: { w: Number(n.style.width), h: Number(n.style.height) } }
+          : {}),
+        ...(n.parentId && included.has(n.parentId) ? { parent: n.parentId } : {}),
+      })),
+      edges: s.edges
+        .filter((e) => included.has(e.source) && included.has(e.target))
+        .map((e) => ({
+          from: e.source,
+          to: e.target,
+          kind: kindOf(e),
+          ...(typeof e.label === 'string' && e.label ? { label: e.label } : {}),
+        })),
+      // Only flows entirely inside the selection: a flow with steps outside it
+      // would arrive somewhere else as a path with holes in it.
+      flows: s.flows
+        .filter((f) => f.steps.length > 0 && f.steps.every((step) => included.has(step)))
+        .map((f) => ({
+          name: f.name,
+          kind: f.kind,
+          steps: [...f.steps],
+          rps: f.rps,
+          description: f.description ?? '',
+        })),
+    };
+  },
+
+  restack: (where) =>
+    set((s) => {
+      const chosen = s.nodes.filter((n) => n.selected);
+      if (chosen.length === 0) return {};
+      const all = s.nodes.map(zOf);
+      const top = Math.max(0, ...all);
+      const bottom = Math.min(0, ...all);
+      const move = (n: AnyNode): number => {
+        const z = zOf(n);
+        if (where === 'front') return top + 1;
+        if (where === 'back') return bottom - 1;
+        return where === 'forward' ? z + 1 : z - 1;
+      };
+      return {
+        past: [...s.past.slice(-49), snap(s)],
+        future: [],
+        nodes: s.nodes.map((n) => (n.selected ? { ...n, zIndex: move(n) } : n)) as AnyNode[],
+        dirty: true,
+      };
+    }),
+
+  setLocked: (locked) =>
+    set((s) => {
+      if (!s.nodes.some((n) => n.selected)) return {};
+      return {
+        past: [...s.past.slice(-49), snap(s)],
+        future: [],
+        // Still selectable when locked, or there would be no way to unlock it.
+        nodes: s.nodes.map((n) =>
+          n.selected ? { ...n, draggable: !locked, deletable: !locked } : n,
+        ) as AnyNode[],
+        dirty: true,
+      };
+    }),
+
+  toggleLockOnSelection: () => {
+    const chosen = get().nodes.filter((n) => n.selected);
+    if (chosen.length === 0) return;
+    // Mixed selection locks everything: the predictable reading of one keystroke.
+    get().setLocked(chosen.some((n) => n.draggable !== false));
+  },
+
   deleteSelection: () =>
     set((s) => {
-      const doomed = new Set(s.nodes.filter((n) => n.selected).map((n) => n.id));
-      const keptNodes = s.nodes.filter((n) => !n.selected);
+      // A pinned component survives Delete — that is most of what pinning is for.
+      const doomed = new Set(
+        s.nodes.filter((n) => n.selected && n.deletable !== false).map((n) => n.id),
+      );
+      const keptNodes = s.nodes.filter((n) => !doomed.has(n.id));
       const keptEdges = s.edges.filter(
         (e) => !e.selected && !doomed.has(e.source) && !doomed.has(e.target),
       );
@@ -772,6 +974,8 @@ export const useCanvas = create<CanvasState>((set, get) => ({
           ...(n.style?.width && n.style?.height
             ? { size: { w: Number(n.style.width), h: Number(n.style.height) } }
             : {}),
+          ...(typeof n.zIndex === 'number' ? { z: n.zIndex } : {}),
+          ...(n.draggable === false ? { locked: true } : {}),
         })),
       edges: s.edges.map((e) => ({
         id: e.id,

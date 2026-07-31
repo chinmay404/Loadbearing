@@ -16,6 +16,7 @@ import { settingsRoutes } from './settings/routes.js';
 import { designRoutes } from './designs/routes.js';
 import { exportRoutes } from './export/routes.js';
 import { playbookRoutes } from './reference/routes.js';
+import { templateRoutes } from './templates/routes.js';
 
 export const app = new Hono<AppEnv>();
 
@@ -120,3 +121,4 @@ app.route('/api', settingsRoutes);
 app.route('/api', designRoutes);
 app.route('/api', exportRoutes);
 app.route('/api', playbookRoutes);
+app.route('/api', templateRoutes);

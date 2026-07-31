@@ -7,6 +7,8 @@ import { storage } from '../storage/index.js';
 import type { AttemptRow } from '../storage/types.js';
 import { requireUser, type AppEnv } from '../auth/middleware.js';
 import { findProblem } from '../problems/routes.js';
+import { sanitizeGraph } from '../scoring/validate.js';
+import { buildImplementationBrief } from './brief.js';
 
 export const exportRoutes = new Hono<AppEnv>();
 
@@ -243,6 +245,31 @@ ${s.socratic_questions.length ? s.socratic_questions.map((q) => `- ${q}`).join('
 - [[Home MOC]]
 `;
 }
+
+/**
+ * The current canvas as a build specification for a coding agent. Takes the graph
+ * from the request rather than an attempt id, because the useful moment for this
+ * is while you are still drawing, not only after a review.
+ *
+ * Registered BEFORE `/export/:attemptId` deliberately: routes match in order, and
+ * with the parameterised one first this literal path arrives as an attempt whose
+ * id is the string "brief".
+ */
+exportRoutes.post('/export/brief', requireUser, async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { graph?: unknown; problemId?: string };
+  const graph = sanitizeGraph(body.graph);
+  if (graph.nodes.length === 0) {
+    return c.json(
+      { error: { code: 'empty_design', message: 'Draw the design before exporting it.' } },
+      400,
+    );
+  }
+  const store = await storage();
+  const userId = c.get('userId');
+  const problem = body.problemId ? await findProblem(store, userId, String(body.problemId)) : undefined;
+  const { markdown } = buildImplementationBrief({ graph, problem });
+  return c.json({ markdown, filename: `${problem?.id ?? 'design'}-implementation-brief.md` });
+});
 
 exportRoutes.post('/export/:attemptId', requireUser, async (c) => {
   if (!CAN_WRITE_FILES) {

@@ -842,6 +842,20 @@ details.disclose[open] > summary {
   min-width: 220px;
   min-height: 160px;
 }
+/* A boundary's handles sit quietly until you go near the frame, so they never
+   compete with dragging components in and out of the group. */
+.group-handle {
+  width: 9px;
+  height: 9px;
+  background: var(--ink-2);
+  border: 1px solid var(--plum, #b07ca8);
+  opacity: 0.35;
+  transition: opacity 120ms ease;
+}
+.react-flow__node:hover > .group-handle,
+.react-flow__node.selected > .group-handle {
+  opacity: 1;
+}
 .group-node .glabel {
   position: absolute;
   top: -9px;

@@ -151,6 +151,38 @@ export function FeedbackPanel() {
           .drawio
         </button>
         <button
+          onClick={() => void run('brief', async () => {
+            const r = await api.implementationBrief({
+              graph: toGraph(),
+              ...(problem ? { problemId: problem.id } : {}),
+            });
+            setNotice(
+              (await copyText(r.markdown))
+                ? 'Implementation brief copied — paste it into a coding agent as the whole task.'
+                : 'Clipboard blocked; downloading instead.',
+            );
+            if (!(await copyText(r.markdown))) downloadText(r.filename, r.markdown, 'text/markdown');
+          })}
+          disabled={busy !== null}
+          title="Turn this design into a build specification: components, request paths in order, invariants, capacity, known gaps and acceptance checks — plus the graph as JSON"
+        >
+          {busy === 'brief' ? <span className="spinner" /> : null} Copy for coding agent
+        </button>
+        <button
+          onClick={() => void run('briefdl', async () => {
+            const r = await api.implementationBrief({
+              graph: toGraph(),
+              ...(problem ? { problemId: problem.id } : {}),
+            });
+            downloadText(r.filename, r.markdown, 'text/markdown');
+            setNotice(`Saved ${r.filename}.`);
+          })}
+          disabled={busy !== null}
+          title="Download the same build specification as a markdown file"
+        >
+          .md brief
+        </button>
+        <button
           onClick={() => void run('review', async () => {
             if (attemptId === null) return;
             const r = await api.exportAttempt(attemptId, 'review');

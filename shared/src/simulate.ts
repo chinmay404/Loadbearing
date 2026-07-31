@@ -122,6 +122,19 @@ export const DEFAULT_CAPACITY: Record<ArchNodeType, number> = {
   guardrail: 200,
   reranker: 100,
   agent_runtime: 10,
+  doc_source: 2_000,
+  doc_parser: 5,
+  chunker: 500,
+  extractor: 15,
+  output_validator: 2_000,
+  retriever: 300,
+  tool_sandbox: 50,
+  mcp_server: 200,
+  agent_memory: 3_000,
+  pii_redactor: 1_500,
+  // One reviewer, not one server. Replicas are people here, and that is the
+  // point: a human step on a synchronous path shows up in the arithmetic as one.
+  human_review: 1,
 };
 
 /** Service time at low load, milliseconds. */
@@ -208,6 +221,17 @@ export const DEFAULT_LATENCY: Record<ArchNodeType, number> = {
   guardrail: 150,
   reranker: 120,
   agent_runtime: 4_000,
+  doc_source: 40,
+  doc_parser: 2_500,
+  chunker: 20,
+  extractor: 1_800,
+  output_validator: 8,
+  retriever: 90,
+  tool_sandbox: 600,
+  mcp_server: 120,
+  agent_memory: 15,
+  pii_redactor: 25,
+  human_review: 60_000,
 };
 
 /** Modest USD/month per replica. Used for the cost total only — no cost opinions. */
@@ -294,6 +318,17 @@ export const DEFAULT_COST: Record<ArchNodeType, number> = {
   guardrail: 60,
   reranker: 90,
   agent_runtime: 400,
+  doc_source: 25,
+  doc_parser: 200,
+  chunker: 40,
+  extractor: 320,
+  output_validator: 30,
+  retriever: 90,
+  tool_sandbox: 150,
+  mcp_server: 60,
+  agent_memory: 80,
+  pii_redactor: 50,
+  human_review: 4_000,
 };
 
 // ---------------------------------------------------------------- tunables ---
@@ -338,6 +373,7 @@ const DATASTORE_TYPES: ReadonlySet<ArchNodeType> = new Set([
   'sharded_cluster',
   'materialized_view',
   'ledger_db',
+  'agent_memory',
 ]);
 /** Losing a zone loses these unless they are spread across AZs. */
 const STATEFUL_TYPES: ReadonlySet<ArchNodeType> = new Set([
@@ -353,6 +389,7 @@ const STATEFUL_TYPES: ReadonlySet<ArchNodeType> = new Set([
   'olap_db',
   'data_lake',
   'feature_store',
+  'agent_memory',
   'queue',
   'stream',
   'event_bus',

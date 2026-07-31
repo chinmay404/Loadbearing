@@ -73,6 +73,20 @@ export const ARCH_NODE_TYPES = [
   'guardrail',
   'reranker',
   'agent_runtime',
+  // Pipeline stages, not managed services. An AI system's real design lives in
+  // the steps a document or a question passes through — parse, chunk, extract,
+  // validate — and naming those as "a worker" hides every decision in them.
+  'doc_source',
+  'doc_parser',
+  'chunker',
+  'extractor',
+  'output_validator',
+  'retriever',
+  'tool_sandbox',
+  'mcp_server',
+  'agent_memory',
+  'pii_redactor',
+  'human_review',
   'feature_store',
   'feedback_store',
   'experiment_platform',
@@ -152,7 +166,14 @@ export interface GraphDSL {
 
 /** What the client stores/restores (with geometry). Never sent to the LLM. */
 export interface CanvasDoc {
-  nodes: (GraphNode & { position: { x: number; y: number }; size?: { w: number; h: number } })[];
+  nodes: (GraphNode & {
+    position: { x: number; y: number };
+    size?: { w: number; h: number };
+    /** Stacking order. Boundaries sit behind by default; overlaps are the user's call. */
+    z?: number;
+    /** Pinned: cannot be dragged or deleted until unlocked. */
+    locked?: boolean;
+  })[];
   edges: GraphEdge[];
   stickies: { id: string; text: string; position: { x: number; y: number } }[];
   strokes: { points: [number, number][]; color: string }[];

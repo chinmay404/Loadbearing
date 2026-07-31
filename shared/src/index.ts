@@ -4,5 +4,6 @@ export * from './simulate.js';
 export * from './compatibility.js';
 export * from './scenarios.js';
 export * from './diff.js';
+export * from './blueprints.js';
 export * from './playbook.js';
 export * from './retrieve.js';

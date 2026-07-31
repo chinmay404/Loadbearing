@@ -28,6 +28,7 @@ import { TitleBlock } from './TitleBlock';
 import { QuickAdd } from './QuickAdd';
 import { AiBar } from './AiBar';
 import { EdgeTools } from './EdgeTools';
+import { NodeTools } from './NodeTools';
 import { useCanvas } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
 
@@ -83,6 +84,8 @@ function CanvasInner() {
   const detachEdge = useCanvas((s) => s.detachEdge);
   const spliceNodeIntoEdge = useCanvas((s) => s.spliceNodeIntoEdge);
   const setEdgeInsertTarget = useCanvas((s) => s.setEdgeInsertTarget);
+  const restack = useCanvas((s) => s.restack);
+  const toggleLock = useCanvas((s) => s.toggleLockOnSelection);
   const deleteSelection = useCanvas((s) => s.deleteSelection);
   const undo = useCanvas((s) => s.undo);
   const redo = useCanvas((s) => s.redo);
@@ -100,17 +103,23 @@ function CanvasInner() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         redo();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === ']' || e.key === '[')) {
+        // Ctrl+] / Ctrl+[ step through the stack; add Shift to jump to either end.
+        e.preventDefault();
+        const forward = e.key === ']';
+        restack(e.shiftKey ? (forward ? 'front' : 'back') : forward ? 'forward' : 'backward');
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         deleteSelection();
-      } else if (e.key === 'v') setTool('select');
+      } else if (e.key === 'l') toggleLock();
+      else if (e.key === 'v') setTool('select');
       else if (e.key === 'p') setTool('pen');
       else if (e.key === 'e') setTool('eraser');
       else if (e.key === 'n') setTool('sticky');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo, redo, deleteSelection, setTool]);
+  }, [undo, redo, deleteSelection, setTool, restack, toggleLock]);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -285,6 +294,7 @@ function CanvasInner() {
       <SimHud />
       <AiBar />
       <EdgeTools />
+      <NodeTools />
       <QuickAdd />
     </div>
   );
