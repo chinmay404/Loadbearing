@@ -3,6 +3,8 @@
 // this interface, so neither dialect leaks upward. Everything is async because
 // the Postgres side has no choice, and the SQLite side can afford to pretend.
 
+import type { NoteScope } from '@loadbearing/shared';
+
 export interface UserRow {
   id: string;
   username: string;
@@ -62,6 +64,18 @@ export interface CanvasRow {
   updatedAt: string;
 }
 
+/** A written note kept beside a sheet or a whole project. */
+export interface NoteRow {
+  id: string;
+  scope: NoteScope;
+  scopeId: string;
+  title: string;
+  body: string;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Storage {
   /** Which backend answered — surfaced on /api/health so deploys are checkable. */
   readonly kind: 'sqlite' | 'postgres';
@@ -115,6 +129,20 @@ export interface Storage {
   // ---- canvas designs (one per problem sheet) ----
   getDesign(userId: string, problemId: string): Promise<{ graphJson: string; updatedAt: string } | null>;
   putDesign(userId: string, problemId: string, graphJson: string): Promise<void>;
+
+  // ---- notes (as many as you like, per sheet or per project) ----
+  listNotes(userId: string, scope: NoteScope, scopeId: string): Promise<NoteRow[]>;
+  createNote(
+    userId: string,
+    note: { scope: NoteScope; scopeId: string; title: string; body: string },
+  ): Promise<NoteRow>;
+  /** Only the fields present are written. Returns null when the note is not theirs. */
+  updateNote(
+    userId: string,
+    id: string,
+    patch: { title?: string; body?: string; position?: number },
+  ): Promise<NoteRow | null>;
+  deleteNote(userId: string, id: string): Promise<void>;
 
   // ---- coaching conversation (one thread per problem sheet) ----
   /** The stored turns as JSON, or null when nothing has been asked yet. */

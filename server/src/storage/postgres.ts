@@ -8,10 +8,12 @@
 
 import pg from 'pg';
 import { adviseOnConnectionString } from './advice.js';
+import type { NoteScope } from '@loadbearing/shared';
 import type {
   AttemptRow,
   CanvasRow,
   MasteryRow,
+  NoteRow,
   ProjectRow,
   ReviewQueueRow,
   StatsAgg,
@@ -106,6 +108,21 @@ const SCHEMA: { table: string; create: string; indexes?: string[] }[] = [
     )`,
   },
   {
+    table: 'notes',
+    create: `CREATE TABLE notes (
+      id UUID PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      scope TEXT NOT NULL,
+      scope_id TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    indexes: ['CREATE INDEX notes_by_scope ON notes (user_id, scope, scope_id, position)'],
+  },
+  {
     table: 'chats',
     create: `CREATE TABLE chats (
       user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -196,6 +213,30 @@ const toCanvas = (r: RawCanvas): CanvasRow => ({
   note: r.note,
   graphJson: r.graph_json,
   position: Number(r.position),
+  updatedAt: iso(r.updated_at),
+});
+
+interface RawNote {
+  id: string;
+  scope: string;
+  scope_id: string;
+  title: string;
+  body: string;
+  position: string | number;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
+const NOTE_COLS = 'id, scope, scope_id, title, body, position, created_at, updated_at';
+
+const toNote = (r: RawNote): NoteRow => ({
+  id: r.id,
+  scope: r.scope as NoteScope,
+  scopeId: r.scope_id,
+  title: r.title,
+  body: r.body,
+  position: Number(r.position),
+  createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
 });
 
@@ -518,6 +559,58 @@ export class PostgresStorage implements Storage {
        ON CONFLICT (user_id, problem_id) DO UPDATE SET graph_json = excluded.graph_json, updated_at = now()`,
       [userId, problemId, graphJson],
     );
+  }
+
+  // ---- notes ----
+
+  async listNotes(userId: string, scope: NoteScope, scopeId: string): Promise<NoteRow[]> {
+    const rows = await this.q<RawNote>(
+      `SELECT ${NOTE_COLS} FROM notes WHERE user_id = $1 AND scope = $2 AND scope_id = $3
+       ORDER BY position, created_at DESC, id`,
+      [userId, scope, scopeId],
+    );
+    return rows.map(toNote);
+  }
+
+  async createNote(
+    userId: string,
+    note: { scope: NoteScope; scopeId: string; title: string; body: string },
+  ): Promise<NoteRow> {
+    // New notes go to the top: the one just written is the one being worked on.
+    const row = await this.one<RawNote>(
+      `INSERT INTO notes (id, user_id, scope, scope_id, title, body, position)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5,
+               (SELECT COALESCE(MIN(position), 0) - 1 FROM notes
+                WHERE user_id = $1 AND scope = $2 AND scope_id = $3))
+       RETURNING ${NOTE_COLS}`,
+      [userId, note.scope, note.scopeId, note.title, note.body],
+    );
+    if (!row) throw new Error('Insert returned no note row');
+    return toNote(row);
+  }
+
+  async updateNote(
+    userId: string,
+    id: string,
+    patch: { title?: string; body?: string; position?: number },
+  ): Promise<NoteRow | null> {
+    // COALESCE over nulls rather than a built-up SET list: one statement, and the
+    // pooler never sees a query shape it has not seen before.
+    const row = await this.one<RawNote>(
+      `UPDATE notes SET
+         title = COALESCE($3, title),
+         body = COALESCE($4, body),
+         position = COALESCE($5, position),
+         updated_at = now()
+       WHERE id = $1 AND user_id = $2
+       RETURNING ${NOTE_COLS}`,
+      [id, userId, patch.title ?? null, patch.body ?? null, patch.position ?? null],
+    );
+    return row ? toNote(row) : null;
+  }
+
+  async deleteNote(userId: string, id: string): Promise<void> {
+    await this.q('DELETE FROM notes WHERE id = $1 AND user_id = $2', [id, userId]);
   }
 
   // ---- coaching conversation ----

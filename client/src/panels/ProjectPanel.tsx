@@ -3,6 +3,7 @@ import { api, ApiError, type ProjectDetail } from '../lib/api';
 import { copyText, downloadText } from '../lib/diagram';
 import { useApp } from '../state/appStore';
 import { IconBack, IconPlus } from '../ui/UiIcons';
+import { NotesPanel } from './NotesPanel';
 
 /** One project: its views, and the export that covers all of them together. */
 export function ProjectPanel() {
@@ -133,6 +134,13 @@ export function ProjectPanel() {
           </button>
         </div>
       </div>
+
+      <span className="section-label">Notes on the system</span>
+      <NotesPanel
+        scope="project"
+        scopeId={project.id}
+        blurb="decisions, numbers and open questions that outlive any single view — also on the board, under Notes"
+      />
 
       <span className="section-label">Hand the whole system over</span>
       <div className="card">

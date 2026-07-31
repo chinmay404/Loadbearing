@@ -214,6 +214,47 @@ for (const backend of backends) {
       expect(await s.getDesign(b.id, 'p1')).toBeNull();
     });
 
+    it('notes: many per scope, newest first, isolated per scope and user', async () => {
+      const s = await fresh();
+      const a = await s.createUser(uniq('na'), 'h');
+      const b = await s.createUser(uniq('nb'), 'h');
+      expect(await s.listNotes(a.id, 'sheet', 'p1')).toEqual([]);
+
+      const first = await s.createNote(a.id, { scope: 'sheet', scopeId: 'p1', title: 'Numbers', body: '8k rps' });
+      const second = await s.createNote(a.id, { scope: 'sheet', scopeId: 'p1', title: 'Open questions', body: '' });
+      // The one just written is the one being worked on, so it comes first.
+      expect((await s.listNotes(a.id, 'sheet', 'p1')).map((n) => n.title)).toEqual([
+        'Open questions',
+        'Numbers',
+      ]);
+
+      // A note on the project is a different list from a note on one sheet.
+      await s.createNote(a.id, { scope: 'project', scopeId: 'p1', title: 'Decision log', body: '' });
+      expect((await s.listNotes(a.id, 'sheet', 'p1')).length).toBe(2);
+      expect((await s.listNotes(a.id, 'project', 'p1')).map((n) => n.title)).toEqual(['Decision log']);
+      expect(await s.listNotes(a.id, 'sheet', 'p2')).toEqual([]);
+      expect(await s.listNotes(b.id, 'sheet', 'p1')).toEqual([]);
+
+      const edited = await s.updateNote(a.id, first.id, { body: '8k reads/sec, 40 writes/sec' });
+      expect(edited?.body).toBe('8k reads/sec, 40 writes/sec');
+      expect(edited?.title).toBe('Numbers');
+
+      // Reordering is explicit, so a note can be moved above the newest one.
+      await s.updateNote(a.id, first.id, { position: -99 });
+      expect((await s.listNotes(a.id, 'sheet', 'p1')).map((n) => n.title)).toEqual([
+        'Numbers',
+        'Open questions',
+      ]);
+
+      // Someone else's note is not theirs to touch.
+      expect(await s.updateNote(b.id, first.id, { body: 'mine now' })).toBeNull();
+      await s.deleteNote(b.id, first.id);
+      expect((await s.listNotes(a.id, 'sheet', 'p1')).length).toBe(2);
+
+      await s.deleteNote(a.id, second.id);
+      expect((await s.listNotes(a.id, 'sheet', 'p1')).map((n) => n.title)).toEqual(['Numbers']);
+    });
+
     it('chats: one thread per user and sheet, replaced wholesale', async () => {
       const s = await fresh();
       const a = await s.createUser(uniq('ca'), 'h');

@@ -8,6 +8,7 @@ import { Palette } from '../canvas/Palette';
 import { FlowPanel } from './FlowPanel';
 import { InspectorPanel } from './InspectorPanel';
 import { ChecksPanel } from './ChecksPanel';
+import { NotesPanel } from './NotesPanel';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { IconBack } from '../ui/UiIcons';
 
@@ -23,6 +24,7 @@ const TABS: { id: LeftTab; label: string }[] = [
   { id: 'flows', label: 'Flows' },
   { id: 'inspect', label: 'Inspect' },
   { id: 'checks', label: 'Checks' },
+  { id: 'notes', label: 'Notes' },
 ];
 
 export function ProjectWorkspace() {
@@ -102,6 +104,25 @@ export function ProjectWorkspace() {
             {leftTab === 'flows' && <FlowPanel />}
             {leftTab === 'inspect' && <InspectorPanel />}
             {leftTab === 'checks' && <ChecksPanel />}
+            {/* Both scopes, because a decision that applies to the whole system is
+                worth seeing while drawing the view it constrains. */}
+            {leftTab === 'notes' && (
+              <>
+                <NotesPanel
+                  scope="sheet"
+                  scopeId={canvasId}
+                  blurb="kept with this view only"
+                />
+                <div style={{ marginTop: 14 }}>
+                  <span className="section-label">The whole project</span>
+                  <NotesPanel
+                    scope="project"
+                    scopeId={projectId}
+                    blurb="shared by every view of this system"
+                  />
+                </div>
+              </>
+            )}
             {leftTab === 'brief' && <Palette />}
           </ErrorBoundary>
         </div>

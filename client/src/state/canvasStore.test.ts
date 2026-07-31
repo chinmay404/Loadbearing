@@ -295,6 +295,25 @@ describe('boundaries', () => {
   });
 });
 
+describe('loading a document', () => {
+  // A new project view is stored as `{}` by the server. Assuming a full document
+  // threw on the first open of every new view, and the workspace reported that as a
+  // failure to load.
+  it('accepts a document with nothing in it yet', () => {
+    expect(() => store().loadProblem('fresh', {} as never)).not.toThrow();
+    expect(store().nodes).toEqual([]);
+    expect(store().edges).toEqual([]);
+    expect(store().problemId).toBe('fresh');
+  });
+
+  it('accepts a document carrying only some of its sections', () => {
+    const partial = { nodes: [{ id: 'a', type: 'service', label: 'A', annotation: '', position: { x: 0, y: 0 } }] };
+    expect(() => store().loadProblem('partial', partial as never)).not.toThrow();
+    expect(store().nodes.map((n) => n.id)).toEqual(['a']);
+    expect(store().edges).toEqual([]);
+  });
+});
+
 describe('a resized boundary', () => {
   it('saves the size it was dragged to, not the size it spawned at', () => {
     const group = place('group', 40, 40);

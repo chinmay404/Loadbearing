@@ -411,8 +411,12 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       set({ ...EMPTY, problemId, past: [], future: [], markup: [], aiAccepted: [], simResult: null, dirty: false });
       return;
     }
+    // Every section is treated as optional. A newly created project view is stored
+    // as `{}` — a legitimate empty document — and assuming a full one threw
+    // "reading 'map' of undefined" on the first open of every new view, which the
+    // workspace then reported as if loading had failed.
     const nodes: AnyNode[] = [
-      ...doc.nodes.map(
+      ...(doc.nodes ?? []).map(
         (n) =>
           ({
             id: n.id,
@@ -433,7 +437,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
             },
           }) as Node<ArchNodeData, 'arch'>,
       ),
-      ...doc.stickies.map(
+      ...(doc.stickies ?? []).map(
         (s) =>
           ({
             id: s.id,
@@ -448,7 +452,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     // saved document carries them forever. An edge with a missing end is not a
     // connection, so it does not survive a load.
     const nodeIds = new Set(nodes.map((n) => n.id));
-    const edges: Edge[] = doc.edges
+    const edges: Edge[] = (doc.edges ?? [])
       .filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to))
       .map((e) => ({
         id: e.id,

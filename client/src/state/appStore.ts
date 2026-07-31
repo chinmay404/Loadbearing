@@ -10,7 +10,7 @@ export type View =
   | 'dashboard'
   | 'reference'
   | 'settings';
-export type LeftTab = 'brief' | 'palette' | 'flows' | 'inspect' | 'checks';
+export type LeftTab = 'brief' | 'palette' | 'flows' | 'inspect' | 'checks' | 'notes';
 export type RightTab = 'feedback' | 'ask' | 'history';
 
 interface AppState {

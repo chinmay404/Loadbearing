@@ -526,3 +526,30 @@ export interface ChatTurn {
 /** How many turns are stored, and how many of them the coach is shown. */
 export const CHAT_HISTORY_KEPT = 60;
 export const CHAT_HISTORY_SHOWN = 8;
+
+/**
+ * Where a note is pinned. `sheet` is one drawing — a problem sheet or one view of
+ * a project, which share an id space with designs. `project` is the system as a
+ * whole, for the decisions that outlive any single view.
+ */
+export type NoteScope = 'sheet' | 'project';
+
+/**
+ * A written note kept beside the drawing. Distinct from a sticky, which lives on
+ * the canvas at a position and is part of the design the grader reads: these are
+ * as many separate documents as you want, and nothing scores them.
+ */
+export interface Note {
+  id: string;
+  scope: NoteScope;
+  scopeId: string;
+  title: string;
+  body: string;
+  /** Manual order, lowest first; ties fall back to newest-first. */
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const NOTE_TITLE_MAX = 120;
+export const NOTE_BODY_MAX = 20_000;

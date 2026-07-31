@@ -16,6 +16,7 @@ import { ReferencePanel } from './panels/ReferencePanel';
 import { SettingsPanel } from './panels/SettingsPanel';
 import { ComposePanel } from './panels/ComposePanel';
 import { ChecksPanel } from './panels/ChecksPanel';
+import { NotesPanel } from './panels/NotesPanel';
 import { SignInPanel } from './panels/SignInPanel';
 import { ProjectsPanel } from './panels/ProjectsPanel';
 import { ProjectPanel } from './panels/ProjectPanel';
@@ -216,6 +217,7 @@ const LEFT_TABS: { id: LeftTab; label: string }[] = [
   { id: 'flows', label: 'Flows' },
   { id: 'inspect', label: 'Inspect' },
   { id: 'checks', label: 'Checks' },
+  { id: 'notes', label: 'Notes' },
 ];
 
 const RIGHT_TABS: { id: RightTab; label: string }[] = [
@@ -320,6 +322,13 @@ function Workspace() {
             {leftTab === 'flows' && <FlowPanel />}
             {leftTab === 'inspect' && <InspectorPanel />}
             {leftTab === 'checks' && <ChecksPanel />}
+            {leftTab === 'notes' && (
+              <NotesPanel
+                scope="sheet"
+                scopeId={problem.id}
+                blurb="kept with this sheet — not on the canvas, and not graded"
+              />
+            )}
           </ErrorBoundary>
         </div>
         <div className="pane-foot">

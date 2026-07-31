@@ -6,6 +6,8 @@ import type {
   CustomObject,
   GraphDSL,
   MasteryEntry,
+  Note,
+  NoteScope,
   Problem,
   ProblemSummary,
   ScoreReference,
@@ -248,6 +250,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+
+  /**
+   * Notes beside the drawing. `sheet` is one drawing (a problem sheet or one view
+   * of a project); `project` is the system as a whole.
+   */
+  notes: (scope: NoteScope, scopeId: string) =>
+    req<{ notes: Note[] }>(`/notes?scope=${scope}&scopeId=${encodeURIComponent(scopeId)}`),
+  createNote: (body: { scope: NoteScope; scopeId: string; title: string; body: string }) =>
+    req<Note>('/notes', { method: 'POST', body: JSON.stringify(body) }),
+  updateNote: (id: string, patch: { title?: string; body?: string; position?: number }) =>
+    req<Note>(`/notes/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(patch) }),
+  deleteNote: (id: string) => req<{ ok: true }>(`/notes/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   /** The stored coaching thread for a sheet, and a way to start over. */
   loadChat: (problemId: string) => req<{ turns: ChatTurn[] }>(`/chat/${encodeURIComponent(problemId)}`),

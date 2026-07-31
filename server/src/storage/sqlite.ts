@@ -2,11 +2,13 @@
 // underneath (node:sqlite), wrapped in promises so routes cannot tell which
 // backend they are talking to.
 
+import type { NoteScope } from '@loadbearing/shared';
 import { getDb, type Db } from '../db.js';
 import type {
   AttemptRow,
   CanvasRow,
   MasteryRow,
+  NoteRow,
   ProjectRow,
   ReviewQueueRow,
   StatsAgg,
@@ -73,6 +75,28 @@ const toCanvas = (r: RawCanvas): CanvasRow => ({
   note: r.note,
   graphJson: r.graph_json,
   position: Number(r.position),
+  updatedAt: r.updated_at,
+});
+
+interface RawNote {
+  id: string;
+  scope: string;
+  scope_id: string;
+  title: string;
+  body: string;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+const toNote = (r: RawNote): NoteRow => ({
+  id: r.id,
+  scope: r.scope as NoteScope,
+  scopeId: r.scope_id,
+  title: r.title,
+  body: r.body,
+  position: Number(r.position),
+  createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
 
@@ -151,6 +175,19 @@ export class SqliteStorage implements Storage {
         updated_at TEXT NOT NULL DEFAULT (datetime('now')),
         PRIMARY KEY (user_id, problem_id)
       );
+
+      CREATE TABLE IF NOT EXISTS notes (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        scope_id TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        body TEXT NOT NULL DEFAULT '',
+        position INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))
+      );
+      CREATE INDEX IF NOT EXISTS notes_by_scope ON notes (user_id, scope, scope_id, position);
 
       CREATE TABLE IF NOT EXISTS chats (
         user_id TEXT NOT NULL,
@@ -450,6 +487,69 @@ export class SqliteStorage implements Storage {
          ON CONFLICT(user_id, problem_id) DO UPDATE SET graph_json = excluded.graph_json, updated_at = datetime('now')`,
       )
       .run(userId, problemId, graphJson);
+  }
+
+  // ---- notes ----
+
+  async listNotes(userId: string, scope: NoteScope, scopeId: string): Promise<NoteRow[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, scope, scope_id, title, body, position, created_at, updated_at
+         FROM notes WHERE user_id = ? AND scope = ? AND scope_id = ?
+         ORDER BY position, created_at DESC, id`,
+      )
+      .all(userId, scope, scopeId) as unknown as RawNote[];
+    return rows.map(toNote);
+  }
+
+  async createNote(
+    userId: string,
+    note: { scope: NoteScope; scopeId: string; title: string; body: string },
+  ): Promise<NoteRow> {
+    const id = crypto.randomUUID();
+    // New notes go to the top: the one just written is the one being worked on.
+    const lowest = this.db
+      .prepare('SELECT MIN(position) AS p FROM notes WHERE user_id = ? AND scope = ? AND scope_id = ?')
+      .get(userId, note.scope, note.scopeId) as { p: number | null };
+    const position = (lowest.p ?? 0) - 1;
+    this.db
+      .prepare(
+        `INSERT INTO notes (id, user_id, scope, scope_id, title, body, position)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(id, userId, note.scope, note.scopeId, note.title, note.body, position);
+    const row = (await this.listNotes(userId, note.scope, note.scopeId)).find((n) => n.id === id);
+    if (!row) throw new Error('Note vanished immediately after insert');
+    return row;
+  }
+
+  async updateNote(
+    userId: string,
+    id: string,
+    patch: { title?: string; body?: string; position?: number },
+  ): Promise<NoteRow | null> {
+    const sets: string[] = [];
+    const args: (string | number)[] = [];
+    if (patch.title !== undefined) (sets.push('title = ?'), args.push(patch.title));
+    if (patch.body !== undefined) (sets.push('body = ?'), args.push(patch.body));
+    if (patch.position !== undefined) (sets.push('position = ?'), args.push(patch.position));
+    if (sets.length > 0) {
+      sets.push(`updated_at = strftime('%Y-%m-%d %H:%M:%f','now')`);
+      this.db
+        .prepare(`UPDATE notes SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`)
+        .run(...args, id, userId);
+    }
+    const row = this.db
+      .prepare(
+        `SELECT id, scope, scope_id, title, body, position, created_at, updated_at
+         FROM notes WHERE id = ? AND user_id = ?`,
+      )
+      .get(id, userId) as RawNote | undefined;
+    return row ? toNote(row) : null;
+  }
+
+  async deleteNote(userId: string, id: string): Promise<void> {
+    this.db.prepare('DELETE FROM notes WHERE id = ? AND user_id = ?').run(id, userId);
   }
 
   // ---- coaching conversation ----
