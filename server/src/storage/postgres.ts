@@ -7,6 +7,7 @@
 // so every query is a plain parameterised text query, never a named one.
 
 import pg from 'pg';
+import { adviseOnConnectionString } from './advice.js';
 import type { AttemptRow, MasteryRow, ReviewQueueRow, StatsAgg, Storage, UserRow } from './types.js';
 
 const MASTERY_ALPHA = 0.3;
@@ -44,15 +45,29 @@ export class PostgresStorage implements Storage {
   readonly kind = 'postgres';
   private pool: pg.Pool;
 
+  /** Diagnosis of the connection string, surfaced on /api/health. */
+  readonly advice: string | null;
+
   constructor(connectionString: string) {
+    // On serverless there is one pool per instance and the platform decides how
+    // many instances exist, so the pool must be small: a pool of N multiplies by
+    // however many functions happen to be warm. One connection per instance,
+    // released quickly, is the shape that survives a pooler's client limit.
+    const serverless = Boolean(process.env.VERCEL);
+    this.advice = adviseOnConnectionString(connectionString, serverless);
+    if (this.advice) console.warn(`[loadbearing] ${this.advice}`);
+
     this.pool = new pg.Pool({
       connectionString,
       // Supabase terminates TLS with a certificate this client has no root for;
       // the connection is still encrypted, and the host is fixed by the URL.
       ssl: { rejectUnauthorized: false },
-      max: Number(process.env.PGPOOL_MAX ?? 3),
-      idleTimeoutMillis: 10_000,
+      max: Number(process.env.PGPOOL_MAX ?? (serverless ? 1 : 5)),
+      idleTimeoutMillis: serverless ? 2_000 : 10_000,
       connectionTimeoutMillis: 15_000,
+      // Hand the connection back as soon as the instance goes idle rather than
+      // holding a slot open for the next invocation that may never come.
+      allowExitOnIdle: serverless,
       // A query that never answers must not become a 60-second gateway timeout:
       // that reports as "the app is broken" with no clue which call stalled.
       // Client-side, so it works behind a pooler that forbids session-level SET.

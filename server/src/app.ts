@@ -5,6 +5,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { storage } from './storage/index.js';
+import { adviseOnConnectionString } from './storage/advice.js';
 import { attachUser, type AppEnv } from './auth/middleware.js';
 import { authRoutes } from './auth/routes.js';
 import { houseKeyPresent, isConfigured } from './llm/settings.js';
@@ -86,10 +87,16 @@ app.get('/api/health', async (c) => {
     storageError = redact((err as Error).message || String(err));
   }
 
+  // Computed from the URL rather than from the failed connection, so it is
+  // available whether the connection succeeded, failed, or exhausted a pool.
+  const url = process.env.DATABASE_URL?.trim();
+  const advice = url ? adviseOnConnectionString(url, Boolean(process.env.VERCEL)) : null;
+
   return c.json({
     ok: storageError === null,
     storage: kind,
     ...(storageError ? { storageError } : {}),
+    ...(advice ? { storageAdvice: advice } : {}),
     databaseUrlSet: Boolean(process.env.DATABASE_URL?.trim()),
     sessionSecretSet: Boolean(process.env.LOADBEARING_SESSION_SECRET?.trim()),
     signedIn: Boolean(userId),

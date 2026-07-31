@@ -68,9 +68,14 @@ export function App() {
         // A database the server cannot reach makes every other failure look like
         // a login problem, so say it plainly and once.
         if (h.storageError) {
+          const cause = h.storageAdvice
+            ? h.storageAdvice
+            : h.databaseUrlSet
+              ? h.storageError
+              : 'DATABASE_URL is not set on this deployment.';
           setError({
             message: 'The server cannot reach its database, so nothing can be saved or loaded.',
-            hint: `${h.storageError}${h.databaseUrlSet ? '' : ' — DATABASE_URL is not set on this deployment.'}`,
+            hint: cause,
           });
         }
       } catch {

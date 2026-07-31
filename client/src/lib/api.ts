@@ -106,6 +106,8 @@ export const api = {
       storage: 'sqlite' | 'postgres' | null;
       /** Present when the database could not be reached — the deploy's first question. */
       storageError?: string;
+      /** Present when DATABASE_URL itself looks wrong for this host. */
+      storageAdvice?: string;
       databaseUrlSet: boolean;
       sessionSecretSet: boolean;
       signedIn: boolean;
