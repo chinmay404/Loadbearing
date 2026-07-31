@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "node -e \"console.log('@loadbearing/server has no build step - the deployed function is bundled from api/ and dev runs it through tsx')\""
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
