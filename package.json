@@ -1,6 +1,8 @@
 {
   "name": "loadbearing",
   "private": true,
+  "//type": "Required, not cosmetic: api/ has no package.json of its own, so this one decides its module format. Without it the deployed function is compiled as CommonJS and dies requiring the ESM server it imports.",
+  "type": "module",
   "workspaces": [
     "shared",
     "server",

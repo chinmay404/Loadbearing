@@ -50,19 +50,43 @@ app.onError((err, c) => {
   );
 });
 
+/**
+ * A health check that dies of the thing it is meant to report on is useless, so
+ * this one never throws: a database it cannot reach becomes a field in the
+ * answer. It is the first thing to look at on a fresh deployment.
+ */
 app.get('/api/health', async (c) => {
-  const store = await storage();
   const userId = c.get('userId');
+  let kind: string | null = null;
+  let storageError: string | null = null;
+  let llmConfigured = houseKeyPresent();
+
+  try {
+    const store = await storage();
+    kind = store.kind;
+    if (userId) llmConfigured = await isConfigured(store, userId);
+  } catch (err) {
+    storageError = redact((err as Error).message || String(err));
+  }
+
   return c.json({
-    ok: true,
-    storage: store.kind,
+    ok: storageError === null,
+    storage: kind,
+    ...(storageError ? { storageError } : {}),
+    databaseUrlSet: Boolean(process.env.DATABASE_URL?.trim()),
+    sessionSecretSet: Boolean(process.env.LOADBEARING_SESSION_SECRET?.trim()),
     signedIn: Boolean(userId),
     ...(userId ? { username: c.get('username') } : {}),
-    llmConfigured: userId ? await isConfigured(store, userId) : houseKeyPresent(),
+    llmConfigured,
     houseKey: houseKeyPresent(),
     fake: process.env.FAKE_LLM === '1',
   });
 });
+
+/** Never let a connection string's password reach a response body. */
+function redact(message: string): string {
+  return message.replace(/\/\/[^:/@\s]+:[^@\s]+@/g, '//***:***@').slice(0, 300);
+}
 
 app.route('/api', authRoutes);
 app.route('/api', problemRoutes);

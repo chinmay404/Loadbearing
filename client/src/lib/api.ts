@@ -55,7 +55,29 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     );
   }
   const text = await res.text();
-  const body = text ? (JSON.parse(text) as unknown) : null;
+
+  // Not everything that answers is this server. A platform 404, a gateway 500 or
+  // a cold-start timeout replies with HTML, and parsing that as JSON used to
+  // surface as "Unexpected token 'A'" — which hides the one fact that matters,
+  // namely that the request never reached the application.
+  let body: unknown = null;
+  if (text) {
+    try {
+      body = JSON.parse(text) as unknown;
+    } catch {
+      throw new ApiError(
+        res.ok
+          ? 'The server replied with something that is not JSON.'
+          : `The server returned HTTP ${res.status} without reaching the application.`,
+        'not_json',
+        res.status >= 500
+          ? 'That is an infrastructure error, not a login error — check the deployment logs for the failing function.'
+          : 'Check that /api requests are routed to the API function.',
+        text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300),
+      );
+    }
+  }
+
   if (!res.ok) {
     const e = (body as { error?: { code?: string; message?: string; hint?: string; raw?: string } })?.error;
     if (res.status === 401) onUnauthorized?.();
@@ -81,7 +103,11 @@ export const api = {
   health: () =>
     req<{
       ok: boolean;
-      storage: 'sqlite' | 'postgres';
+      storage: 'sqlite' | 'postgres' | null;
+      /** Present when the database could not be reached — the deploy's first question. */
+      storageError?: string;
+      databaseUrlSet: boolean;
+      sessionSecretSet: boolean;
       signedIn: boolean;
       username?: string;
       llmConfigured: boolean;

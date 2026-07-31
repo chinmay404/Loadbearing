@@ -65,6 +65,14 @@ export function App() {
           storageKind: h.storage,
           houseKey: h.houseKey,
         });
+        // A database the server cannot reach makes every other failure look like
+        // a login problem, so say it plainly and once.
+        if (h.storageError) {
+          setError({
+            message: 'The server cannot reach its database, so nothing can be saved or loaded.',
+            hint: `${h.storageError}${h.databaseUrlSet ? '' : ' — DATABASE_URL is not set on this deployment.'}`,
+          });
+        }
       } catch {
         // A server we cannot reach tells us nothing about the session, so the
         // signed-in state is left alone rather than flipped to signed out.
