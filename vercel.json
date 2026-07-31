@@ -4,14 +4,12 @@
   "buildCommand": "npm run build --workspace @loadbearing/client",
   "outputDirectory": "client/dist",
   "functions": {
-    "api/**": {
+    "api/index.ts": {
       "maxDuration": 60
     }
   },
   "rewrites": [
-    {
-      "source": "/((?!api/).*)",
-      "destination": "/index.html"
-    }
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
