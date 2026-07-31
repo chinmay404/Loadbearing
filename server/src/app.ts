@@ -28,6 +28,23 @@ app.use(
   }),
 );
 
+/**
+ * One line per request with its duration. On a serverless host the only window
+ * into a stalled call is the log, and a 60-second gateway timeout says nothing
+ * about which step took the 60 seconds.
+ */
+app.use('/api/*', async (c, next) => {
+  const started = Date.now();
+  const path = new URL(c.req.url).pathname;
+  try {
+    await next();
+    console.log(`[loadbearing] ${c.req.method} ${path} -> ${c.res.status} in ${Date.now() - started}ms`);
+  } catch (err) {
+    console.log(`[loadbearing] ${c.req.method} ${path} -> threw after ${Date.now() - started}ms`);
+    throw err;
+  }
+});
+
 // Resolves the session for every route, so public ones can still personalise.
 app.use('/api/*', attachUser);
 

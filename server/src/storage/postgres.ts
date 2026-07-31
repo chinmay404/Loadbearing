@@ -53,6 +53,10 @@ export class PostgresStorage implements Storage {
       max: Number(process.env.PGPOOL_MAX ?? 3),
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 15_000,
+      // A query that never answers must not become a 60-second gateway timeout:
+      // that reports as "the app is broken" with no clue which call stalled.
+      // Client-side, so it works behind a pooler that forbids session-level SET.
+      query_timeout: 20_000,
     });
   }
 
@@ -67,6 +71,24 @@ export class PostgresStorage implements Storage {
   }
 
   async init(): Promise<void> {
+    // Every cold start used to re-run the whole DDL block. CREATE TABLE IF NOT
+    // EXISTS still takes an ACCESS EXCLUSIVE lock even when it does nothing, so a
+    // fleet of functions waking at once serialises on the same catalog locks —
+    // and a request that arrives mid-storm waits behind them. One cheap probe
+    // makes the common path a single SELECT.
+    //
+    // The cost is that a future schema change needs a real migration step rather
+    // than being picked up here. That is the correct trade: silent DDL on the
+    // request path is not a migration story either.
+    const existing = await this.one<{ one: number }>(
+      `SELECT 1 AS one FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'users'`,
+    );
+    if (existing) {
+      await this.pruneCache();
+      return;
+    }
+
     await this.q(`
       CREATE TABLE IF NOT EXISTS users (
         id UUID PRIMARY KEY,
@@ -131,6 +153,11 @@ export class PostgresStorage implements Storage {
         response TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`);
+    await this.pruneCache();
+  }
+
+  /** Cached model replies go stale as prompts evolve; two weeks is plenty. */
+  private async pruneCache(): Promise<void> {
     await this.q(`DELETE FROM llm_cache WHERE created_at < now() - ($1 || ' days')::interval`, [
       String(CACHE_TTL_DAYS),
     ]);

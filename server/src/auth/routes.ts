@@ -37,6 +37,20 @@ function noteFailure(username: string): void {
 
 const normalize = (raw: unknown): string => String(raw ?? '').trim().toLowerCase();
 
+/**
+ * Times one step and logs it. Sign-up and sign-in are the only paths that do a
+ * database write and a deliberately slow hash in the same request, so when one
+ * of them stalls the log has to say which of the two it was.
+ */
+async function step<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const started = Date.now();
+  try {
+    return await fn();
+  } finally {
+    console.log(`[loadbearing]   ${label}: ${Date.now() - started}ms`);
+  }
+}
+
 authRoutes.post('/auth/register', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { username?: string; password?: string };
   const username = normalize(body.username);
@@ -66,13 +80,14 @@ authRoutes.post('/auth/register', async (c) => {
     );
   }
 
-  const store = await storage();
-  if (await store.getUserByUsername(username)) {
+  const store = await step('storage ready', () => storage());
+  if (await step('lookup existing', () => store.getUserByUsername(username))) {
     return c.json({ error: { code: 'taken', message: 'That username is taken.' } }, 409);
   }
 
-  const isFirst = (await store.countUsers()) === 0;
-  const user = await store.createUser(username, await hashPassword(password));
+  const isFirst = (await step('count users', () => store.countUsers())) === 0;
+  const passHash = await step('hash password', () => hashPassword(password));
+  const user = await step('insert user', () => store.createUser(username, passHash));
 
   // Whatever this instance recorded before accounts existed belongs to whoever
   // sets it up — otherwise a local install loses its whole history to auth.
@@ -104,11 +119,13 @@ authRoutes.post('/auth/login', async (c) => {
     );
   }
 
-  const store = await storage();
-  const user = await store.getUserByUsername(username);
+  const store = await step('storage ready', () => storage());
+  const user = await step('lookup user', () => store.getUserByUsername(username));
   // Same message and roughly the same work either way: a distinct "no such user"
   // reply would let anyone enumerate accounts.
-  const ok = user ? await verifyPassword(password, user.passHash) : false;
+  const ok = await step('verify password', async () =>
+    user ? verifyPassword(password, user.passHash) : false,
+  );
   if (!user || !ok) {
     noteFailure(username);
     return c.json({ error: { code: 'bad_credentials', message: 'Wrong username or password.' } }, 401);
