@@ -107,8 +107,11 @@ interface CanvasState extends Snapshot {
   setEdgeLabel: (id: string, label: string) => void;
   /** How the line is drawn — routing only, never anything the grader reads. */
   setEdgeShape: (id: string, shape: NonNullable<EdgeGeometry['shape']>) => void;
-  /** Adds a bend at `point`, inserted at the position that keeps the path in order. */
-  addEdgeBend: (id: string, point: { x: number; y: number }) => void;
+  /**
+   * Adds a bend at `point`, inserted where it belongs along the path, and returns
+   * its index so the caller can start dragging it in the same gesture.
+   */
+  addEdgeBend: (id: string, point: { x: number; y: number }) => number;
   moveEdgeBend: (id: string, index: number, point: { x: number; y: number }) => void;
   removeEdgeBend: (id: string, index: number) => void;
   clearEdgeBends: (id: string) => void;
@@ -147,6 +150,8 @@ interface CanvasState extends Snapshot {
   /** Releases everything. The escape hatch that does not depend on finding a badge. */
   unlockAll: () => number;
   toggleLockOnSelection: () => void;
+  /** Selects everything selectable. Pinned components stay out, as they should. */
+  selectAll: () => void;
 
   // flows
   addFlow: () => string;
@@ -569,7 +574,8 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       dirty: true,
     })),
 
-  addEdgeBend: (id, point) =>
+  addEdgeBend: (id, point) => {
+    let insertedAt = 0;
     set((s) => {
       const edge = s.edges.find((e) => e.id === id);
       if (!edge) return {};
@@ -592,6 +598,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
           at = i;
         }
       }
+      insertedAt = at;
       const points = [...existing.slice(0, at), point, ...existing.slice(at)];
       return {
         past: [...s.past.slice(-49), snap(s)],
@@ -599,7 +606,9 @@ export const useCanvas = create<CanvasState>((set, get) => ({
         edges: s.edges.map((e) => (e.id === id ? { ...e, data: { ...(e.data ?? {}), points } } : e)),
         dirty: true,
       };
-    }),
+    });
+    return insertedAt;
+  },
 
   moveEdgeBend: (id, index, point) =>
     set((s) => ({
@@ -999,6 +1008,12 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     }));
     return count;
   },
+
+  selectAll: () =>
+    set((s) => ({
+      // A pinned component is not selectable, so all means all of the rest.
+      nodes: s.nodes.map((n) => (n.selectable === false ? n : { ...n, selected: true })) as AnyNode[],
+    })),
 
   toggleLockOnSelection: () => {
     const chosen = get().nodes.filter((n) => n.selected);

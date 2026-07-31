@@ -1,4 +1,4 @@
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useEffect, useRef } from 'react';
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -21,37 +21,43 @@ type Point = { x: number; y: number };
 
 /** Rounded corner radius where a routed line turns. */
 const CORNER = 10;
+/** Below this, two points are on the same line and no elbow is needed. */
+const ALIGNED = 4;
 
 /**
- * A line through explicit bend points.
+ * Right-angle routing through a set of points.
  *
- * The built-in routers take a source and a target and decide the rest, which is
- * fine until two connections overlap or one runs through a box it has nothing to
- * do with. Once there are bends the path is ours to draw: straight segments,
- * rounded corners, or a curve through them.
+ * The first version drew straight diagonals between bends, which threw away the
+ * orthogonal look the rest of the diagram has — one bend and a carefully aligned
+ * design turned into a slanted line. A connector should keep its right angles: for
+ * each leg, travel along one axis and then the other, and let the elbow fall where
+ * those meet.
  */
-function pathThrough(points: Point[], shape: NonNullable<EdgeGeometry['shape']>): string {
-  if (points.length < 2) return '';
-  const [first, ...rest] = points as [Point, ...Point[]];
-
-  if (shape === 'straight' || shape === 'step') {
-    return `M ${first.x},${first.y} ${rest.map((p) => `L ${p.x},${p.y}`).join(' ')}`;
-  }
-
-  if (shape === 'curved') {
-    // Quadratic through each bend, with the joins at segment midpoints so the
-    // curve stays smooth rather than kinking at every point.
-    let d = `M ${first.x},${first.y}`;
-    for (let i = 1; i < points.length - 1; i += 1) {
-      const p = points[i]!;
-      const next = points[i + 1]!;
-      d += ` Q ${p.x},${p.y} ${(p.x + next.x) / 2},${(p.y + next.y) / 2}`;
+function orthogonalRoute(points: Point[]): Point[] {
+  const out: Point[] = [points[0]!];
+  for (let i = 1; i < points.length; i += 1) {
+    const from = out[out.length - 1]!;
+    const to = points[i]!;
+    const sameRow = Math.abs(from.y - to.y) < ALIGNED;
+    const sameColumn = Math.abs(from.x - to.x) < ALIGNED;
+    if (!sameRow && !sameColumn) {
+      // Lead with the longer axis: it reads as "along, then across" rather than a
+      // stub followed by a long run.
+      const elbow =
+        Math.abs(to.x - from.x) >= Math.abs(to.y - from.y)
+          ? { x: to.x, y: from.y }
+          : { x: from.x, y: to.y };
+      out.push(elbow);
     }
-    const last = points[points.length - 1]!;
-    return `${d} L ${last.x},${last.y}`;
+    out.push(to);
   }
+  return out;
+}
 
-  // smooth: straight runs with the corners rounded off.
+/** Straight segments with the corners rounded off. */
+function roundedPath(points: Point[]): string {
+  if (points.length < 2) return '';
+  const first = points[0]!;
   let d = `M ${first.x},${first.y}`;
   for (let i = 1; i < points.length - 1; i += 1) {
     const prev = points[i - 1]!;
@@ -66,6 +72,34 @@ function pathThrough(points: Point[], shape: NonNullable<EdgeGeometry['shape']>)
   }
   const last = points[points.length - 1]!;
   return `${d} L ${last.x},${last.y}`;
+}
+
+function pathThrough(route: Point[], shape: NonNullable<EdgeGeometry['shape']>): string {
+  if (route.length < 2) return '';
+
+  if (shape === 'straight') {
+    const [first, ...rest] = route as [Point, ...Point[]];
+    return `M ${first.x},${first.y} ${rest.map((p) => `L ${p.x},${p.y}`).join(' ')}`;
+  }
+
+  if (shape === 'curved') {
+    const first = route[0]!;
+    let d = `M ${first.x},${first.y}`;
+    for (let i = 1; i < route.length - 1; i += 1) {
+      const p = route[i]!;
+      const next = route[i + 1]!;
+      d += ` Q ${p.x},${p.y} ${(p.x + next.x) / 2},${(p.y + next.y) / 2}`;
+    }
+    const last = route[route.length - 1]!;
+    return `${d} L ${last.x},${last.y}`;
+  }
+
+  const orthogonal = orthogonalRoute(route);
+  if (shape === 'step') {
+    const [first, ...rest] = orthogonal as [Point, ...Point[]];
+    return `M ${first.x},${first.y} ${rest.map((p) => `L ${p.x},${p.y}`).join(' ')}`;
+  }
+  return roundedPath(orthogonal);
 }
 
 function ArchEdgeInner({
@@ -92,7 +126,39 @@ function ArchEdgeInner({
   const moveBend = useCanvas((st) => st.moveEdgeBend);
   const addBend = useCanvas((st) => st.addEdgeBend);
   const removeBend = useCanvas((st) => st.removeEdgeBend);
-  const [dragging, setDragging] = useState<number | null>(null);
+
+  /**
+   * The index being dragged lives in a ref, not state. React state does not update
+   * until the next render, so the first pointermove after pointerdown arrived
+   * before the handler knew a drag had started — which is why nothing moved.
+   */
+  const draggingRef = useRef<number | null>(null);
+
+  // Listeners go on the window for the duration of the drag: the pointer leaves
+  // the 10px handle immediately, and a handler bound to the handle stops firing.
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const index = draggingRef.current;
+      if (index === null) return;
+      e.preventDefault();
+      moveBend(id, index, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+    };
+    const onUp = () => {
+      draggingRef.current = null;
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, [id, moveBend, screenToFlowPosition]);
+
+  const startDrag = useCallback((index: number) => {
+    draggingRef.current = index;
+  }, []);
 
   let path: string;
   let labelX: number;
@@ -117,24 +183,6 @@ function ArchEdgeInner({
     labelY = ly;
   }
 
-  const onHandleDown = useCallback(
-    (index: number) => (e: React.PointerEvent) => {
-      e.stopPropagation();
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-      setDragging(index);
-    },
-    [],
-  );
-
-  const onHandleMove = useCallback(
-    (index: number) => (e: React.PointerEvent) => {
-      if (dragging !== index) return;
-      e.stopPropagation();
-      moveBend(id, index, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
-    },
-    [dragging, id, moveBend, screenToFlowPosition],
-  );
-
   return (
     <>
       <BaseEdge
@@ -149,8 +197,8 @@ function ArchEdgeInner({
         }}
       />
 
-      {/* Bend handles only while the connection is selected, so the canvas is not
-          covered in dots. Double-click removes one; the midpoint dot adds one. */}
+      {/* Handles only while the connection is selected, so the sheet is not covered
+          in dots. Double-click removes a bend; the dashed dot creates one. */}
       {selected && (
         <EdgeLabelRenderer>
           {bends.map((p, i) => (
@@ -159,9 +207,11 @@ function ArchEdgeInner({
               className="edge-bend"
               style={{ position: 'absolute', transform: `translate(-50%, -50%) translate(${p.x}px, ${p.y}px)` }}
               title="Drag to reshape · double-click to remove"
-              onPointerDown={onHandleDown(i)}
-              onPointerMove={onHandleMove(i)}
-              onPointerUp={() => setDragging(null)}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                startDrag(i);
+              }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
                 removeBend(id, i);
@@ -174,10 +224,15 @@ function ArchEdgeInner({
               position: 'absolute',
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
             }}
-            title="Add a bend here, then drag it"
+            title="Drag to bend the line here"
             onPointerDown={(e) => {
+              // One gesture: the bend is created and immediately under the pointer,
+              // so pressing and dragging bends the line rather than requiring a
+              // second grab of a dot that has just appeared.
               e.stopPropagation();
-              addBend(id, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+              e.preventDefault();
+              const index = addBend(id, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+              startDrag(index);
             }}
           />
         </EdgeLabelRenderer>
@@ -188,7 +243,7 @@ function ArchEdgeInner({
           <div
             style={{
               position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - (selected ? 16 : 0)}px)`,
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - (selected ? 18 : 0)}px)`,
               background: '#121110',
               border: '1px solid #322e29',
               borderRadius: 5,

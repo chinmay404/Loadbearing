@@ -142,10 +142,22 @@ describe('reshaping a connection', () => {
   it('adds bends and keeps them in path order, not click order', () => {
     const { edgeId } = connect();
     // Add the far bend first, then a nearer one: the nearer must end up first.
-    store().addEdgeBend(edgeId, { x: 450, y: 120 });
-    store().addEdgeBend(edgeId, { x: 150, y: 120 });
+    expect(store().addEdgeBend(edgeId, { x: 450, y: 120 })).toBe(0);
+    expect(store().addEdgeBend(edgeId, { x: 150, y: 120 })).toBe(0);
     const points = (store().edges[0]!.data as { points: { x: number }[] }).points;
     expect(points.map((p) => p.x)).toEqual([150, 450]);
+  });
+
+  it('returns the index it inserted at, so the same gesture can drag it', () => {
+    const { edgeId } = connect();
+    store().addEdgeBend(edgeId, { x: 150, y: 60 });
+    // A second bend further along belongs after the first, and says so.
+    const index = store().addEdgeBend(edgeId, { x: 500, y: 60 });
+    expect(index).toBe(1);
+    store().moveEdgeBend(edgeId, index, { x: 500, y: 200 });
+    const points = (store().edges[0]!.data as { points: { y: number }[] }).points;
+    expect(points[1]!.y).toBe(200);
+    expect(points[0]!.y).toBe(60);
   });
 
   it('moves and removes a single bend', () => {

@@ -6,6 +6,7 @@ import {
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
+  SelectionMode,
   useReactFlow,
   type Connection,
   type Edge,
@@ -35,6 +36,14 @@ import { useApp } from '../state/appStore';
 
 const nodeTypes: NodeTypes = { arch: ArchNode, sticky: StickyNode };
 const edgeTypes: EdgeTypes = { arch: ArchEdge };
+
+/**
+ * Ctrl (or Cmd) held turns a drag on the paper into a selection box, while a plain
+ * drag keeps panning — one mouse button cannot mean both. Shift then takes over
+ * "add to the selection", which is what frees Ctrl for the lasso.
+ */
+const SELECTION_KEYS = ['Control', 'Meta'];
+const MULTI_SELECT_KEYS = ['Shift'];
 
 /**
  * Which drawn connection passes under a point, in flow coordinates.
@@ -88,6 +97,7 @@ function CanvasInner() {
   const restack = useCanvas((s) => s.restack);
   const toggleLock = useCanvas((s) => s.toggleLockOnSelection);
   const unlockAll = useCanvas((s) => s.unlockAll);
+  const selectAll = useCanvas((s) => s.selectAll);
   const reparent = useCanvas((s) => s.reparentDroppedNodes);
   const deleteSelection = useCanvas((s) => s.deleteSelection);
   const undo = useCanvas((s) => s.undo);
@@ -106,6 +116,9 @@ function CanvasInner() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         redo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        selectAll();
       } else if ((e.ctrlKey || e.metaKey) && (e.key === ']' || e.key === '[')) {
         // Ctrl+] / Ctrl+[ step through the stack; add Shift to jump to either end.
         e.preventDefault();
@@ -127,7 +140,7 @@ function CanvasInner() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo, redo, deleteSelection, setTool, restack, toggleLock, unlockAll, setNotice]);
+  }, [undo, redo, deleteSelection, setTool, restack, toggleLock, unlockAll, selectAll, setNotice]);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -289,6 +302,9 @@ function CanvasInner() {
         onInit={syncCenter}
         panOnDrag={tool === 'select'}
         selectionOnDrag={false}
+        selectionKeyCode={SELECTION_KEYS}
+        multiSelectionKeyCode={MULTI_SELECT_KEYS}
+        selectionMode={SelectionMode.Partial}
         zoomOnDoubleClick={false}
         defaultEdgeOptions={{ type: 'arch' }}
         connectionRadius={28}

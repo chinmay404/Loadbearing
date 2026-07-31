@@ -220,9 +220,9 @@ npm test
 npm run typecheck
 ```
 
-364 tests: 216 in `shared` (simulator, compatibility, scenario gates, diffs, retrieval, and every
+365 tests: 216 in `shared` (simulator, compatibility, scenario gates, diffs, retrieval, and every
 blueprint held to being a real design) and 114 in `server` (storage, auth, LLM adapters, JSON salvage,
-the serverless request adapter, the coding-agent brief) and 29 in `client` (the canvas store: splicing,
+the serverless request adapter, the coding-agent brief) and 30 in `client` (the canvas store: splicing,
 grouping, reshaping, stacking, pinning, templates). The storage suite runs against
 both backends from one set of assertions — set `DATABASE_URL` and the Postgres half stops being
 skipped, which is how the two dialects are kept honest. `FAKE_LLM=1` runs the whole loop with a canned
@@ -232,6 +232,7 @@ grader.
 
 `V` select · `N` sticky note · `P` pen · `E` erase ink · `L` pin/unpin selection ·
 `Delete` remove selection · `Ctrl+Z` / `Ctrl+Shift+Z` undo / redo ·
+`Ctrl+drag` lasso-select · `Shift+click` add to selection · `Ctrl+A` select all ·
 `Ctrl+]` / `Ctrl+[` forward / backward in the stack (add `Shift` to jump to either end) ·
 `Shift+L` release everything pinned ·
 `Ctrl+K` add a component by name
