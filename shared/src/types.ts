@@ -149,6 +149,24 @@ export interface NodeAttrs {
   multiAz?: boolean;
   /** Monthly cost estimate in USD, used for the cost dimension and the budget check. */
   monthlyCost?: number;
+
+  // ---- what the load engine reads -----------------------------------------
+
+  /**
+   * Requests this component holds in flight at once, per replica. With service
+   * time this gives capacity (Little's law), which is how a real service
+   * saturates: the same 64 workers serve far less when a dependency slows down.
+   */
+  concurrency?: number;
+  /** How long a caller waits for this component before giving up, ms. */
+  timeoutMs?: number;
+  /**
+   * Marks this component as where traffic STARTS, at this many requests per
+   * second. The slider multiplies it. Without a source, nothing is offered.
+   */
+  trafficRps?: number;
+  /** Replicas an autoscaler may grow to. Capacity arrives a minute late. */
+  autoscaleMax?: number;
 }
 
 export interface GraphNode {
@@ -167,8 +185,19 @@ export interface GraphEdge {
   to: string;
   kind: EdgeKind;
   label: string;
-  /** Fraction of the caller's traffic that takes this edge (0..1, default: even split). */
+  /**
+   * How much of the caller's traffic this connection carries. A router splits its
+   * traffic across its outbound connections, so shares are normalised to one; a
+   * service calls each dependency once per request, so a share is the fraction of
+   * requests that need that call and defaults to all of them.
+   */
   share?: number;
+  /**
+   * Retries the caller makes when this call fails. The mechanism behind a retry
+   * storm: a struggling dependency fails more, so more retries are sent, so it
+   * struggles more. Zero switches the amplification off.
+   */
+  retries?: number;
 }
 
 export type FlowKind = 'read' | 'write' | 'async' | 'admin';
@@ -423,7 +452,11 @@ export interface Attempt {
 
 // ---------- Simulation ----------
 
-export type NodeState = 'ok' | 'warn' | 'saturated' | 'down';
+/**
+ * `hot` sits between warn and saturated: still serving everything, but with no
+ * headroom left, which is where a component is when the next spike will take it.
+ */
+export type NodeState = 'ok' | 'warn' | 'hot' | 'saturated' | 'down';
 
 export interface SimNodeResult {
   nodeId: string;

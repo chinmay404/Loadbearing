@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_CAPACITY, simulate } from './simulate.js';
+import { DEFAULT_CAPACITY } from './components.js';
+import { simulate } from './simulate.js';
 import type { ArchNodeType, Flow, GraphDSL, GraphEdge, GraphNode, NodeAttrs, SimConfig } from './types.js';
 
 // ---------------------------------------------------------------- builders ---

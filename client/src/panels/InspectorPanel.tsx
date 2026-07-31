@@ -12,6 +12,10 @@ const FIELD_LABEL: Record<keyof NodeAttrs, string> = {
   queueDepthMax: 'Max queue depth (messages)',
   multiAz: 'Spread across AZs',
   monthlyCost: 'Cost ($/month per replica)',
+  concurrency: 'Concurrent requests (per replica)',
+  timeoutMs: 'Caller gives up after (ms)',
+  trafficRps: 'Traffic starts here (rps)',
+  autoscaleMax: 'Autoscale up to (replicas)',
 };
 
 export function InspectorPanel() {
