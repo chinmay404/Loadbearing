@@ -152,7 +152,7 @@ describe('evaluateScenario — structured pass overrides defaults', () => {
   });
 
   it('applies an explicit maxP99Ms gate in both directions', () => {
-    // At 1x the read path p99 is ~131ms (p50 ~52ms * 2.5, mild congestion).
+    // At 1x the read path p99 is ~136ms (p50 ~52ms, a 2.5x idle tail, mild congestion).
     const tight = evaluateScenario(straightLine(), scenario({ pass: { maxP99Ms: 100 } }));
     expect(tight.pass).toBe(false);
     expect(tight.reasons.some((r) => r.startsWith('FAIL') && r.includes('p99'))).toBe(true);
@@ -167,7 +167,7 @@ describe('evaluateScenario — the problem p99 budget', () => {
   it('is applied at baseline load (rpsMultiplier <= 1) when no structured pass exists', () => {
     const fail = evaluateScenario(straightLine(), scenario(), { problemP99Ms: 100 });
     expect(fail.pass).toBe(false);
-    expect(fail.metrics.worstP99Ms).toBeCloseTo(130.96, 1);
+    expect(fail.metrics.worstP99Ms).toBeCloseTo(135.74, 1);
     expect(fail.reasons.some((r) => r.includes('gate: at most 100ms'))).toBe(true);
 
     const ok = evaluateScenario(straightLine(), scenario(), { problemP99Ms: 200 });
@@ -190,7 +190,10 @@ describe('evaluateScenario — the problem p99 budget', () => {
         node('api', 'service', 'API', { replicas: 10 }),
         node('model', 'llm', 'LLM'), // 1200ms base latency
       ],
-      edges: [edge('api', 'model', 'async')],
+      // One request in ten enriches, and the drawing has to SAY so now: a service’s
+      // connections are read as calls it makes per request, so without a share this
+      // would send all 100 rps at a model rated for 20.
+      edges: [{ ...edge('api', 'model', 'async'), share: 0.1 }],
       flows: [flow('read', ['api'], 100), flow('enrich', ['model'], 10, 'async')],
     });
     const v = evaluateScenario(g, scenario(), { problemP99Ms: 500 });

@@ -1,687 +1,329 @@
-// Deterministic load-simulation engine.
+// The capacity report, projected from the load engine.
 //
-// This is a *teaching* model, not a queueing-theory thesis. It answers the four
-// questions a beginner needs answered the moment they finish a diagram:
-//   1. Where does this break first?   (utilization / bottleneck)
-//   2. How much traffic do I lose?    (droppedRps / completedRps)
-//   3. How slow does it get?          (congestion-amplified latency, p50/p99)
-//   4. What did I forget?             (findings: SPOF, cache, backpressure, AZ)
+// This module used to BE the engine: it walked hand-authored step lists and scaled
+// the number typed into each one. That answered questions about the list rather
+// than about the design, so the engine in engine.ts replaced it — traffic starts at
+// a source, follows the connections that were drawn, and ends where there is
+// nothing after it.
 //
-// Properties this file guarantees:
-//   * pure — no I/O, no Date, no Math.random, no mutation of the inputs.
-//   * deterministic — same (graph, config) always yields the identical SimResult,
-//     including string ordering (we only ever iterate graph arrays in-order).
+// What survives here is the report. `SimResult` is what the grader, the scenario
+// gates, the checks panel and the canvas all read, so its shape is unchanged and
+// there is exactly one model behind it. A named flow no longer drives the
+// simulation; it is walked through the engine's results so that "the checkout write
+// path" still has numbers of its own.
 
+import {
+  runEngine,
+  TAIL_MULTIPLE_IDLE,
+  type EngineResult,
+  type HopState,
+  type Scenario,
+} from './engine.js';
+import { familyOf } from './families.js';
+import {
+  CACHE_TYPES,
+  DATASTORE_TYPES,
+  DEFAULT_COST,
+  QUEUE_TYPES,
+  STATEFUL_TYPES,
+} from './components.js';
 import type {
-  ArchNodeType,
   Flow,
   GraphDSL,
-  GraphEdge,
   GraphNode,
-  NodeState,
   SimConfig,
   SimFlowResult,
   SimNodeResult,
   SimResult,
 } from './types.js';
 
-import {
-  BROKEN_COMPLETION_RATIO,
-  CACHE_TYPES,
-  CONGESTION_UTIL_CAP,
-  EPSILON,
-  DATASTORE_TYPES,
-  DEFAULT_CACHE_HIT_RATE,
-  DEFAULT_CAPACITY,
-  DEFAULT_COST,
-  DEFAULT_LATENCY,
-  DEFAULT_QUEUE_DEPTH_MAX,
-  EXTERNAL_DEPENDENCY_TYPES,
-  MAX_CONGESTION_FACTOR,
-  MAX_FINDINGS,
-  NON_INFRA_TYPES,
-  QUEUE_TYPES,
-  QUEUE_WINDOW_SECONDS,
-  REDUNDANT_SIBLING_CAPACITY_SHARE,
-  SLOW_DEPENDENCY_MS,
-  STATEFUL_TYPES,
-  SYNCHRONOUS_FLOW_KINDS,
-  WARN_UTILIZATION,
-  attachedReplicas,
-  canSubstitute,
-} from './components.js';
-
-// ---------------------------------------------------------------- helpers ----
-
-/** One resolved step of a flow: which node actually served it, and why. */
-export interface ResolvedStep {
-  /** The node that carried this step (may be a redundant sibling). */
-  node: GraphNode;
-  /** Set when the step's own node was killed and a sibling took over. */
-  substitutedFor?: GraphNode;
-  /**
-   * Set when the step's node was killed but the request can continue without it.
-   * A dead cache-aside cache does not break reads; it dumps their full weight on
-   * whatever comes next. That thundering herd is the lesson, not a dead flow.
-   */
-  bypassed?: GraphNode;
-}
-
-/** Everything the engine derives per node before it is trimmed into SimNodeResult. */
-interface NodeCompute {
-  node: GraphNode;
-  capacity: number;
-  incoming: number;
-  utilization: number;
-  latency: number;
-  dropped: number;
-  queueDepth: number;
-  state: NodeState;
-  /** Fraction of arriving traffic this node passes on (0..1). */
-  survival: number;
-  /** Queues only: rps its async consumers can actually drain. */
-  consumerCapacity: number;
-}
-
-function round(value: number, decimals = 2): number {
-  if (!Number.isFinite(value)) return value;
-  const factor = 10 ** decimals;
-  return Math.round(value * factor) / factor;
-}
-
-/** Compact human number: 3.2, 0.42, 12000 (never "3.20"). */
-function num(value: number, decimals = 2): string {
-  if (value === Number.POSITIVE_INFINITY) return 'infinite';
-  if (!Number.isFinite(value)) return '0';
-  return String(round(value, decimals));
-}
-
-function pct(fraction: number): string {
-  return `${Math.round(fraction * 100)}%`;
-}
-
-function replicasOf(node: GraphNode): number {
-  const replicas = node.attrs?.replicas;
-  return typeof replicas === 'number' && replicas > 0 ? replicas : 1;
-}
-
-function baseCapacityOf(node: GraphNode): number {
-  const explicit = node.attrs?.capacityRps;
-  if (typeof explicit === 'number') return Math.max(0, explicit);
-  return DEFAULT_CAPACITY[node.type] ?? 500;
-}
-
 /**
- * Fraction of arriving traffic a node absorbs instead of forwarding.
- * Caches (including a prompt cache in front of a model) default to 0.8; any
- * other node opts in by setting `cacheHitRate` explicitly (so a CDN can model
- * offload without being typed as a cache).
+ * Long enough for a backlog to show, short enough that a grader's run is instant —
+ * and deliberately shorter than the autoscaler's lag, so a design is judged on the
+ * capacity it has rather than the capacity it might acquire.
  */
-function absorbRateOf(node: GraphNode): number {
-  const explicit = node.attrs?.cacheHitRate;
-  if (typeof explicit === 'number') return Math.min(1, Math.max(0, explicit));
-  return CACHE_TYPES.has(node.type) ? DEFAULT_CACHE_HIT_RATE : 0;
-}
+export const REPORT_HORIZON_S = 45;
+
+/** A flow that completes less than 1% of what it was offered is simply broken. */
+export const BROKEN_COMPLETION_RATIO = 0.01;
+const MAX_FINDINGS = 8;
+const EPSILON = 1e-9;
+
+const round = (v: number, dp = 2): number => {
+  if (!Number.isFinite(v)) return v;
+  const f = 10 ** dp;
+  return Math.round(v * f) / f;
+};
+
+const int = (v: number): string => String(Math.round(v));
+const pct = (fraction: number): string => `${Math.round(fraction * 100)}%`;
 
 function costOf(node: GraphNode): number {
   const explicit = node.attrs?.monthlyCost;
   const perReplica = typeof explicit === 'number' ? explicit : (DEFAULT_COST[node.type] ?? 0);
-  return perReplica * replicasOf(node);
-}
-
-/** Latency at zero load, including any injected third-party penalty. */
-function baseLatencyOf(node: GraphNode, config: SimConfig): number {
-  const explicit = node.attrs?.latencyMs;
-  const base = typeof explicit === 'number' ? explicit : (DEFAULT_LATENCY[node.type] ?? 20);
-  const injected = EXTERNAL_DEPENDENCY_TYPES.has(node.type)
-    ? (config.thirdPartyLatencyMs ?? 0)
-    : 0;
-  return Math.max(0, base) + Math.max(0, injected);
-}
-
-function congestedLatency(base: number, utilization: number): number {
-  if (!(utilization < 1)) return base * MAX_CONGESTION_FACTOR; // covers >=1, NaN, Infinity
-  const clamped = Math.min(Math.max(utilization, 0), CONGESTION_UTIL_CAP);
-  return Math.min(base / (1 - clamped), base * MAX_CONGESTION_FACTOR);
+  const replicas = typeof node.attrs?.replicas === 'number' ? Math.max(1, node.attrs.replicas) : 1;
+  return perReplica * replicas;
 }
 
 /**
- * Kill list holds node ids, but we also accept a case-insensitive label match so
- * a scenario authored against labels still does the right thing.
+ * The old three-knob config, expressed as a scenario the engine understands.
+ *
+ * Kill lists are resolved against the drawing, case-insensitively, by id OR label:
+ * the problem bank's scenarios name components the way a person would ("Redis",
+ * "primary"), and a gate that silently kills nothing would pass every design.
  */
-function resolveKilled(graph: GraphDSL, config: SimConfig): Set<string> {
-  const killed = new Set<string>();
+export function scenarioFromConfig(config: SimConfig, graph: GraphDSL): Scenario {
   const wanted = (config.killNodeIds ?? []).map((k) => k.toLowerCase());
-  if (wanted.length === 0) return killed;
-  for (const node of graph.nodes) {
-    if (wanted.includes(node.id.toLowerCase()) || wanted.includes(node.label.toLowerCase())) {
-      killed.add(node.id);
-    }
-  }
-  return killed;
+  const killed = graph.nodes
+    .filter((n) => wanted.includes(n.id.toLowerCase()) || wanted.includes(n.label.toLowerCase()))
+    .map((n) => n.id);
+
+  return {
+    id: 'report',
+    name: 'Capacity report',
+    horizonS: REPORT_HORIZON_S,
+    loadMultiplier: Math.max(0, config.rpsMultiplier ?? 1),
+    outages: killed.map((nodeId) => ({ nodeId, atS: 0 })),
+    // A third-party brownout lands on everything you call but do not run.
+    latency:
+      (config.thirdPartyLatencyMs ?? 0) > 0
+        ? [{ family: 'external' as const, addMs: config.thirdPartyLatencyMs }]
+        : [],
+  };
 }
-
-function connected(edges: readonly GraphEdge[], a: string, b: string): boolean {
-  return edges.some((e) => (e.from === a && e.to === b) || (e.from === b && e.to === a));
-}
-
-/**
- * Redundancy awareness: a killed node is survivable if another live node of the
- * same type (or an accepted stand-in, e.g. a read replica for its primary)
- * either replicates it, or hangs off the same upstream neighbour.
- */
-function findSibling(
-  graph: GraphDSL,
-  killedNode: GraphNode,
-  previousNodeId: string | undefined,
-  killed: ReadonlySet<string>,
-): GraphNode | undefined {
-  const candidates = graph.nodes.filter(
-    (n) =>
-      n.id !== killedNode.id && canSubstitute(killedNode.type, n.type) && !killed.has(n.id),
-  );
-  if (candidates.length === 0) return undefined;
-
-  const replica = candidates.find((n) =>
-    graph.edges.some(
-      (e) =>
-        e.kind === 'replication' &&
-        ((e.from === killedNode.id && e.to === n.id) ||
-          (e.to === killedNode.id && e.from === n.id)),
-    ),
-  );
-  if (replica) return replica;
-
-  if (previousNodeId !== undefined) {
-    const peer = candidates.find((n) => connected(graph.edges, previousNodeId, n.id));
-    if (peer) return peer;
-  }
-  return undefined;
-}
-
-// ---------------------------------------------------------------- engine -----
 
 export function simulate(graph: GraphDSL, config: SimConfig): SimResult {
-  // Normalize once; never mutate the caller's graph.
-  const g: GraphDSL = {
-    nodes: graph.nodes ?? [],
-    edges: graph.edges ?? [],
-    flows: graph.flows ?? [],
-    stickies: graph.stickies ?? [],
+  return report(graph, runEngine(graph, scenarioFromConfig(config, graph)));
+}
+
+export function report(graph: GraphDSL, engine: EngineResult): SimResult {
+  const byId = new Map(engine.worst.map((h) => [h.nodeId, h]));
+  const nodesById = new Map(graph.nodes.map((n) => [n.id, n]));
+
+  const nodes: SimNodeResult[] = engine.worst.map((h) => ({
+    nodeId: h.nodeId,
+    incomingRps: h.arrivingRps,
+    capacityRps: h.capacityRps,
+    utilization: h.utilization,
+    latencyMs: h.latencyMs,
+    droppedRps: h.droppedRps,
+    queueDepth: engine.peakBacklog[h.nodeId] ?? h.backlog,
+    state: h.down && !h.bypassed ? 'down' : h.state,
+  }));
+
+  const flows = flowResults(graph, engine, byId);
+
+  return {
+    nodes,
+    flows,
+    bottleneckNodeId: engine.bottleneckNodeId,
+    totalDroppedRps: round(engine.worst.reduce((sum, h) => sum + h.droppedRps, 0)),
+    monthlyCost: round(graph.nodes.reduce((sum, n) => sum + costOf(n), 0)),
+    verdict: buildVerdict(engine, flows, nodesById),
+    findings: buildFindings(graph, engine, byId, nodesById),
   };
-  const { nodes, edges, flows } = g;
-  const multiplier = Number.isFinite(config.rpsMultiplier) ? config.rpsMultiplier : 1;
-  const killed = resolveKilled(g, config);
+}
 
-  const byId = new Map<string, GraphNode>();
-  for (const node of nodes) byId.set(node.id, node);
+const label = (graph: GraphDSL, id: string): string =>
+  graph.nodes.find((n) => n.id === id)?.label ?? id;
 
-  // ---- pass 0: capacity (needed before propagation so redundancy can route) --
-  const capacity = new Map<string, number>();
-  for (const node of nodes) {
-    capacity.set(node.id, killed.has(node.id) ? 0 : baseCapacityOf(node) * replicasOf(node));
-  }
+/**
+ * A named flow's numbers, taken from the engine rather than from a walk of its own.
+ * Every hop it names contributes its latency and its survival, so a flow through a
+ * saturated component reports what that component actually did to it.
+ *
+ * A sheet with no named flows gets its derived paths instead, so the report is never
+ * empty just because nobody wrote the journeys down.
+ */
+function flowResults(
+  graph: GraphDSL,
+  engine: EngineResult,
+  byId: Map<string, HopState>,
+): SimFlowResult[] {
+  const named = graph.flows ?? [];
+  const journeys: { id: string; name: string; steps: string[]; kind?: Flow['kind'] }[] =
+    named.length > 0
+      ? named.map((f) => ({ id: f.id, name: f.name, steps: f.steps, kind: f.kind }))
+      : engine.paths.slice(0, 8).map((p, i) => ({
+          id: `path-${i + 1}`,
+          name: p.nodeIds.map((id) => label(graph, id)).join(' → '),
+          steps: p.nodeIds,
+        }));
 
-  // ---- pass 1: resolve each flow's path and propagate offered demand ---------
-  const incoming = new Map<string, number>();
-  for (const node of nodes) incoming.set(node.id, 0);
+  return journeys.map((journey) => {
+    const first = journey.steps[0] ?? '';
+    // Offered is what actually arrives at the flow's first hop, so a flow that
+    // starts half way down the design is measured from where it starts.
+    const offeredRps = round(byId.get(first)?.arrivingRps ?? 0);
 
-  interface FlowPlan {
-    flow: Flow;
-    offered: number;
-    steps: ResolvedStep[];
-    notes: string[];
-  }
-
-  const plans: FlowPlan[] = flows.map((flow) => {
-    const offered = Math.max(0, (flow.rps ?? 0) * multiplier);
-    const steps: ResolvedStep[] = [];
+    let carried = offeredRps;
+    let p50 = 0;
+    let p99 = 0;
+    let brokenAt: string | undefined;
     const notes: string[] = [];
-    let carried = offered;
-    let previousNodeId: string | undefined;
 
-    for (const stepId of flow.steps ?? []) {
-      const stepNode = byId.get(stepId);
-      if (!stepNode) {
-        notes.push(`Unknown step "${stepId}" is not in the graph — skipped.`);
+    for (const stepId of journey.steps) {
+      const hop = byId.get(stepId);
+      if (!hop) {
+        notes.push(`${stepId} is named in this flow but not in the drawing.`);
         continue;
       }
-
-      let serving = stepNode;
-      let substitutedFor: GraphNode | undefined;
-      if (killed.has(stepNode.id)) {
-        const sibling = findSibling(g, stepNode, previousNodeId, killed);
-        if (sibling) {
-          serving = sibling;
-          substitutedFor = stepNode;
-        } else if (absorbRateOf(stepNode) > 0) {
-          // Cache-aside with a dead cache: reads fall through at full volume.
-          steps.push({ node: stepNode, bypassed: stepNode });
-          notes.push(
-            `${stepNode.label} is down — every request falls through to the next hop at full ` +
-              `volume (cache stampede). The design survives only if what follows can absorb it.`,
-          );
-          previousNodeId = stepNode.id;
-          continue;
-        }
-      }
-
-      steps.push(substitutedFor ? { node: serving, substitutedFor } : { node: serving });
-
-      // Read offload: a datastore with live replicas attached over replication
-      // edges shares its READ traffic with them. This is why adding a replica
-      // visibly lowers the primary's utilization — writes still all land on it.
-      const replicas =
-        flow.kind === 'read' && DATASTORE_TYPES.has(serving.type)
-          ? attachedReplicas(g, serving, killed)
-          : [];
-      if (replicas.length > 0) {
-        const share = carried / (replicas.length + 1);
-        incoming.set(serving.id, (incoming.get(serving.id) ?? 0) + share);
-        for (const r of replicas) incoming.set(r.id, (incoming.get(r.id) ?? 0) + share);
+      if (hop.bypassed) {
         notes.push(
-          `${serving.label}'s reads are split across ${replicas.length + 1} nodes ` +
-            `(${replicas.map((r) => r.label).join(', ')}) — each takes ${round(share)} rps.`,
-        );
-      } else {
-        incoming.set(serving.id, (incoming.get(serving.id) ?? 0) + carried);
-      }
-
-      // Absorbed traffic (cache hits) is served here and never reaches the next hop.
-      carried = carried * (1 - absorbRateOf(serving));
-      previousNodeId = serving.id;
-    }
-
-    if (steps.length === 0) {
-      notes.push('This flow has no steps in the graph — nothing to simulate.');
-    }
-    return { flow, offered, steps, notes };
-  });
-
-  // ---- pass 2: per-node utilization, latency, drops, queue depth ------------
-  const computed = new Map<string, NodeCompute>();
-  const queueFindings: string[] = [];
-
-  for (const node of nodes) {
-    const cap = capacity.get(node.id) ?? 0;
-    const arriving = incoming.get(node.id) ?? 0;
-    const isDown = killed.has(node.id);
-
-    let utilization: number;
-    if (cap === Number.POSITIVE_INFINITY) utilization = 0;
-    else if (cap <= 0) utilization = arriving > 0 ? Number.POSITIVE_INFINITY : 0;
-    else utilization = arriving / cap;
-
-    const latency = congestedLatency(baseLatencyOf(node, config), utilization);
-    let dropped = Math.max(0, arriving - cap);
-    let queueDepth = 0;
-    let consumerCapacity = 0;
-
-    if (QUEUE_TYPES.has(node.type) && !isDown) {
-      // A queue's job is to absorb a burst, so it does not shed while it has room.
-      // Its real constraint is whether the consumers behind it can drain it.
-      consumerCapacity = edges
-        .filter((e) => e.kind === 'async' && e.from === node.id && byId.has(e.to))
-        .reduce((sum, e) => sum + (capacity.get(e.to) ?? 0), 0);
-      const shortfall = arriving - consumerCapacity;
-      queueDepth = Math.max(0, shortfall * QUEUE_WINDOW_SECONDS);
-      const depthMax = node.attrs?.queueDepthMax ?? DEFAULT_QUEUE_DEPTH_MAX;
-      dropped =
-        queueDepth > depthMax ? Math.max(0, (queueDepth - depthMax) / QUEUE_WINDOW_SECONDS) : 0;
-      if (shortfall > 0) {
-        queueFindings.push(
-          `${node.label} takes ${num(arriving)} rps but its async consumers only drain ` +
-            `${num(consumerCapacity)} rps — the backlog grows ${num(queueDepth, 0)} messages/min. ` +
-            `That is backpressure: add consumers or the queue only delays the failure.`,
+          `${label(graph, stepId)} is offline but transparent — its traffic passed straight through.`,
         );
       }
+      const survival = hop.arrivingRps > EPSILON ? hop.servedRps / hop.arrivingRps : 1;
+      if (survival < 1 && brokenAt === undefined && hop.droppedRps > EPSILON) brokenAt = stepId;
+      carried *= survival;
+      p50 += hop.latencyMs;
+      p99 += hop.latencyMs * (TAIL_MULTIPLE_IDLE + 2 * Math.min(1, hop.utilization));
     }
-
-    const survival = cap <= 0 ? 0 : arriving > 0 ? Math.min(1, (arriving - dropped) / arriving) : 1;
-
-    let state: NodeState;
-    if (isDown) state = 'down';
-    else if (utilization >= 1 || dropped > 0) state = 'saturated';
-    else if (utilization >= WARN_UTILIZATION) state = 'warn';
-    else state = 'ok';
-
-    computed.set(node.id, {
-      node,
-      capacity: cap,
-      incoming: arriving,
-      utilization,
-      latency,
-      dropped,
-      queueDepth,
-      state,
-      survival,
-      consumerCapacity,
-    });
-  }
-
-  // ---- pass 3: walk each flow again, applying survival ----------------------
-  const flowResults: SimFlowResult[] = plans.map((plan) => {
-    const notes = [...plan.notes];
-    let carried = plan.offered;
-    let served = 0; // absorbed-and-answered traffic (cache hits)
-    let p50 = 0;
-    let tailExtra = 0;
-    let broken = false;
-    let brokenAt: string | undefined;
-
-    for (const step of plan.steps) {
-      const nc = computed.get(step.node.id);
-      if (!nc) continue;
-
-      // A bypassed node contributes no latency, no capacity and no absorption:
-      // the traffic simply moves on to the next hop untouched.
-      if (step.bypassed) continue;
-
-      p50 += nc.latency;
-      if (nc.utilization > WARN_UTILIZATION) tailExtra += nc.latency;
-
-      if (step.substitutedFor) {
-        // Survivor is now doing double duty: only half its capacity is free for us.
-        const share = nc.capacity * REDUNDANT_SIBLING_CAPACITY_SHARE;
-        const survival = share <= 0 ? 0 : Math.min(1, share / Math.max(carried, EPSILON));
-        notes.push(
-          `${step.substitutedFor.label} is down — survived via ${step.node.label} ` +
-            `(redundant path)${survival < 1 ? ` at ${pct(survival)} of demand` : ''}.`,
-        );
-        carried *= survival;
-      } else if (nc.state === 'down') {
-        broken = true;
-        brokenAt = step.node.label;
-        notes.push(`${step.node.label} is down and this flow has no fallback path.`);
-        carried = 0;
-        break;
-      } else {
-        if (nc.survival < 1 && carried > 0) {
-          const overload = Number.isFinite(nc.utilization) ? `${num(nc.utilization, 1)}x` : 'over';
-          notes.push(
-            `${step.node.label} saturated at ${overload} capacity — ` +
-              `${pct(1 - nc.survival)} of this flow is shed here.`,
-          );
-        }
-        carried *= nc.survival;
-      }
-
-      const absorbed = absorbRateOf(step.node);
-      if (absorbed > 0) {
-        served += carried * absorbed; // a cache hit is a completed request
-        carried *= 1 - absorbed;
-      }
-    }
-
-    const completed = served + carried;
-    if (!broken && completed < plan.offered * BROKEN_COMPLETION_RATIO) broken = true;
 
     return {
-      flowId: plan.flow.id,
-      name: plan.flow.name,
-      offeredRps: round(plan.offered),
-      completedRps: round(completed),
+      flowId: journey.id,
+      name: journey.name,
+      offeredRps,
+      completedRps: round(carried),
       p50Ms: round(p50),
-      p99Ms: round(p50 * 2.5 + tailExtra),
-      broken,
-      ...(brokenAt !== undefined ? { brokenAt } : {}),
+      p99Ms: round(p99),
+      broken: offeredRps > EPSILON && carried / offeredRps < BROKEN_COMPLETION_RATIO,
+      ...(brokenAt ? { brokenAt } : {}),
       notes,
     };
   });
-
-  // ---- aggregates ----------------------------------------------------------
-  const nodeResults: SimNodeResult[] = nodes.map((node) => {
-    const nc = computed.get(node.id);
-    /* c8 ignore next */
-    if (!nc) throw new Error(`unreachable: node ${node.id} was not computed`);
-    return {
-      nodeId: node.id,
-      incomingRps: round(nc.incoming),
-      capacityRps: round(nc.capacity),
-      utilization: round(nc.utilization, 4),
-      latencyMs: round(nc.latency),
-      droppedRps: round(nc.dropped),
-      queueDepth: round(nc.queueDepth, 0),
-      state: nc.state,
-    };
-  });
-
-  let bottleneckNodeId: string | null = null;
-  let bottleneckUtil = 0;
-  for (const node of nodes) {
-    const nc = computed.get(node.id);
-    if (!nc) continue;
-    if (Number.isFinite(nc.utilization) && nc.utilization > 0 && nc.utilization > bottleneckUtil) {
-      bottleneckUtil = nc.utilization;
-      bottleneckNodeId = node.id;
-    }
-  }
-
-  const totalDroppedRps = round(
-    nodeResults.reduce((sum, n) => sum + (Number.isFinite(n.droppedRps) ? n.droppedRps : 0), 0),
-  );
-  const monthlyCost = round(nodes.reduce((sum, n) => sum + costOf(n), 0));
-
-  const findings = buildFindings({
-    nodes,
-    edges,
-    plans: plans.map((p) => ({ flow: p.flow, steps: p.steps })),
-    computed,
-    queueFindings,
-    bottleneckNodeId,
-  });
-
-  const verdict = buildVerdict({
-    multiplier,
-    nodes,
-    flows,
-    flowResults,
-    computed,
-    bottleneckNodeId,
-    bottleneckUtil,
-    totalDroppedRps,
-  });
-
-  return {
-    nodes: nodeResults,
-    flows: flowResults,
-    bottleneckNodeId,
-    totalDroppedRps,
-    monthlyCost,
-    verdict,
-    findings,
-  };
 }
 
-// ---------------------------------------------------------------- findings ---
-
-function buildFindings(args: {
-  nodes: readonly GraphNode[];
-  edges: readonly GraphEdge[];
-  plans: readonly { flow: Flow; steps: readonly ResolvedStep[] }[];
-  computed: ReadonlyMap<string, NodeCompute>;
-  queueFindings: readonly string[];
-  bottleneckNodeId: string | null;
-}): string[] {
-  const { nodes, edges, plans, computed, queueFindings, bottleneckNodeId } = args;
+/**
+ * What the design got wrong, in the order a reviewer would raise it. Absences count:
+ * no source, nothing absorbing reads, a single copy of the data, a component every
+ * path has to cross. The engine supplies the evidence; this turns it into the
+ * sentence a reviewer would say out loud.
+ */
+function buildFindings(
+  graph: GraphDSL,
+  engine: EngineResult,
+  byId: Map<string, HopState>,
+  nodesById: Map<string, GraphNode>,
+): string[] {
   const out: string[] = [];
+  const typeOf = (id: string) => nodesById.get(id)?.type ?? 'custom';
 
-  // 1. The bottleneck, quantified into an action.
-  if (bottleneckNodeId) {
-    const nc = computed.get(bottleneckNodeId);
-    if (nc && nc.utilization >= 1) {
-      const needed = Math.ceil(nc.utilization * replicasOf(nc.node));
-      out.push(
-        `${nc.node.label} is the bottleneck at ${num(nc.utilization, 1)}x capacity — ` +
-          `it needs about ${needed} replicas (≈${num(nc.incoming, 0)} rps of capacity) to hold this load.`,
-      );
-    }
-  }
-
-  // 2. Backpressure.
-  out.push(...queueFindings);
-
-  // 3. A node every flow depends on, with nothing behind it.
-  const flowsWithSteps = plans.filter((p) => p.steps.length > 0);
-  if (flowsWithSteps.length > 0) {
-    for (const node of nodes) {
-      if (NON_INFRA_TYPES.has(node.type)) continue;
-      if (replicasOf(node) > 1) continue;
-      const inEveryFlow = flowsWithSteps.every((p) => p.steps.some((s) => s.node.id === node.id));
-      if (!inEveryFlow) continue;
-      const hasReplicationPeer = edges.some(
-        (e) => e.kind === 'replication' && (e.from === node.id || e.to === node.id),
-      );
-      if (hasReplicationPeer) continue;
-      out.push(
-        `${node.label} is a single point of failure — every flow goes through it and it runs ` +
-          `1 instance with no replica. Kill it and the whole design is offline.`,
-      );
-    }
-  }
-
-  // 4. A saturated datastore with nothing caching in front of it.
-  for (const node of nodes) {
-    if (!DATASTORE_TYPES.has(node.type)) continue;
-    const nc = computed.get(node.id);
-    if (!nc || nc.state !== 'saturated' || nc.incoming <= 0) continue;
-    const cacheUpstream =
-      edges.some((e) => {
-        const from = nodes.find((n) => n.id === e.from);
-        return e.to === node.id && from !== undefined && absorbRateOf(from) > 0;
-      }) ||
-      plans.some((p) =>
-        p.steps.some(
-          (s, i) => s.node.id === node.id && i > 0 && absorbRateOf(p.steps[i - 1]!.node) > 0,
-        ),
-      );
-    if (cacheUpstream) continue;
+  if (engine.sources.length === 0) {
     out.push(
-      `${node.label} is saturated with no cache in front of it — reads are hitting the ` +
-        `database directly. A cache absorbing 80% would cut its load 5x.`,
+      'Nothing here can be an entry point, so no load was offered. Give a client a request rate.',
+    );
+  } else if (engine.sources.every((s) => s.inferred)) {
+    out.push(
+      `Nothing states where traffic starts, so ${engine.sources
+        .map((s) => label(graph, s.nodeId))
+        .join(', ')} ${engine.sources.length === 1 ? 'was' : 'were'} treated as the entry point. Set a request rate to say it deliberately.`,
     );
   }
 
-  // 5. Slow dependency you do not control, sitting inline on a user request.
-  const reported = new Set<string>();
-  for (const plan of plans) {
-    if (!SYNCHRONOUS_FLOW_KINDS.has(plan.flow.kind)) continue;
-    for (const step of plan.steps) {
-      if (!EXTERNAL_DEPENDENCY_TYPES.has(step.node.type)) continue;
-      const nc = computed.get(step.node.id);
-      if (!nc || nc.latency < SLOW_DEPENDENCY_MS) continue;
-      const key = `${step.node.id}|${plan.flow.id}`;
-      if (reported.has(key)) continue;
-      reported.add(key);
-      out.push(
-        `${step.node.label} adds ${num(nc.latency, 0)}ms inline to "${plan.flow.name}" — a slow ` +
-          `dependency you do not own is on the synchronous user path. Make it async or add a timeout + fallback.`,
-      );
-    }
-  }
-
-  // 6. Stateful and pinned to one zone.
-  const singleAz = nodes.filter(
-    (n) => STATEFUL_TYPES.has(n.type) && !n.attrs?.multiAz && (computed.get(n.id)?.incoming ?? 0) > 0,
-  );
-  if (singleAz.length > 0) {
-    const named = singleAz.slice(0, 2).map((n) => n.label);
-    const rest = singleAz.length - named.length;
+  if (engine.firstFailure) {
     out.push(
-      `${named.join(' and ')}${rest > 0 ? ` (+${rest} more)` : ''} ${
-        singleAz.length === 1 ? 'is' : 'are'
-      } stateful and single-AZ — one zone failure takes ${singleAz.length === 1 ? 'it' : 'them'} ` +
-        `and every flow through ${singleAz.length === 1 ? 'it' : 'them'} offline.`,
+      `First loss: ${engine.firstFailure.reason} Everything after it is only seeing what got past.`,
     );
   }
 
-  // 7. Flows that are not actually flows.
-  for (const plan of plans) {
-    if (plan.steps.length === 0) {
-      out.push(
-        `Flow "${plan.flow.name}" has no steps in the graph — a named path with no components ` +
-          `cannot be simulated or reviewed.`,
-      );
+  for (const hop of engine.worst) {
+    if (out.length >= MAX_FINDINGS) break;
+    const node = nodesById.get(hop.nodeId);
+    if (!node || hop.droppedRps > EPSILON || hop.state !== 'hot') continue;
+    out.push(
+      `${node.label} runs at ${pct(hop.utilization)} of capacity — serving everything, with nothing left for the next spike.`,
+    );
+  }
+
+  // A queue that is behind is a queue whose consumers are the problem, so the
+  // number worth saying out loud is the drain rate, not the queue.
+  for (const [nodeId, peak] of Object.entries(engine.peakBacklog)) {
+    if (out.length >= MAX_FINDINGS) break;
+    if (peak <= 0 || !QUEUE_TYPES.has(typeOf(nodeId))) continue;
+    out.push(
+      `${label(graph, nodeId)} builds a backlog of ${int(peak)} messages: arrivals outrun what its consumers drain.`,
+    );
+  }
+
+  if (engine.retryAmplification > 1.2 && out.length < MAX_FINDINGS) {
+    out.push(
+      `Retries turn each request into ${round(engine.retryAmplification, 2)} attempts at the worst moment — a struggling dependency is being asked again and again.`,
+    );
+  }
+
+  const hasCache = graph.nodes.some((n) => CACHE_TYPES.has(n.type));
+  const busiestStore = engine.worst
+    .filter((h) => DATASTORE_TYPES.has(typeOf(h.nodeId)))
+    .reduce<HopState | null>((w, h) => (!w || h.arrivingRps > w.arrivingRps ? h : w), null);
+  if (!hasCache && busiestStore && busiestStore.arrivingRps > 0 && out.length < MAX_FINDINGS) {
+    out.push(
+      `${label(graph, busiestStore.nodeId)} takes all ${int(busiestStore.arrivingRps)} rps directly — nothing absorbs reads in front of it.`,
+    );
+  }
+
+  for (const node of graph.nodes) {
+    if (out.length >= MAX_FINDINGS) break;
+    if (!STATEFUL_TYPES.has(node.type) || node.attrs?.multiAz) continue;
+    if ((byId.get(node.id)?.arrivingRps ?? 0) <= 0) continue;
+    out.push(`${node.label} holds state in one place: losing its zone loses the data it serves.`);
+  }
+
+  // A component every path must cross is a single point of failure — worth saying
+  // only when there is more than one path to compare it against.
+  if (engine.paths.length > 1 && out.length < MAX_FINDINGS) {
+    for (const id of engine.paths[0]!.nodeIds) {
+      if (out.length >= MAX_FINDINGS) break;
+      if (!engine.paths.every((p) => p.nodeIds.includes(id))) continue;
+      const family = familyOf(typeOf(id));
+      if (family === 'origin' || family === 'boundary') continue;
+      const node = nodesById.get(id);
+      if (!node || (node.attrs?.replicas ?? 1) > 1) continue;
+      out.push(`Every path crosses ${node.label}, and there is one of it.`);
     }
+  }
+
+  if (engine.cycleNodeIds.length > 0 && out.length < MAX_FINDINGS) {
+    out.push(
+      `The connections loop back on themselves at ${engine.cycleNodeIds
+        .map((id) => label(graph, id))
+        .join(', ')} — traffic was followed round once and no further.`,
+    );
   }
 
   return out.slice(0, MAX_FINDINGS);
 }
 
-// ---------------------------------------------------------------- verdict ----
-
-function buildVerdict(args: {
-  multiplier: number;
-  nodes: readonly GraphNode[];
-  flows: readonly Flow[];
-  flowResults: readonly SimFlowResult[];
-  computed: ReadonlyMap<string, NodeCompute>;
-  bottleneckNodeId: string | null;
-  bottleneckUtil: number;
-  totalDroppedRps: number;
-}): string {
-  const {
-    multiplier,
-    nodes,
-    flows,
-    flowResults,
-    computed,
-    bottleneckNodeId,
-    bottleneckUtil,
-    totalDroppedRps,
-  } = args;
-
-  if (nodes.length === 0) return 'Nothing to simulate — the design has no components.';
-  if (flows.length === 0) {
-    return `${nodes.length} component${nodes.length === 1 ? '' : 's'} on the canvas but no flows defined — add a request path to simulate load.`;
+function buildVerdict(
+  engine: EngineResult,
+  flows: SimFlowResult[],
+  nodesById: Map<string, GraphNode>,
+): string {
+  if (engine.sources.length === 0) {
+    return 'No traffic was offered: nothing here is marked as where requests start.';
   }
 
-  const at = multiplier === 1 ? 'At baseline load' : `At ${num(multiplier, 2)}x load`;
-  const holds = multiplier === 1 ? 'Holds at baseline' : `Holds at ${num(multiplier, 2)}x`;
+  const peak = engine.peakOfferedRps;
+  const worstTick = engine.ticks.reduce(
+    (w, t) => (!w || t.successRate < w.successRate ? t : w),
+    null as (typeof engine.ticks)[number] | null,
+  );
+  const lost = worstTick ? 1 - worstTick.successRate : 0;
 
-  // Worst flow = lowest completion ratio (ties broken by graph order).
-  let worst: SimFlowResult | undefined;
-  let worstRatio = 1;
-  for (const fr of flowResults) {
-    const ratio = fr.offeredRps > 0 ? fr.completedRps / fr.offeredRps : 1;
-    if (ratio < worstRatio || (worst === undefined && fr.broken)) {
-      worstRatio = ratio;
-      worst = fr;
-    }
+  if (lost <= 0.001) {
+    const hottest = engine.bottleneckNodeId ? nodesById.get(engine.bottleneckNodeId) : undefined;
+    const util = engine.worst.find((h) => h.nodeId === engine.bottleneckNodeId)?.utilization ?? 0;
+    const headroom = hottest ? ` ${hottest.label} is closest to its limit at ${pct(util)}.` : '';
+    return `Holds ${int(peak)} rps with nothing dropped.${headroom}`;
   }
 
-  const downFlow = flowResults.find((f) => f.brokenAt !== undefined);
-  if (downFlow) {
-    const lost =
-      downFlow.offeredRps > 0 ? 1 - downFlow.completedRps / downFlow.offeredRps : 1;
-    return `${at} "${downFlow.name}" is dead at ${downFlow.brokenAt} — no fallback path, ${pct(
-      lost,
-    )} of its traffic lost.`;
-  }
-
-  const bottleneck = bottleneckNodeId ? computed.get(bottleneckNodeId) : undefined;
-
-  if (totalDroppedRps > 0 || flowResults.some((f) => f.broken)) {
-    const head = bottleneck
-      ? `${at} ${bottleneck.node.label} saturates (utilization ${num(bottleneck.utilization, 2)})`
-      : `${at} the design saturates`;
-    const tail =
-      worst && worstRatio < 1
-        ? ` and ${pct(1 - worstRatio)} of "${worst.name}" is dropped.`
-        : ` and ${num(totalDroppedRps)} rps is dropped.`;
-    return head + tail;
-  }
-
-  if (bottleneck) {
-    const degraded = flowResults.filter((f) => f.offeredRps > 0 && f.completedRps < f.offeredRps);
-    const flowNote =
-      degraded.length > 0
-        ? `"${degraded[0]!.name}" is already degrading.`
-        : 'no flow degraded.';
-    return `${holds}: highest utilization is ${num(bottleneck.utilization, 2)} on ${bottleneck.node.label}; ${flowNote}`;
-  }
-
-  return `${holds}: no component carries measurable load; no flow degraded.`;
+  const first = engine.firstFailure ? nodesById.get(engine.firstFailure.nodeId) : undefined;
+  const where = first ? ` It gives way at ${first.label} first.` : '';
+  const brokenCount = flows.filter((f) => f.broken).length;
+  const brokenNote =
+    brokenCount > 0 ? ` ${brokenCount} path${brokenCount === 1 ? '' : 's'} stopped completely.` : '';
+  const recovery = engine.recoveredAtS !== null ? ` It recovered ${engine.recoveredAtS}s in.` : '';
+  return `At ${int(peak)} rps it loses ${pct(lost)} of requests.${where}${brokenNote}${recovery}`;
 }
 
 export default simulate;

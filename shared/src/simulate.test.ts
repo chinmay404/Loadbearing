@@ -1,526 +1,372 @@
-import { describe, expect, it } from 'vitest';
+// The capacity report, which is what the grader, the scenario gates and the canvas
+// all read.
+//
+// These tests were rewritten when the engine underneath changed. The old ones
+// asserted the previous contract — that a hand-authored step list is what runs, and
+// that the rps typed into it is the load — which is exactly what was replaced. What
+// they also encoded were domain truths worth keeping, and those are all still here:
+// a dead cache degrades rather than kills, a killed store fails over to its replica,
+// a queue behind slow consumers builds a backlog, a single copy of the data is a
+// finding, a component every path crosses is a finding, and a scenario may name what
+// to kill by label.
+//
+// The mechanisms are tested in engine.test.ts. This file is about the report: its
+// shape, its flow numbers, its findings and its verdict.
 
+import { describe, expect, it } from 'vitest';
 import { DEFAULT_CAPACITY } from './components.js';
 import { simulate } from './simulate.js';
-import type { ArchNodeType, Flow, GraphDSL, GraphEdge, GraphNode, NodeAttrs, SimConfig } from './types.js';
+import type { ArchNodeType, GraphDSL, GraphEdge, GraphNode, NodeAttrs, SimConfig } from './types.js';
 
-// ---------------------------------------------------------------- builders ---
+const node = (id: string, type: ArchNodeType, attrs: NodeAttrs = {}): GraphNode => ({
+  id,
+  type,
+  label: id,
+  annotation: '',
+  attrs,
+});
 
-function node(
-  id: string,
-  type: ArchNodeType,
-  label = id,
-  attrs?: NodeAttrs,
-): GraphNode {
-  return { id, type, label, annotation: '', ...(attrs ? { attrs } : {}) };
-}
+const edge = (from: string, to: string, extra: Partial<GraphEdge> = {}): GraphEdge => ({
+  id: `${from}->${to}`,
+  from,
+  to,
+  kind: extra.kind ?? 'sync',
+  label: '',
+  ...extra,
+});
 
-function edge(from: string, to: string, kind: GraphEdge['kind'] = 'sync'): GraphEdge {
-  return { id: `${from}->${to}:${kind}`, from, to, kind, label: '' };
-}
+const config = (patch: Partial<SimConfig> = {}): SimConfig => ({
+  rpsMultiplier: 1,
+  killNodeIds: [],
+  thirdPartyLatencyMs: 0,
+  ...patch,
+});
 
-function flow(id: string, steps: string[], rps: number, kind: Flow['kind'] = 'read'): Flow {
-  return { id, name: id, kind, steps, rps, description: '' };
-}
-
-function graph(partial: Partial<GraphDSL>): GraphDSL {
-  return { nodes: [], edges: [], stickies: [], flows: [], ...partial };
-}
-
-function cfg(partial: Partial<SimConfig> = {}): SimConfig {
-  return { rpsMultiplier: 1, killNodeIds: [], thirdPartyLatencyMs: 0, ...partial };
-}
-
-function nodeOf(result: ReturnType<typeof simulate>, id: string) {
-  const found = result.nodes.find((n) => n.nodeId === id);
-  if (!found) throw new Error(`no node result for ${id}`);
-  return found;
-}
-
-// A comfortable read path: LB -> API -> Postgres, well under capacity.
-function straightLine(): GraphDSL {
-  return graph({
+/** Client at 100 rps → API → Postgres, with a named read flow over all three. */
+function straightLine(overrides: { api?: NodeAttrs; db?: NodeAttrs } = {}): GraphDSL {
+  return {
     nodes: [
-      node('lb', 'load_balancer', 'Edge LB'),
-      node('api', 'service', 'API service', { replicas: 4 }), // 2000 rps
-      node('db', 'sql_db', 'Postgres primary'), // 3000 rps
+      node('web', 'client', { trafficRps: 100 }),
+      node('api', 'service', { concurrency: 200, latencyMs: 40, ...overrides.api }),
+      node('db', 'sql_db', { capacityRps: 3000, latencyMs: 8, ...overrides.db }),
     ],
-    edges: [edge('lb', 'api'), edge('api', 'db')],
-    flows: [flow('read', ['lb', 'api', 'db'], 100)],
-  });
+    edges: [edge('web', 'api'), edge('api', 'db')],
+    stickies: [],
+    flows: [
+      { id: 'f1', name: 'read path', kind: 'read', steps: ['web', 'api', 'db'], rps: 100, description: '' },
+    ],
+  };
 }
 
-// ---------------------------------------------------------------- tests ------
+const nodeResult = (result: ReturnType<typeof simulate>, id: string) =>
+  result.nodes.find((n) => n.nodeId === id)!;
 
-describe('simulate — healthy straight line', () => {
-  it('drops nothing, keeps every node ok, and p50 is the sum of node latencies', () => {
-    const result = simulate(straightLine(), cfg());
+describe('a design that copes', () => {
+  const result = simulate(straightLine(), config());
 
+  it('drops nothing and leaves every component ok', () => {
     expect(result.totalDroppedRps).toBe(0);
-    for (const n of result.nodes) {
-      expect(n.state).toBe('ok');
-      expect(n.droppedRps).toBe(0);
-      expect(n.incomingRps).toBe(100);
-    }
-
-    const only = result.flows[0]!;
-    expect(only.broken).toBe(false);
-    expect(only.brokenAt).toBeUndefined();
-    expect(only.offeredRps).toBe(100);
-    expect(only.completedRps).toBeCloseTo(100, 6);
-
-    const pathLatency = ['lb', 'api', 'db']
-      .map((id) => nodeOf(result, id).latencyMs)
-      .reduce((a, b) => a + b, 0);
-    expect(only.p50Ms).toBeCloseTo(pathLatency, 6);
-    // No node is above the warn threshold here, so p99 is a flat 2.5x tail.
-    // (Both values are rounded to 2dp on the way out, hence the 1dp tolerance.)
-    expect(only.p99Ms).toBeCloseTo(only.p50Ms * 2.5, 1);
-
-    // Bottleneck is still reported (highest finite utilization) even when healthy.
-    expect(result.bottleneckNodeId).toBe('api'); // 100/2000 = 0.05 vs db 100/3000
-    expect(result.verdict).toContain('Holds at baseline');
-    expect(result.verdict).toContain('no flow degraded');
+    for (const n of result.nodes) expect(n.state).toBe('ok');
   });
 
-  it('does not mutate its inputs', () => {
-    const input = straightLine();
-    const snapshot = JSON.stringify(input);
-    simulate(input, cfg({ rpsMultiplier: 12, killNodeIds: ['db'] }));
-    expect(JSON.stringify(input)).toBe(snapshot);
+  it('adds up the latency of the hops a flow names', () => {
+    const flow = result.flows[0]!;
+    // 40ms at the API and 8ms at the database, both nearly idle.
+    expect(flow.p50Ms).toBeGreaterThanOrEqual(48);
+    expect(flow.p50Ms).toBeLessThan(56);
+    expect(flow.completedRps).toBeCloseTo(100, 0);
+    expect(flow.broken).toBe(false);
   });
 
-  it('is deterministic', () => {
-    const a = simulate(straightLine(), cfg({ rpsMultiplier: 7 }));
-    const b = simulate(straightLine(), cfg({ rpsMultiplier: 7 }));
-    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+  it('says what it holds and what is closest to its limit', () => {
+    expect(result.verdict).toContain('Holds 100 rps');
+    expect(result.verdict).toMatch(/closest to its limit/);
   });
 });
 
-describe('simulate — 10x overload', () => {
-  it('names the bottleneck, drops traffic, and reduces flow completion', () => {
-    const result = simulate(straightLine(), cfg({ rpsMultiplier: 10 }));
+describe('a design that does not', () => {
+  const result = simulate(straightLine({ api: { capacityRps: 200 } }), config({ rpsMultiplier: 10 }));
 
-    // 1000 rps offered: api caps at 2000 (fine), db caps at 3000 (fine). Push harder.
-    const hard = simulate(straightLine(), cfg({ rpsMultiplier: 100 })); // 10_000 rps
-    expect(hard.bottleneckNodeId).toBe('api'); // 10000/2000 = 5x vs db 3.33x
-    expect(nodeOf(hard, 'api').state).toBe('saturated');
-    expect(nodeOf(hard, 'api').utilization).toBeCloseTo(5, 6);
-    expect(nodeOf(hard, 'api').droppedRps).toBeCloseTo(8000, 6);
-    expect(hard.totalDroppedRps).toBeGreaterThan(0);
+  it('names the bottleneck and reports the loss', () => {
+    expect(result.bottleneckNodeId).toBe('api');
+    expect(result.totalDroppedRps).toBeGreaterThan(0);
+    expect(nodeResult(result, 'api').state).toBe('saturated');
+  });
 
-    const hf = hard.flows[0]!;
-    expect(hf.completedRps).toBeLessThan(hf.offeredRps);
-    expect(hf.completedRps).toBeGreaterThan(0);
-    expect(hf.notes.some((n) => /saturated at 5x capacity/.test(n))).toBe(true);
-    expect(hard.verdict).toContain('API service');
-    expect(hard.verdict).toContain('dropped');
+  it('reduces what the flow completes, and says where it gave way', () => {
+    const flow = result.flows[0]!;
+    expect(flow.offeredRps).toBeCloseTo(1000, 0);
+    expect(flow.completedRps).toBeLessThan(300);
+    expect(flow.brokenAt).toBe('api');
+  });
 
-    // Latency degrades under congestion even at 10x, where nothing drops yet.
-    expect(result.totalDroppedRps).toBe(0);
-    expect(result.flows[0]!.p50Ms).toBeGreaterThan(straightLine().nodes.length); // sanity
-    expect(nodeOf(result, 'api').latencyMs).toBeGreaterThan(40); // base 40ms, now congested
-    expect(nodeOf(hard, 'api').latencyMs).toBeCloseTo(40 * 20, 6); // capped at 20x
+  it('leads the verdict with the loss and the cause', () => {
+    expect(result.verdict).toMatch(/loses \d+% of requests/);
+    expect(result.verdict).toContain('gives way at api');
   });
 });
 
-describe('simulate — cache absorption', () => {
-  it('passes only the 20% miss rate to the database and still completes the flow', () => {
-    const g = graph({
-      nodes: [
-        node('api', 'service', 'API', { replicas: 20 }),
-        node('redis', 'cache', 'Redis'),
-        node('db', 'sql_db', 'Postgres'),
-      ],
-      edges: [edge('api', 'redis'), edge('redis', 'db')],
-      flows: [flow('read', ['api', 'redis', 'db'], 1000)],
-    });
+describe('caches', () => {
+  const cached = (hitRate: number, dbCapacity = 3000): GraphDSL => ({
+    nodes: [
+      node('web', 'client', { trafficRps: 1000 }),
+      node('api', 'service', { concurrency: 100_000 }),
+      node('cache', 'cache', { cacheHitRate: hitRate, capacityRps: 100_000 }),
+      node('db', 'sql_db', { capacityRps: dbCapacity }),
+    ],
+    edges: [edge('web', 'api'), edge('api', 'cache'), edge('cache', 'db')],
+    stickies: [],
+    flows: [
+      { id: 'f1', name: 'reads', kind: 'read', steps: ['web', 'api', 'cache', 'db'], rps: 1000, description: '' },
+    ],
+  });
 
-    const result = simulate(g, cfg());
-    expect(nodeOf(result, 'redis').incomingRps).toBeCloseTo(1000, 6);
-    expect(nodeOf(result, 'db').incomingRps).toBeCloseTo(200, 6); // 20% miss
-    // Cache hits are served, so the flow still completes ~everything.
-    expect(result.flows[0]!.completedRps).toBeCloseTo(1000, 6);
+  it('passes only the misses to the store behind them', () => {
+    expect(nodeResult(simulate(cached(0.8), config()), 'db').incomingRps).toBeCloseTo(200, 0);
+  });
+
+  it('a dead cache degrades the design instead of killing it', () => {
+    // The lesson worth keeping from the old model: cache death is a database
+    // problem, not a read outage.
+    const result = simulate(cached(0.8), config({ killNodeIds: ['cache'] }));
+
+    expect(nodeResult(result, 'db').incomingRps).toBeCloseTo(1000, 0);
     expect(result.flows[0]!.broken).toBe(false);
+    expect(result.flows[0]!.notes.join(' ')).toContain('offline but transparent');
   });
 
-  it('honours an explicit cacheHitRate', () => {
-    const g = graph({
-      nodes: [
-        node('cdn', 'cdn', 'CDN', { cacheHitRate: 0.95 }),
-        node('origin', 'service', 'Origin', { replicas: 10 }),
-      ],
-      edges: [edge('cdn', 'origin')],
-      flows: [flow('read', ['cdn', 'origin'], 2000)],
-    });
-    const result = simulate(g, cfg());
-    expect(nodeOf(result, 'origin').incomingRps).toBeCloseTo(100, 6);
+  it('and kills it when what follows cannot take the herd', () => {
+    const result = simulate(cached(0.8, 50), config({ killNodeIds: ['cache'] }));
+    expect(result.flows[0]!.completedRps).toBeLessThan(100);
+    expect(result.flows[0]!.brokenAt).toBe('db');
   });
 });
 
-describe('simulate — chaos without redundancy', () => {
-  it('marks the flow broken and sets brokenAt to the dead node label', () => {
-    const result = simulate(straightLine(), cfg({ killNodeIds: ['db'] }));
+describe('failing over', () => {
+  const replicated = (): GraphDSL => ({
+    nodes: [
+      node('web', 'client', { trafficRps: 500 }),
+      node('api', 'service', { concurrency: 100_000 }),
+      node('primary', 'sql_db', { capacityRps: 2000 }),
+      node('replica', 'read_replica', { capacityRps: 2000 }),
+    ],
+    edges: [
+      edge('web', 'api'),
+      // Half the reads each, which is what a read/write split looks like when it is
+      // drawn rather than guessed at.
+      edge('api', 'primary', { share: 0.5 }),
+      edge('api', 'replica', { share: 0.5 }),
+      edge('primary', 'replica', { kind: 'replication' }),
+    ],
+    stickies: [],
+    flows: [],
+  });
 
-    const dead = nodeOf(result, 'db');
-    expect(dead.state).toBe('down');
-    expect(dead.capacityRps).toBe(0);
-    expect(dead.droppedRps).toBeCloseTo(100, 6);
+  it('splits reads where the shares say', () => {
+    const result = simulate(replicated(), config());
+    expect(nodeResult(result, 'primary').incomingRps).toBeCloseTo(250, 0);
+    expect(nodeResult(result, 'replica').incomingRps).toBeCloseTo(250, 0);
+  });
 
-    const f = result.flows[0]!;
-    expect(f.broken).toBe(true);
-    expect(f.brokenAt).toBe('Postgres primary');
-    expect(f.completedRps).toBe(0);
-    expect(f.notes.some((n) => n.includes('Postgres primary is down') && n.includes('no fallback'))).toBe(
-      true,
+  it('sends a dead replica’s share to the primary rather than onto the floor', () => {
+    const result = simulate(replicated(), config({ killNodeIds: ['replica'] }));
+    expect(nodeResult(result, 'primary').incomingRps).toBeCloseTo(500, 0);
+    expect(result.totalDroppedRps).toBe(0);
+  });
+
+  it('does the same in reverse when the primary is the one that dies', () => {
+    const result = simulate(replicated(), config({ killNodeIds: ['primary'] }));
+    expect(nodeResult(result, 'replica').incomingRps).toBeCloseTo(500, 0);
+  });
+});
+
+describe('scenarios that name components the way a person would', () => {
+  it('kills by label as well as by id', () => {
+    const graph = straightLine();
+    graph.nodes[2] = { ...graph.nodes[2]!, id: 'n7', label: 'Postgres' };
+    graph.edges[1] = edge('api', 'n7');
+    graph.flows[0]!.steps = ['web', 'api', 'n7'];
+
+    // A gate that silently killed nothing would pass every design.
+    const byLabel = simulate(graph, config({ killNodeIds: ['Postgres'] }));
+    const byId = simulate(graph, config({ killNodeIds: ['n7'] }));
+
+    expect(nodeResult(byLabel, 'n7').state).toBe('down');
+    expect(byLabel.flows[0]!.broken).toBe(true);
+    expect(byLabel.verdict).toBe(byId.verdict);
+  });
+
+  it('is case-insensitive about it', () => {
+    expect(nodeResult(simulate(straightLine(), config({ killNodeIds: ['DB'] })), 'db').state).toBe('down');
+  });
+});
+
+describe('queues', () => {
+  const queued = (depthMax: number): GraphDSL => ({
+    nodes: [
+      node('web', 'client', { trafficRps: 500 }),
+      node('q', 'queue', { capacityRps: 50, queueDepthMax: depthMax }),
+      node('worker', 'worker', { capacityRps: 50 }),
+    ],
+    edges: [edge('web', 'q', { kind: 'async' }), edge('q', 'worker')],
+    stickies: [],
+    flows: [],
+  });
+
+  it('builds a backlog when consumers cannot keep up, and says whose fault it is', () => {
+    const result = simulate(queued(1_000_000), config());
+    expect(nodeResult(result, 'q').queueDepth).toBeGreaterThan(0);
+    expect(result.findings.join(' ')).toContain('consumers drain');
+  });
+
+  it('sheds once the backlog runs out of room', () => {
+    expect(nodeResult(simulate(queued(10), config()), 'q').droppedRps).toBeGreaterThan(0);
+  });
+});
+
+describe('findings', () => {
+  it('flags a component every path has to cross', () => {
+    const graph: GraphDSL = {
+      nodes: [
+        node('web', 'client', { trafficRps: 100 }),
+        node('gw', 'api_gateway', { capacityRps: 100_000 }),
+        node('a', 'service', { concurrency: 100_000 }),
+        node('b', 'service', { concurrency: 100_000 }),
+      ],
+      edges: [edge('web', 'gw'), edge('gw', 'a'), edge('gw', 'b')],
+      stickies: [],
+      flows: [],
+    };
+    expect(simulate(graph, config()).findings.join(' ')).toContain('Every path crosses gw');
+  });
+
+  it('flags a store taking every read with nothing in front of it', () => {
+    expect(simulate(straightLine(), config()).findings.join(' ')).toContain(
+      'nothing absorbs reads in front of it',
     );
-    expect(result.verdict).toContain('Postgres primary');
   });
 
-  it('accepts a label in killNodeIds as well as an id', () => {
-    const result = simulate(straightLine(), cfg({ killNodeIds: ['Postgres primary'] }));
-    expect(nodeOf(result, 'db').state).toBe('down');
-  });
-});
-
-describe('simulate — chaos with a same-type sibling', () => {
-  it('survives through a replica and says so', () => {
-    const g = graph({
-      nodes: [
-        node('api', 'service', 'API', { replicas: 10 }),
-        node('db1', 'sql_db', 'Postgres primary'),
-        node('db2', 'sql_db', 'Postgres replica'),
-      ],
-      edges: [edge('api', 'db1'), edge('api', 'db2'), edge('db1', 'db2', 'replication')],
-      flows: [flow('read', ['api', 'db1'], 400)],
-    });
-
-    const result = simulate(g, cfg({ killNodeIds: ['db1'] }));
-    const f = result.flows[0]!;
-
-    expect(f.broken).toBe(false);
-    expect(f.brokenAt).toBeUndefined();
-    expect(f.notes.some((n) => /survived via Postgres replica \(redundant path\)/.test(n))).toBe(true);
-    // Traffic was rerouted onto the survivor, not onto the corpse.
-    expect(nodeOf(result, 'db2').incomingRps).toBeCloseTo(400, 6);
-    expect(nodeOf(result, 'db1').incomingRps).toBe(0);
-    expect(nodeOf(result, 'db1').state).toBe('down');
-    // Survivor only lends half its capacity (1500 of 3000) — 400 rps still fits.
-    expect(f.completedRps).toBeCloseTo(400, 6);
-  });
-
-  it('shares only half the survivor capacity, so a big flow is partially shed', () => {
-    const g = graph({
-      nodes: [
-        node('api', 'service', 'API', { replicas: 40 }),
-        node('db1', 'sql_db', 'Shard A'),
-        node('db2', 'sql_db', 'Shard B'),
-      ],
-      edges: [edge('api', 'db1'), edge('api', 'db2'), edge('db1', 'db2', 'replication')],
-      flows: [flow('read', ['api', 'db1'], 3000)],
-    });
-    const result = simulate(g, cfg({ killNodeIds: ['db1'] }));
-    const f = result.flows[0]!;
-    expect(f.broken).toBe(false);
-    expect(f.completedRps).toBeCloseTo(1500, 6); // half of Shard B's 3000
-    expect(f.notes.some((n) => n.includes('redundant path'))).toBe(true);
-  });
-});
-
-describe('simulate — queue with a slow consumer', () => {
-  it('builds queue depth and emits a backpressure finding', () => {
-    const g = graph({
-      nodes: [
-        node('api', 'service', 'API', { replicas: 20 }),
-        node('q', 'queue', 'Orders queue'),
-        node('w', 'worker', 'Order worker'), // 300 rps
-      ],
-      edges: [edge('api', 'q'), edge('q', 'w', 'async')],
-      flows: [flow('write', ['api', 'q'], 800, 'write')],
-    });
-
-    const result = simulate(g, cfg());
-    const q = nodeOf(result, 'q');
-
-    expect(q.incomingRps).toBeCloseTo(800, 6);
-    expect(q.queueDepth).toBeGreaterThan(0);
-    expect(q.queueDepth).toBeCloseTo((800 - 300) * 60, 0);
-    expect(q.droppedRps).toBe(0); // still inside queueDepthMax: it buffers, it does not shed
-    expect(result.findings.some((f) => f.includes('Orders queue') && f.includes('backpressure'))).toBe(
-      true,
+  it('flags state kept in one zone, and stops when it is spread', () => {
+    expect(simulate(straightLine(), config()).findings.join(' ')).toContain(
+      'holds state in one place',
     );
+    const spread = simulate(straightLine({ db: { multiAz: true, capacityRps: 3000 } }), config());
+    expect(spread.findings.join(' ')).not.toContain('holds state in one place');
   });
 
-  it('sheds once the backlog passes queueDepthMax', () => {
-    const g = graph({
+  it('names the first thing to lose traffic, not the worst-looking one', () => {
+    const graph = straightLine({ api: { capacityRps: 300 }, db: { capacityRps: 10 } });
+    const result = simulate(graph, config({ rpsMultiplier: 10 }));
+
+    expect(result.findings[0]).toContain('First loss');
+    expect(result.findings[0]).toContain('api');
+    expect(result.findings.join(' ')).toContain('only seeing what got past');
+  });
+
+  it('flags retries turning one request into several attempts', () => {
+    const graph = straightLine({ api: { concurrency: 100_000 }, db: { capacityRps: 100 } });
+    graph.edges[1] = edge('api', 'db', { retries: 3 });
+    expect(simulate(graph, config({ rpsMultiplier: 5 })).findings.join(' ')).toContain('attempts');
+  });
+
+  it('says so when it had to guess where traffic starts', () => {
+    // A fragment with no client. Rather than refuse, the engine treats the thing
+    // nothing points into as the entry point — and the report puts that in writing,
+    // so a reader who disagrees can see a choice was made for them.
+    const graph: GraphDSL = {
+      nodes: [node('api', 'service'), node('db', 'sql_db')],
+      edges: [edge('api', 'db')],
+      stickies: [],
+      flows: [],
+    };
+    const result = simulate(graph, config());
+
+    expect(result.findings[0]).toContain('Nothing states where traffic starts');
+    expect(result.findings[0]).toContain('api');
+    expect(result.findings[0]).toContain('Set a request rate');
+  });
+
+  it('keeps a third-party brownout on the components you do not run', () => {
+    const graph: GraphDSL = {
       nodes: [
-        node('api', 'service', 'API', { replicas: 20 }),
-        node('q', 'queue', 'Orders queue', { queueDepthMax: 6000 }),
-        node('w', 'worker', 'Order worker'),
+        node('web', 'client', { trafficRps: 10 }),
+        node('api', 'service', { concurrency: 100_000, latencyMs: 20 }),
+        node('psp', 'payment_gateway', { capacityRps: 1000, latencyMs: 100, timeoutMs: 30_000 }),
       ],
-      edges: [edge('api', 'q'), edge('q', 'w', 'async')],
-      flows: [flow('write', ['api', 'q'], 800, 'write')],
-    });
-    const result = simulate(g, cfg());
-    const q = nodeOf(result, 'q');
-    expect(q.droppedRps).toBeCloseTo((30000 - 6000) / 60, 6);
-    expect(q.state).toBe('saturated');
-  });
+      edges: [edge('web', 'api'), edge('api', 'psp')],
+      stickies: [],
+      flows: [],
+    };
 
-  it('treats a queue with no async consumer as fully un-drained', () => {
-    const g = graph({
-      nodes: [node('q', 'queue', 'Events'), node('w', 'worker', 'Worker')],
-      edges: [edge('q', 'w', 'sync')], // sync edge: not a consumer
-      flows: [flow('async', ['q'], 50, 'async')],
-    });
-    const result = simulate(g, cfg());
-    expect(nodeOf(result, 'q').queueDepth).toBeCloseTo(50 * 60, 0);
+    const calm = simulate(graph, config());
+    const brownout = simulate(graph, config({ thirdPartyLatencyMs: 2000 }));
+
+    expect(nodeResult(brownout, 'psp').latencyMs).toBeGreaterThan(
+      nodeResult(calm, 'psp').latencyMs + 1900,
+    );
+    // The service's own work is untouched: only the dependency got slower.
+    expect(nodeResult(brownout, 'api').latencyMs).toBeCloseTo(nodeResult(calm, 'api').latencyMs, 0);
   });
 });
 
-describe('simulate — shared nodes', () => {
-  it('sums incoming rps across flows', () => {
-    const g = graph({
-      nodes: [
-        node('gw', 'api_gateway', 'Gateway'),
-        node('api', 'service', 'API', { replicas: 10 }),
-        node('db', 'sql_db', 'DB'),
-      ],
-      edges: [edge('gw', 'api'), edge('api', 'db')],
-      flows: [
-        flow('read', ['gw', 'api', 'db'], 300),
-        flow('write', ['gw', 'api', 'db'], 200, 'write'),
-        flow('admin', ['gw', 'api'], 50, 'admin'),
-      ],
-    });
+describe('flows without an author', () => {
+  it('reports the paths it derived when nobody wrote any down', () => {
+    const graph = straightLine();
+    graph.flows = [];
+    const result = simulate(graph, config());
 
-    const result = simulate(g, cfg());
-    expect(nodeOf(result, 'gw').incomingRps).toBeCloseTo(550, 6);
-    expect(nodeOf(result, 'api').incomingRps).toBeCloseTo(550, 6);
-    expect(nodeOf(result, 'db').incomingRps).toBeCloseTo(500, 6);
+    expect(result.flows.length).toBe(1);
+    expect(result.flows[0]!.name).toBe('web → api → db');
+    expect(result.flows[0]!.completedRps).toBeCloseTo(100, 0);
+  });
+
+  it('notes a step that names something not in the drawing', () => {
+    const graph = straightLine();
+    graph.flows[0]!.steps = ['web', 'ghost', 'db'];
+    expect(simulate(graph, config()).flows[0]!.notes.join(' ')).toContain('not in the drawing');
   });
 });
 
-describe('simulate — degenerate input', () => {
-  it('handles an empty graph', () => {
-    const result = simulate(graph({}), cfg());
+describe('degenerate input', () => {
+  it('handles a graph with nothing in it', () => {
+    const result = simulate({ nodes: [], edges: [], stickies: [], flows: [] }, config());
     expect(result.nodes).toEqual([]);
     expect(result.flows).toEqual([]);
-    expect(result.bottleneckNodeId).toBeNull();
-    expect(result.totalDroppedRps).toBe(0);
     expect(result.monthlyCost).toBe(0);
-    expect(result.verdict).toContain('no components');
-    expect(result.findings).toEqual([]);
+    expect(result.bottleneckNodeId).toBeNull();
   });
 
-  it('skips unknown step ids without throwing', () => {
-    const g = graph({
-      nodes: [node('api', 'service', 'API', { replicas: 10 })],
-      edges: [],
-      flows: [flow('read', ['ghost', 'api', 'phantom'], 100)],
-    });
-    const result = simulate(g, cfg());
-    const f = result.flows[0]!;
-    expect(f.notes.filter((n) => n.startsWith('Unknown step')).length).toBe(2);
-    expect(f.completedRps).toBeCloseTo(100, 6);
-    expect(f.broken).toBe(false);
+  it('handles a flow with no steps', () => {
+    const graph = straightLine();
+    graph.flows[0]!.steps = [];
+    expect(() => simulate(graph, config())).not.toThrow();
+    expect(simulate(graph, config()).flows[0]!.offeredRps).toBe(0);
   });
 
-  it('handles a flow with no steps at all', () => {
-    const g = graph({
-      nodes: [node('api', 'service', 'API')],
-      flows: [flow('empty', [], 100)],
-    });
-    const result = simulate(g, cfg());
-    expect(result.flows[0]!.notes.some((n) => n.includes('no steps'))).toBe(true);
-    expect(result.findings.some((f) => f.includes('has no steps'))).toBe(true);
+  it('leaves the graph it was given alone', () => {
+    const graph = straightLine();
+    const before = JSON.stringify(graph);
+    simulate(graph, config({ rpsMultiplier: 20, killNodeIds: ['api'] }));
+    expect(JSON.stringify(graph)).toBe(before);
   });
 
-  it('handles zero rps and a zero multiplier', () => {
-    const zero = simulate(straightLine(), cfg({ rpsMultiplier: 0 }));
-    expect(zero.flows[0]!.broken).toBe(false);
-    expect(zero.flows[0]!.completedRps).toBe(0);
-    expect(zero.bottleneckNodeId).toBeNull();
-    expect(zero.totalDroppedRps).toBe(0);
+  it('gives the same report twice', () => {
+    const graph = straightLine();
+    expect(JSON.stringify(simulate(graph, config({ rpsMultiplier: 7 })))).toBe(
+      JSON.stringify(simulate(graph, config({ rpsMultiplier: 7 }))),
+    );
   });
+});
 
-  it('treats clients and groups as infinite capacity', () => {
-    const g = graph({
-      nodes: [node('u', 'client', 'Users'), node('api', 'service', 'API', { replicas: 100 })],
-      edges: [edge('u', 'api')],
-      flows: [flow('read', ['u', 'api'], 5000)],
-    });
-    const result = simulate(g, cfg());
-    expect(nodeOf(result, 'u').capacityRps).toBe(Number.POSITIVE_INFINITY);
-    expect(nodeOf(result, 'u').utilization).toBe(0);
-    expect(nodeOf(result, 'u').state).toBe('ok');
+describe('cost, until it is calculated properly', () => {
+  it('still sums the catalogue’s per-replica cost across replicas', () => {
+    const four = simulate(straightLine({ api: { replicas: 4, concurrency: 200 } }), config());
+    expect(four.monthlyCost).toBeGreaterThan(simulate(straightLine(), config()).monthlyCost);
+  });
+});
+
+describe('the catalogue', () => {
+  it('never constrains a boundary', () => {
     expect(DEFAULT_CAPACITY.group).toBe(Number.POSITIVE_INFINITY);
-  });
-});
-
-describe('simulate — teaching findings', () => {
-  it('flags a single point of failure on every flow', () => {
-    const g = graph({
-      nodes: [
-        node('lb', 'load_balancer', 'Edge LB'),
-        node('mono', 'monolith', 'The monolith'),
-      ],
-      edges: [edge('lb', 'mono')],
-      flows: [flow('read', ['lb', 'mono'], 10), flow('write', ['lb', 'mono'], 10, 'write')],
-    });
-    const result = simulate(g, cfg());
-    expect(result.findings.some((f) => f.includes('The monolith') && f.includes('single point of failure'))).toBe(
-      true,
-    );
-  });
-
-  it('flags a saturated database with no cache in front of it', () => {
-    const result = simulate(straightLine(), cfg({ rpsMultiplier: 100 }));
-    expect(
-      result.findings.some((f) => f.includes('Postgres primary') && f.includes('no cache in front')),
-    ).toBe(true);
-  });
-
-  it('flags a slow third-party call on a synchronous path and injects latency', () => {
-    const g = graph({
-      nodes: [
-        node('api', 'service', 'Checkout API', { replicas: 10 }),
-        node('psp', 'third_party', 'Stripe', { capacityRps: 10000 }),
-      ],
-      edges: [edge('api', 'psp')],
-      flows: [flow('write', ['api', 'psp'], 100, 'write')],
-    });
-    const result = simulate(g, cfg({ thirdPartyLatencyMs: 500 }));
-    expect(nodeOf(result, 'psp').latencyMs).toBeGreaterThanOrEqual(750); // 250 base + 500 injected
-    expect(result.findings.some((f) => f.includes('Stripe') && f.includes('synchronous user path'))).toBe(
-      true,
-    );
-  });
-
-  it('flags single-AZ stateful storage and respects multiAz', () => {
-    const single = simulate(straightLine(), cfg());
-    expect(single.findings.some((f) => f.includes('single-AZ'))).toBe(true);
-
-    const g = straightLine();
-    const spread = graph({
-      ...g,
-      nodes: g.nodes.map((n) => (n.id === 'db' ? { ...n, attrs: { multiAz: true } } : n)),
-    });
-    expect(simulate(spread, cfg()).findings.some((f) => f.includes('single-AZ'))).toBe(false);
-  });
-
-  it('never returns more than 8 findings', () => {
-    const g = graph({
-      nodes: [
-        node('lb', 'load_balancer', 'LB'),
-        node('mono', 'monolith', 'Monolith'),
-        node('db', 'sql_db', 'DB'),
-        node('cache2', 'cache', 'Cache'),
-        node('q', 'queue', 'Queue'),
-        node('idx', 'search_index', 'Index'),
-        node('psp', 'third_party', 'PSP'),
-        node('llm', 'llm', 'LLM'),
-        node('vec', 'vector_db', 'Vectors'),
-      ],
-      edges: [edge('q', 'mono', 'async')],
-      flows: [
-        flow('read', ['lb', 'mono', 'cache2', 'db', 'idx', 'vec', 'psp', 'llm', 'q'], 900),
-        flow('empty', [], 10, 'admin'),
-      ],
-    });
-    const result = simulate(g, cfg({ rpsMultiplier: 5 }));
-    expect(result.findings.length).toBeLessThanOrEqual(8);
-    expect(result.findings.length).toBeGreaterThan(0);
-  });
-});
-
-describe('simulate — cost', () => {
-  it('multiplies per-replica cost by replicas and honours overrides', () => {
-    const g = graph({
-      nodes: [
-        node('api', 'service', 'API', { replicas: 3 }), // 60 * 3
-        node('db', 'sql_db', 'DB', { monthlyCost: 500 }), // 500 * 1
-      ],
-    });
-    expect(simulate(g, cfg()).monthlyCost).toBe(680);
-  });
-});
-
-describe('cache death falls through instead of breaking the flow', () => {
-  const graph: GraphDSL = {
-    nodes: [
-      { id: 'api', type: 'service', label: 'API', annotation: '', attrs: { capacityRps: 5000, replicas: 1 } },
-      { id: 'cache', type: 'cache', label: 'Redis', annotation: '', attrs: { cacheHitRate: 0.9 } },
-      { id: 'db', type: 'sql_db', label: 'Postgres', annotation: '', attrs: { capacityRps: 3000 } },
-    ],
-    edges: [
-      { id: 'e1', from: 'api', to: 'cache', kind: 'sync', label: '' },
-      { id: 'e2', from: 'api', to: 'db', kind: 'sync', label: '' },
-    ],
-    stickies: [],
-    flows: [
-      { id: 'f1', name: 'read', kind: 'read', steps: ['api', 'cache', 'db'], rps: 1000, description: '' },
-    ],
-  };
-
-  it('with the cache alive, the database only sees the misses', () => {
-    const r = simulate(graph, { rpsMultiplier: 1, killNodeIds: [], thirdPartyLatencyMs: 0 });
-    const db = r.nodes.find((n) => n.nodeId === 'db')!;
-    expect(db.incomingRps).toBeCloseTo(100, 0);
-    expect(r.flows[0]!.broken).toBe(false);
-  });
-
-  it('with the cache dead, the flow survives but the database takes the full herd', () => {
-    const r = simulate(graph, { rpsMultiplier: 1, killNodeIds: ['cache'], thirdPartyLatencyMs: 0 });
-    const flow = r.flows[0]!;
-    const db = r.nodes.find((n) => n.nodeId === 'db')!;
-    expect(db.incomingRps).toBeCloseTo(1000, 0);
-    expect(flow.broken).toBe(false);
-    expect(flow.notes.join(' ')).toMatch(/falls through/i);
-  });
-
-  it('a dead cache does break the flow when what follows cannot absorb the herd', () => {
-    const small: GraphDSL = {
-      ...graph,
-      nodes: graph.nodes.map((n) => (n.id === 'db' ? { ...n, attrs: { capacityRps: 5 } } : n)),
-    };
-    const r = simulate(small, { rpsMultiplier: 1, killNodeIds: ['cache'], thirdPartyLatencyMs: 0 });
-    expect(r.flows[0]!.broken).toBe(true);
-  });
-});
-
-describe('read replicas offload read traffic from the primary', () => {
-  const graph: GraphDSL = {
-    nodes: [
-      { id: 'api', type: 'service', label: 'API', annotation: '', attrs: { capacityRps: 50000, replicas: 4 } },
-      { id: 'db', type: 'sql_db', label: 'Primary', annotation: '', attrs: { capacityRps: 3000 } },
-      { id: 'r1', type: 'read_replica', label: 'Replica', annotation: '', attrs: { capacityRps: 3000 } },
-    ],
-    edges: [
-      { id: 'e1', from: 'api', to: 'db', kind: 'sync', label: '' },
-      { id: 'e2', from: 'db', to: 'r1', kind: 'replication', label: '' },
-    ],
-    stickies: [],
-    flows: [
-      { id: 'fr', name: 'read', kind: 'read', steps: ['api', 'db'], rps: 4000, description: '' },
-      { id: 'fw', name: 'write', kind: 'write', steps: ['api', 'db'], rps: 1000, description: '' },
-    ],
-  };
-
-  it('splits reads across primary and replica, keeps writes on the primary', () => {
-    const r = simulate(graph, { rpsMultiplier: 1, killNodeIds: [], thirdPartyLatencyMs: 0 });
-    const primary = r.nodes.find((n) => n.nodeId === 'db')!;
-    const replica = r.nodes.find((n) => n.nodeId === 'r1')!;
-    // 4000 reads split two ways (2000 each) + 1000 writes on the primary only.
-    expect(primary.incomingRps).toBeCloseTo(3000, 0);
-    expect(replica.incomingRps).toBeCloseTo(2000, 0);
-    const read = r.flows.find((f) => f.flowId === 'fr')!;
-    expect(read.notes.join(' ')).toMatch(/split across 2 nodes/);
-  });
-
-  it('a killed replica stops taking traffic and the primary carries it all again', () => {
-    const r = simulate(graph, { rpsMultiplier: 1, killNodeIds: ['r1'], thirdPartyLatencyMs: 0 });
-    const primary = r.nodes.find((n) => n.nodeId === 'db')!;
-    expect(primary.incomingRps).toBeCloseTo(5000, 0);
   });
 });

@@ -30,6 +30,7 @@ import {
   CACHE_TYPES,
   SHEDDING_TYPES,
   WARN_UTILIZATION,
+  canSubstitute,
 } from './components.js';
 import { distributionOf, familyOf, PASSIVE_FAMILIES, type Family } from './families.js';
 import type {
@@ -175,7 +176,7 @@ export interface Failure {
 
 export interface EngineResult {
   scenarioId: string;
-  sources: { nodeId: string; rps: number }[];
+  sources: { nodeId: string; rps: number; inferred: boolean }[];
   sinkIds: string[];
   ticks: TickState[];
   /** Per component, at the worst moment of the run. */
@@ -194,6 +195,13 @@ export interface EngineResult {
   /** When the run came back inside the SLO, null if it never did. */
   recoveredAtS: number | null;
   peakOfferedRps: number;
+  /**
+   * How far behind each buffer ever got, by node id. A queue's headline number is
+   * its peak, not its depth at one arbitrary instant: a buffer that never refuses
+   * anything drops nothing, so the moment with the most traffic on the floor is not
+   * the moment it was most behind.
+   */
+  peakBacklog: Record<string, number>;
   /** Retries as a share of all attempts at the worst moment, 0..n. */
   retryAmplification: number;
   cycleNodeIds: string[];
@@ -254,6 +262,19 @@ export const HOT_UTILIZATION = 0.9;
 const MAX_WAIT_MULTIPLE = 20;
 /** Rounds of relaxation per tick. Factors only shrink, so this converges fast. */
 const RELAX_ROUNDS = 8;
+/** Headroom on top of the worst congestion the model will report. */
+const TIMEOUT_HEADROOM = 1.1;
+/**
+ * How much worse the slowest 1% is than the average, on a component with nothing
+ * queueing at all.
+ *
+ * Not 1. A tail exists before any load does — the service time itself is a
+ * distribution, and garbage collection, scheduling and network jitter all land in
+ * the same place. An engine that derived p99 from queueing alone reported a p99 a
+ * few percent above p50 for an idle design, which is the kind of number that makes
+ * a reader stop believing the tool.
+ */
+export const TAIL_MULTIPLE_IDLE = 2.5;
 /** Ceiling on enumerated paths, so a dense graph cannot explode the report. */
 const MAX_PATHS = 60;
 const MAX_PATH_DEPTH = 24;
@@ -345,6 +366,23 @@ function absorbOf(node: GraphNode): number {
   return CACHE_TYPES.has(node.type) ? DEFAULT_CACHE_HIT_RATE : 0;
 }
 
+/**
+ * How long a caller waits before giving up, when nobody has said.
+ *
+ * Deliberately generous: enough that congestion alone never trips it. Overload is
+ * already modelled as shedding, and a component that both sheds AND fails everything
+ * it managed to serve is being punished twice for the same problem — which made every
+ * saturated hop report a totally broken path instead of a degraded one.
+ *
+ * So a stated `timeoutMs` is what creates timeout failures, exactly like a stated
+ * retry count is what creates amplification. No stated timeout means the caller is
+ * patient, which is both the safer default and usually the truth.
+ */
+function defaultTimeoutFor(node: GraphNode, family: Family): number {
+  const patient = serviceMsOf(node) * MAX_WAIT_MULTIPLE * TIMEOUT_HEADROOM;
+  return Math.max(DEFAULT_TIMEOUT_MS[family], patient);
+}
+
 /** Queue wait as utilisation approaches one. M/M/1 in shape, clamped. */
 function waitMultiple(utilization: number): number {
   if (!(utilization < 1)) return MAX_WAIT_MULTIPLE;
@@ -379,20 +417,34 @@ interface Prepared {
   byId: Map<string, GraphNode>;
   out: Map<string, GraphEdge[]>;
   inbound: Map<string, GraphEdge[]>;
-  sources: { node: GraphNode; baseRps: number }[];
+  sources: { node: GraphNode; baseRps: number; inferred: boolean }[];
   sinkIds: string[];
+  /**
+   * Components a caller is synchronously waiting on — reachable from a source
+   * without crossing a hand-off. Only these can fail a timeout.
+   */
+  waited: Set<string>;
+  /** Who holds a copy of whose data, from the replication links that were drawn. */
+  replicatedWith: Map<string, Set<string>>;
   cycleNodeIds: string[];
   paths: PathReport[];
   pathsOmitted: number;
 }
 
 /**
- * Sources are where traffic begins: a component marked as one, or a component that
- * can originate traffic and has nothing pointing into it. A drawing with no source
- * is not a system under load, and the engine says so rather than inventing one.
+ * Where traffic begins, in order of how sure we are:
  *
- * Emission falls back to the rps on any authored flow starting here, so designs
- * drawn before sources existed still simulate sensibly.
+ *   1. A component marked with a request rate. Unambiguous.
+ *   2. A client or other origin with nothing pointing into it.
+ *   3. Failing both: anything nothing points into. If nobody calls it, it is where
+ *      calls come in — every design drawn before sources existed looks like this,
+ *      as does every blueprint that starts at a service, and refusing to simulate
+ *      them would be pedantry rather than accuracy.
+ *
+ * An inferred source is flagged, and the run says out loud which components it
+ * treated as entry points, so the guess is visible rather than silent.
+ *
+ * Emission falls back to the rps on any authored flow that starts here.
  */
 function findSources(graph: GraphDSL, inbound: Map<string, GraphEdge[]>): Prepared['sources'] {
   const flowRpsByFirstStep = new Map<string, number>();
@@ -402,19 +454,23 @@ function findSources(graph: GraphDSL, inbound: Map<string, GraphEdge[]>): Prepar
     flowRpsByFirstStep.set(first, (flowRpsByFirstStep.get(first) ?? 0) + num(flow.rps, 0));
   }
 
-  const out: Prepared['sources'] = [];
-  for (const node of graph.nodes) {
-    const family = familyOf(node.type);
-    const explicit = node.attrs?.trafficRps;
-    const marked = typeof explicit === 'number' && explicit > 0;
-    const canOriginate = family === 'origin' && (inbound.get(node.id)?.length ?? 0) === 0;
-    if (!marked && !canOriginate) continue;
-    const baseRps = marked
-      ? explicit
-      : (flowRpsByFirstStep.get(node.id) ?? DEFAULT_SOURCE_RPS);
-    out.push({ node, baseRps });
-  }
-  return out;
+  const rateFor = (node: GraphNode): number =>
+    flowRpsByFirstStep.get(node.id) ?? DEFAULT_SOURCE_RPS;
+  const unreached = (node: GraphNode): boolean => (inbound.get(node.id)?.length ?? 0) === 0;
+
+  const marked = graph.nodes
+    .filter((n) => typeof n.attrs?.trafficRps === 'number' && n.attrs.trafficRps > 0)
+    .map((node) => ({ node, baseRps: node.attrs!.trafficRps!, inferred: false }));
+
+  const origins = graph.nodes
+    .filter((n) => familyOf(n.type) === 'origin' && unreached(n) && !marked.some((m) => m.node.id === n.id))
+    .map((node) => ({ node, baseRps: rateFor(node), inferred: false }));
+
+  if (marked.length > 0 || origins.length > 0) return [...marked, ...origins];
+
+  return graph.nodes
+    .filter((n) => unreached(n) && !PASSIVE_FAMILIES.has(familyOf(n.type)))
+    .map((node) => ({ node, baseRps: rateFor(node), inferred: true }));
 }
 
 /** What a source emits when nobody has said. Enough to be interesting, not absurd. */
@@ -433,6 +489,21 @@ function prepare(graph: GraphDSL): Prepared {
     (inbound.get(e.to) ?? inbound.set(e.to, []).get(e.to)!).push(e);
   }
 
+  // Replication links carry no requests, but they are what makes two stores the same
+  // data — which is the only thing that justifies failing over between them.
+  const replicatedWith = new Map<string, Set<string>>();
+  for (const e of graph.edges) {
+    if (e.kind !== 'replication' || !live.has(e.from) || !live.has(e.to)) continue;
+    for (const [a, b] of [
+      [e.from, e.to],
+      [e.to, e.from],
+    ] as const) {
+      const set = replicatedWith.get(a) ?? new Set<string>();
+      set.add(b);
+      replicatedWith.set(a, set);
+    }
+  }
+
   const sources = findSources({ ...graph, nodes }, inbound);
   const sinkIds = nodes
     .filter((n) => (out.get(n.id)?.length ?? 0) === 0 && (inbound.get(n.id)?.length ?? 0) > 0)
@@ -445,7 +516,10 @@ function prepare(graph: GraphDSL): Prepared {
   const cycles = new Set<string>();
   let omitted = 0;
 
+  const waited = new Set<string>();
+
   const walk = (nodeId: string, trail: string[], seen: Set<string>, async: boolean): void => {
+    if (!async) waited.add(nodeId);
     const outs = out.get(nodeId) ?? [];
     if (outs.length === 0 || trail.length >= MAX_PATH_DEPTH) {
       if (paths.length < MAX_PATHS) paths.push({ nodeIds: [...trail], hasAsyncBoundary: async });
@@ -474,6 +548,8 @@ function prepare(graph: GraphDSL): Prepared {
     inbound,
     sources,
     sinkIds,
+    waited,
+    replicatedWith,
     cycleNodeIds: [...cycles].sort(),
     paths,
     pathsOmitted: omitted,
@@ -534,6 +610,28 @@ interface NodeRuntime {
 }
 
 /**
+ * What a buffer's consumers can pull between them. A queue with one worker behind it
+ * drains at that worker's rate however fast the queue itself is — the drain is the
+ * constraint, always, and saying so is the whole lesson of backpressure.
+ */
+function consumerCapacity(
+  nodeId: string,
+  runtime: Map<string, NodeRuntime>,
+  prep: Prepared,
+): number {
+  const outs = prep.out.get(nodeId) ?? [];
+  if (outs.length === 0) return Number.POSITIVE_INFINITY;
+  let total = 0;
+  for (const e of outs) {
+    const consumer = runtime.get(e.to);
+    if (!consumer) continue;
+    if (!Number.isFinite(consumer.capacity)) return Number.POSITIVE_INFINITY;
+    total += consumer.capacity;
+  }
+  return total;
+}
+
+/**
  * A killed component that traffic can flow straight through, rather than one that
  * stops it. A dead cache-aside cache does not break reads — it dumps their full
  * weight on whatever is behind it, which is the interesting failure. A dead
@@ -552,6 +650,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
   // Backlog and replica count are the only things that survive between ticks —
   // they are what makes a spike hurt after it has passed.
   const backlog = new Map<string, number>();
+  const peakBacklog = new Map<string, number>();
   const scaledReplicas = new Map<string, number>();
   for (const n of prep.nodes) scaledReplicas.set(n.id, replicasOf(n));
 
@@ -654,17 +753,60 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         const forwarded = r.served * (1 - r.absorb);
         if (forwarded <= EPSILON) continue;
 
+        // Not every outbound connection is somewhere the request GOES. A facade
+        // consults the feature flags and reports to observability on every request
+        // while routing the request itself to one of its backends — so a router
+        // splits only across the components that can serve the request, and treats a
+        // control plane as a side call. Without this, a strangler facade sent a third
+        // of production traffic to the flag store.
         const mode = distributionOf(node.type);
-        const shares = outs.map((e) => num(e.share, mode === 'distribute' ? 1 / outs.length : 1));
-        const shareTotal = shares.reduce((a, b) => a + b, 0) || 1;
+        const routable = outs.filter((e) => familyOf(runtime.get(e.to)?.node.type ?? 'custom') !== 'control');
+        const splitAcross = mode === 'distribute' ? (routable.length || outs.length) : 0;
+        const isSideCall = (e: GraphEdge): boolean =>
+          mode === 'distribute' && routable.length > 0 && !routable.includes(e);
+
+        const shares = outs.map((e) =>
+          num(e.share, mode === 'distribute' && !isSideCall(e) ? 1 / splitAcross : 1),
+        );
+        const shareTotal = routable.reduce((sum, e) => sum + shares[outs.indexOf(e)]!, 0) || 1;
 
         outs.forEach((e, i) => {
-          const target = runtime.get(e.to);
+          let target = runtime.get(e.to);
           if (!target) return;
+
+          // Failover. A caller with two endpoints for the same DATA uses the one that
+          // answers, so a dead primary's share goes to its replica rather than onto
+          // the floor.
+          //
+          // Deliberately narrow. Two components sharing a type are not
+          // interchangeable — a load balancer in front of a Catalog API and a Search
+          // API is not redundancy, and quietly rerouting one to the other would hide
+          // exactly the single point of failure this tool exists to find. So a stand-in
+          // must either be joined to it by a replication link or be the same data in
+          // another shape: a replica for its primary, a shard cluster for the box it
+          // replaced.
+          if (target.down && !target.bypassed) {
+            const dead = target;
+            const standIn = outs
+              .map((other) => runtime.get(other.to))
+              .find(
+                (alt) =>
+                  alt !== undefined &&
+                  alt !== dead &&
+                  !alt.down &&
+                  canSubstitute(dead.node.type, alt.node.type) &&
+                  (alt.node.type !== dead.node.type || prep.replicatedWith.get(dead.node.id)?.has(alt.node.id) === true),
+              );
+            if (standIn) target = standIn;
+          }
+
           // A router hands each request to one downstream; a service calls each of
-          // its dependencies once per request.
+          // its dependencies once per request; and a side call happens every time
+          // whatever the router does with the request itself.
           const fraction =
-            mode === 'distribute' ? shares[i]! / shareTotal : Math.min(1, shares[i]!);
+            mode === 'distribute' && !isSideCall(e)
+              ? shares[i]! / shareTotal
+              : Math.min(1, shares[i]!);
           const attempts = forwarded * fraction;
           const multiplier = retryMultiplier(target.failFraction, num(e.retries, DEFAULT_RETRIES));
           target.arriving += attempts * multiplier;
@@ -681,14 +823,16 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         const shedAtEdge = r.arriving - r.admitted;
 
         if (r.family === 'messaging') {
-          // A buffer accepts what it is given and falls behind rather than
-          // refusing, until its depth runs out.
-          const drain = r.capacity;
-          const overflow = Math.max(0, r.admitted - drain);
+          // A buffer forwards at the rate its CONSUMERS pull, not at its own
+          // throughput: the constraint on a queue is always the drain. What it
+          // cannot forward becomes backlog, and only a full buffer refuses.
+          const drain = Math.min(r.capacity, consumerCapacity(node.id, runtime, prep));
+          const available = r.admitted + r.backlog / TICK_S;
+          r.served = Math.min(available, drain);
           const depthMax = num(r.node.attrs?.queueDepthMax, DEFAULT_QUEUE_DEPTH);
-          const projected = r.backlog + overflow * TICK_S;
-          r.served = projected > depthMax ? drain : r.admitted;
-          r.dropped = shedAtEdge + Math.max(0, r.admitted - r.served);
+          const projected = r.backlog + Math.max(0, r.admitted - r.served) * TICK_S;
+          const overflowing = Math.max(0, projected - depthMax) / TICK_S;
+          r.dropped = shedAtEdge + overflowing;
         } else {
           r.served = Math.min(r.admitted, r.capacity);
           r.dropped = shedAtEdge + Math.max(0, r.admitted - r.served);
@@ -699,12 +843,16 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
       }
     }
 
-    // Latency, once throughput has settled. Timeouts turn "slow" into "failed":
-    // a hop past its caller's patience is a failure even at low utilisation.
+    // Latency, once throughput has settled. Timeouts turn "slow" into "failed" — but
+    // only where somebody is actually waiting. Work behind a hand-off has no caller
+    // counting the milliseconds, so a document parser that takes two and a half
+    // seconds is doing its job, not failing; applying a synchronous budget to it
+    // reported every ingest pipeline as broken at its own declared load.
     for (const node of prep.nodes) {
       const r = runtime.get(node.id)!;
       r.latencyMs = r.bypassed ? 0 : r.serviceMs * waitMultiple(r.utilization);
-      const timeout = num(r.node.attrs?.timeoutMs, DEFAULT_TIMEOUT_MS[r.family]);
+      if (!prep.waited.has(node.id)) continue;
+      const timeout = num(r.node.attrs?.timeoutMs, defaultTimeoutFor(r.node, r.family));
       if (r.latencyMs > timeout && r.served > 0) {
         r.dropped += r.served;
         r.served = 0;
@@ -716,9 +864,13 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
     for (const node of prep.nodes) {
       const r = runtime.get(node.id)!;
       if (r.family !== 'messaging') continue;
-      const next = Math.max(0, r.backlog + (r.admitted - r.served - Math.max(0, r.capacity - r.admitted)) * TICK_S);
+      // Owed work grows by what arrived and was not forwarded, and shrinks when the
+      // drain outruns arrivals — which is how a spike is paid off after it passes.
+      const depthMax = num(r.node.attrs?.queueDepthMax, DEFAULT_QUEUE_DEPTH);
+      const next = Math.min(depthMax, Math.max(0, r.backlog + (r.admitted - r.served) * TICK_S));
       backlog.set(node.id, next);
       r.backlog = next;
+      peakBacklog.set(node.id, Math.max(peakBacklog.get(node.id) ?? 0, next));
     }
 
     // Autoscaling, arriving late on purpose: capacity a minute after it was needed
@@ -733,33 +885,111 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
       }
     }
 
-    // What actually completed: the product of every hop's survival along a path.
+    // What actually completed.
+    //
+    // Not "walk each path from the source's full rate and multiply by survival":
+    // that counts the whole of the offered load once per path, so a load balancer in
+    // front of two services reported twice as many completions as there were
+    // requests, and a saturated branch looked like it had dropped nothing.
+    //
+    // A request completes when every synchronous call it makes succeeds. So the
+    // probability is computed per component, over what is below it: a router picks
+    // ONE downstream, weighted by share, while a service needs ALL the dependencies
+    // it calls, each weighted by how often it calls them. Hand-offs are excluded
+    // because nobody is waiting on the far side.
+    const succeeds = new Map<string, number>();
+    const succeedsAt = (nodeId: string, visiting: Set<string>): number => {
+      const cached = succeeds.get(nodeId);
+      if (cached !== undefined) return cached;
+      // A cycle cannot be resolved as a probability; treat the second visit as
+      // succeeding so the recursion terminates instead of counting forever.
+      if (visiting.has(nodeId)) return 1;
+      const r = runtime.get(nodeId);
+      if (!r) return 1;
+
+      visiting.add(nodeId);
+      const own = r.arriving > EPSILON ? clamp01(r.served / r.arriving) : 1;
+      const outs = (prep.out.get(nodeId) ?? []).filter((e) => e.kind !== 'async');
+      let below = 1;
+
+      if (outs.length > 0) {
+        if (distributionOf(r.node.type) === 'distribute') {
+          const routable = outs.filter(
+            (e) => familyOf(runtime.get(e.to)?.node.type ?? 'custom') !== 'control',
+          );
+          const across = routable.length > 0 ? routable : outs;
+          const weights = across.map((e) => num(e.share, 1 / across.length));
+          const total = weights.reduce((a, b) => a + b, 0) || 1;
+          below = across.reduce(
+            (sum, e, i) => sum + (weights[i]! / total) * succeedsAt(e.to, visiting),
+            0,
+          );
+        } else {
+          // Every call must come back. A call made for one request in ten only
+          // threatens that one request.
+          below = outs.reduce((product, e) => {
+            const rate = Math.min(1, num(e.share, 1));
+            return product * (1 - rate + rate * succeedsAt(e.to, visiting));
+          }, 1);
+        }
+      }
+
+      visiting.delete(nodeId);
+      const result = own * below;
+      succeeds.set(nodeId, result);
+      return result;
+    };
+
     let completed = 0;
+    for (const [sourceId, rate] of offeredBySource) {
+      completed += rate * succeedsAt(sourceId, new Set());
+    }
+
+    // Latency is averaged over the paths, weighted by how much traffic each one
+    // actually carries — the same branch fractions, so a rarely-taken path does not
+    // drag the headline number around.
     let p50Weighted = 0;
     let p99Weighted = 0;
+    let weightTotal = 0;
     for (const path of prep.paths) {
-      const sourceId = path.nodeIds[0]!;
-      let carried = offeredBySource.get(sourceId) ?? 0;
-      if (carried <= EPSILON) continue;
+      let weight = offeredBySource.get(path.nodeIds[0]!) ?? 0;
+      if (weight <= EPSILON) continue;
       let latency = 0;
       let tail = 0;
-      for (const id of path.nodeIds) {
-        const r = runtime.get(id);
+      let waiting = true;
+
+      for (let i = 0; i < path.nodeIds.length; i += 1) {
+        const r = runtime.get(path.nodeIds[i]!);
         if (!r) continue;
-        const survival = r.arriving > EPSILON ? r.served / r.arriving : 1;
-        carried *= survival;
-        latency += r.latencyMs;
-        // The tail is where a saturated hop shows up: a queue at 95% has a p99
-        // far above its average, and the path inherits it.
-        tail += r.latencyMs * (1 + 2 * Math.min(1, r.utilization));
+        weight *= r.arriving > EPSILON ? clamp01(r.served / r.arriving) : 1;
+        if (waiting) {
+          latency += r.latencyMs;
+          // The tail is where a saturated hop shows up: a queue at 95% has a p99 far
+          // above its average, and the path inherits it. Utilisation adds to a tail
+          // that is already there at rest.
+          tail += r.latencyMs * (TAIL_MULTIPLE_IDLE + 2 * Math.min(1, r.utilization));
+        }
+        const next = path.nodeIds[i + 1];
+        if (next === undefined) break;
+        const link = (prep.out.get(r.node.id) ?? []).find((e) => e.to === next);
+        if (!link) continue;
+        // Past a hand-off the caller has already been answered.
+        if (link.kind === 'async') waiting = false;
+        const siblings = prep.out.get(r.node.id) ?? [];
+        weight *=
+          distributionOf(r.node.type) === 'distribute'
+            ? num(link.share, 1 / Math.max(1, siblings.length))
+            : Math.min(1, num(link.share, 1));
       }
-      completed += carried;
-      p50Weighted += latency * carried;
-      p99Weighted += tail * carried;
+
+      p50Weighted += latency * weight;
+      p99Weighted += tail * weight;
+      weightTotal += weight;
     }
+
     const successRate = offeredTotal > EPSILON ? clamp01(completed / offeredTotal) : 1;
-    const p50 = completed > EPSILON ? p50Weighted / completed : 0;
-    const p99 = completed > EPSILON ? p99Weighted / completed : 0;
+    const p50 = weightTotal > EPSILON ? p50Weighted / weightTotal : 0;
+    const p99 = weightTotal > EPSILON ? p99Weighted / weightTotal : 0;
 
     // Attempts over requests: how much of the load is the system talking to itself.
     if (firstAttempts > EPSILON) peakRetry = Math.max(peakRetry, retriedAttempts / firstAttempts);
@@ -824,7 +1054,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
 
   return {
     scenarioId: scenario.id,
-    sources: prep.sources.map((s) => ({ nodeId: s.node.id, rps: s.baseRps })),
+    sources: prep.sources.map((s) => ({ nodeId: s.node.id, rps: s.baseRps, inferred: s.inferred })),
     sinkIds: prep.sinkIds,
     ticks,
     worst: worstStates,
@@ -836,6 +1066,9 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
     bottleneckNodeId: bottleneck && bottleneck.utilization > 0 ? bottleneck.nodeId : null,
     ...breaches(ticks, scenario.slo),
     peakOfferedRps: round(peakOffered),
+    peakBacklog: Object.fromEntries(
+      [...peakBacklog.entries()].filter(([, v]) => v > 0).map(([k, v]) => [k, Math.round(v)]),
+    ),
     retryAmplification: round(peakRetry, 3),
     cycleNodeIds: prep.cycleNodeIds,
     findings: [],
@@ -890,7 +1123,17 @@ function assumptionsFor(prep: Prepared, scenario: Scenario): string[] {
     'Queue wait grows as utilisation approaches one; a component past its caller’s timeout fails rather than merely being slow.',
     'A router sends each request to one downstream; a service calls every dependency once per request.',
   ];
-  if (prep.sources.length === 0) out.push('No source is marked, so nothing was offered — mark where traffic starts.');
+  if (prep.sources.length === 0) {
+    out.push('Nothing here can be an entry point, so no load was offered — mark where traffic starts.');
+  } else if (prep.sources.every((s) => s.inferred)) {
+    // The guess is stated rather than made quietly: a reader who disagrees with the
+    // entry point can see that one was chosen for them, and where.
+    out.push(
+      `Nothing is marked as where traffic starts, so ${prep.sources
+        .map((s) => s.node.label)
+        .join(', ')} ${prep.sources.length === 1 ? 'was' : 'were'} treated as the entry point — nothing points into ${prep.sources.length === 1 ? 'it' : 'them'}.`,
+    );
+  }
   if (prep.pathsOmitted > 0) {
     out.push(`${prep.pathsOmitted} paths beyond the first ${MAX_PATHS} were not enumerated; per-component numbers still count all traffic.`);
   }

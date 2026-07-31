@@ -63,14 +63,22 @@ export function SimHud() {
   }, [running, run, nodes, edges, flows, setSimResult]);
 
   if (!running) {
+    // No longer gated on declaring a flow. Traffic starts at whatever is marked as a
+    // source — or, failing that, at whatever nothing points into — and follows the
+    // connections that were actually drawn, so there is always something to run.
+    const archNodes = nodes.filter((n) => n.type === 'arch');
     return (
       <div className="toolbar" style={{ left: 'auto', right: 12, top: 10, transform: 'none' }}>
-        <button onClick={() => setRunning(true)} disabled={flows.length === 0} title="Push synthetic traffic down your declared flows">
+        <button
+          onClick={() => setRunning(true)}
+          disabled={archNodes.length === 0}
+          title="Push traffic from the entry points through the connections you drew"
+        >
           <IconPlay size={13} /> Run load
         </button>
-        {flows.length === 0 && (
+        {archNodes.length === 0 && (
           <span className="stencil" style={{ alignSelf: 'center', padding: '0 6px' }}>
-            declare a flow first
+            draw something first
           </span>
         )}
       </div>

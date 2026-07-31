@@ -53,14 +53,17 @@ const hop = (result: ReturnType<typeof runEngine>, id: string) =>
   result.final.find((h) => h.nodeId === id)!;
 
 describe('where traffic starts', () => {
-  it('offers nothing when nothing is a source, and says so', () => {
+  it('treats whatever nothing points into as the entry point, and says so', () => {
     // A service and a database, no client: a fragment, not a system under load.
     const g = graph([node('api', 'service'), node('db', 'sql_db')], [edge('api', 'db')]);
     const result = runEngine(g, scenario());
 
-    expect(result.sources).toEqual([]);
-    expect(last(result.ticks).offeredRps).toBe(0);
-    expect(result.assumptions.join(' ')).toContain('No source is marked');
+    // Nothing points into the service, so it IS the entry point. The run says so
+    // rather than guessing quietly or refusing to simulate a design that predates
+    // sources existing.
+    expect(result.sources).toEqual([{ nodeId: 'api', rps: DEFAULT_SOURCE_RPS, inferred: true }]);
+    expect(result.assumptions.join(' ')).toContain('Nothing is marked as where traffic starts');
+    expect(result.assumptions.join(' ')).toContain('api');
   });
 
   it('treats a client with nothing pointing into it as the start', () => {
@@ -70,7 +73,7 @@ describe('where traffic starts', () => {
     );
     const result = runEngine(g, scenario());
 
-    expect(result.sources).toEqual([{ nodeId: 'web', rps: DEFAULT_SOURCE_RPS }]);
+    expect(result.sources).toEqual([{ nodeId: 'web', rps: DEFAULT_SOURCE_RPS, inferred: false }]);
     expect(last(result.ticks).offeredRps).toBe(DEFAULT_SOURCE_RPS);
   });
 
@@ -79,7 +82,7 @@ describe('where traffic starts', () => {
       [node('cron', 'scheduler', { trafficRps: 40 }), node('worker', 'worker')],
       [edge('cron', 'worker')],
     );
-    expect(runEngine(g, scenario()).sources).toEqual([{ nodeId: 'cron', rps: 40 }]);
+    expect(runEngine(g, scenario()).sources).toEqual([{ nodeId: 'cron', rps: 40, inferred: false }]);
   });
 
   it('takes its rate from an authored flow when the sheet predates sources', () => {
@@ -311,6 +314,41 @@ describe('what happens over capacity', () => {
   });
 });
 
+describe('failing over, and not', () => {
+  const twoOf = (type: ArchNodeType, replicated: boolean) =>
+    graph(
+      [
+        node('web', 'client', { trafficRps: 400 }),
+        node('lb', 'load_balancer'),
+        node('one', type, { capacityRps: 1000 }),
+        node('two', type, { capacityRps: 1000 }),
+      ],
+      [
+        edge('web', 'lb'),
+        edge('lb', 'one'),
+        edge('lb', 'two'),
+        ...(replicated ? [edge('one', 'two', { kind: 'replication' })] : []),
+      ],
+    );
+
+  it('does NOT reroute between two components that merely share a type', () => {
+    // A load balancer in front of a Catalog API and a Search API is not redundancy.
+    // Sending one's traffic to the other would hide the single point of failure this
+    // is supposed to find.
+    const result = runEngine(twoOf('service', false), scenario({ outages: [{ nodeId: 'two', atS: 0 }] }));
+
+    expect(hop(result, 'one').arrivingRps).toBeCloseTo(200, 1);
+    expect(last(result.ticks).successRate).toBeCloseTo(0.5, 2);
+  });
+
+  it('does reroute when a replication link says they hold the same data', () => {
+    const result = runEngine(twoOf('sql_db', true), scenario({ outages: [{ nodeId: 'two', atS: 0 }] }));
+
+    expect(hop(result, 'one').arrivingRps).toBeCloseTo(400, 1);
+    expect(last(result.ticks).successRate).toBeCloseTo(1, 2);
+  });
+});
+
 describe('timeouts and retries', () => {
   it('fails a call that is merely slow, once it is past the caller’s patience', () => {
     const g = graph(
@@ -370,7 +408,7 @@ describe('buffers over time', () => {
         node('web', 'client', { trafficRps: 100 }),
         node('api', 'service', { concurrency: 10_000 }),
         node('q', 'queue', { capacityRps: 10_000, queueDepthMax: 1_000_000 }),
-        node('worker', 'worker', { capacityRps: 100 }),
+        node('worker', 'worker', { capacityRps: 200 }),
       ],
       [edge('web', 'api'), edge('api', 'q', { kind: 'async' }), edge('q', 'worker')],
     );
@@ -379,14 +417,38 @@ describe('buffers over time', () => {
 
   it('falls behind while the rush is on and catches up after it', () => {
     const result = withQueue({
-      horizonS: 40,
+      horizonS: 60,
       patterns: { web: { shape: 'spike', baseRps: 100, peakMultiple: 5, startS: 5, durationS: 10 } },
     });
 
-    // Nothing owed before the spike, owed during it, and paid off by the end.
     const during = result.ticks.find((tick) => tick.t === 12)!;
     expect(during.offeredRps).toBeCloseTo(500, 0);
+    // Owed work built up during the rush...
+    expect(result.peakBacklog.q).toBeGreaterThan(1000);
+    // ...and was paid off afterwards, which only happens because the consumers can
+    // drain faster than the baseline arrives. A drain merely equal to the baseline
+    // never catches up, which is its own lesson.
     expect(hop(result, 'q').backlog).toBe(0);
+  });
+
+  it('never catches up when the drain only just keeps pace with the baseline', () => {
+    const g = graph(
+      [
+        node('web', 'client', { trafficRps: 100 }),
+        node('q', 'queue', { capacityRps: 10_000, queueDepthMax: 1_000_000 }),
+        node('worker', 'worker', { capacityRps: 100 }),
+      ],
+      [edge('web', 'q', { kind: 'async' }), edge('q', 'worker')],
+    );
+    const result = runEngine(
+      g,
+      scenario({
+        horizonS: 60,
+        patterns: { web: { shape: 'spike', baseRps: 100, peakMultiple: 5, startS: 5, durationS: 10 } },
+      }),
+    );
+
+    expect(hop(result, 'q').backlog).toBeGreaterThan(1000);
   });
 
   it('accepts what it is given rather than refusing, until its depth runs out', () => {
