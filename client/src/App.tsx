@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, setUnauthorizedHandler } from './lib/api';
 import { useApp, type LeftTab, type RightTab, type View } from './state/appStore';
 import { useCanvas } from './state/canvasStore';
@@ -18,6 +18,7 @@ import { ComposePanel } from './panels/ComposePanel';
 import { ChecksPanel } from './panels/ChecksPanel';
 import { NotesPanel } from './panels/NotesPanel';
 import { Panes } from './ui/Panes';
+import { CommandPalette } from './ui/CommandPalette';
 import { SignInPanel } from './panels/SignInPanel';
 import { ProjectsPanel } from './panels/ProjectsPanel';
 import { ProjectPanel } from './panels/ProjectPanel';
@@ -61,6 +62,7 @@ export function App() {
   const signedOut = useApp((s) => s.signedOut);
   const projectId = useApp((s) => s.projectId);
   const canvasId = useApp((s) => s.canvasId);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   useEffect(() => {
     const ping = async () => {
@@ -103,6 +105,23 @@ export function App() {
     setUnauthorizedHandler(() => signedOut());
     return () => setUnauthorizedHandler(null);
   }, [signedOut]);
+
+  /**
+   * Ctrl+K anywhere, including from inside a text field — which is the point of a
+   * palette: you should not have to click out of what you are typing to reach it.
+   * Escape closes, and is left alone otherwise so it still cancels whatever else is
+   * listening for it.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   if (!username) {
     return (
@@ -155,6 +174,8 @@ export function App() {
           {serverUp ? 'linked' : 'no link'}
         </span>
       </nav>
+
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 
       <main className="main">
         {/* A project canvas never calls a model, so warning about the grader there

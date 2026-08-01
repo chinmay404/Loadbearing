@@ -76,6 +76,12 @@ interface CanvasState extends Snapshot {
   /** Node ids that entered the drawing by accepting an AI suggestion. */
   aiAccepted: string[];
   viewportCenter: { x: number; y: number };
+  /**
+   * A component the canvas should pan to and select. Set by anything that can name
+   * a component without being able to move the viewport — the palette, a finding, a
+   * failure — and cleared by the canvas once it has arrived.
+   */
+  focusNodeId: string | null;
   past: Snapshot[];
   future: Snapshot[];
   dirty: boolean;
@@ -99,6 +105,9 @@ interface CanvasState extends Snapshot {
     overrides?: { label?: string; annotation?: string; attrs?: NodeAttrs },
   ) => string;
   setViewportCenter: (c: { x: number; y: number }) => void;
+  focusNode: (id: string) => void;
+  /** Marks the request handled. Separate from focusNode, which also selects. */
+  clearFocus: () => void;
   addSticky: (position: { x: number; y: number }) => string;
   updateNodeData: (id: string, patch: Partial<ArchNodeData>) => void;
   updateStickyText: (id: string, text: string) => void;
@@ -402,6 +411,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   markup: [],
   aiAccepted: [],
   viewportCenter: { x: 300, y: 200 },
+  focusNodeId: null,
   past: [],
   future: [],
   dirty: false,
@@ -551,6 +561,16 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   },
 
   setViewportCenter: (viewportCenter) => set({ viewportCenter }),
+
+  // Selecting as well as panning: arriving somewhere without knowing which box you
+  // came for is barely better than not arriving.
+  clearFocus: () => set({ focusNodeId: null }),
+
+  focusNode: (focusNodeId) =>
+    set((s) => ({
+      focusNodeId,
+      nodes: s.nodes.map((n) => ({ ...n, selected: n.id === focusNodeId })) as AnyNode[],
+    })),
 
   addSticky: (position) => {
     const id = uid('s');

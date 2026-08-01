@@ -78,7 +78,7 @@ function edgeUnderPoint(p: { x: number; y: number }): string | null {
 
 function CanvasInner() {
   const wrap = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, setCenter, getZoom } = useReactFlow();
   const setViewportCenter = useCanvas((s) => s.setViewportCenter);
   const edgeKind = useCanvas((s) => s.edgeKind);
   const toGraph = useCanvas((s) => s.toGraph);
@@ -167,6 +167,40 @@ function CanvasInner() {
   useEffect(() => {
     syncCenter();
   }, [syncCenter]);
+
+  /**
+   * Somebody named a component and wants to be looking at it. Only the canvas can move
+   * the viewport, so anything that can name one — the palette, a finding, a failure —
+   * leaves a request in the store and this brings it into view, then clears it so the
+   * same request cannot fire twice.
+   */
+  useEffect(() => {
+    // Subscribed to the store rather than driven by rendered state.
+    //
+    // Moving the viewport from inside a render-driven effect did nothing at all: the
+    // request arrives in the same commit that changes `nodes` (focusing also selects),
+    // and React Flow ignored the call at that point — the identical call from outside
+    // React's cycle worked immediately. A subscription runs outside it, which is the
+    // whole reason this is not a plain effect on `focusNodeId`.
+    return useCanvas.subscribe((state, previous) => {
+      const id = state.focusNodeId;
+      if (!id || id === previous.focusNodeId) return;
+      const target = state.nodes.find((n) => n.id === id);
+      if (target) {
+        const width = Number(target.width ?? target.measured?.width ?? 168);
+        const height = Number(target.height ?? target.measured?.height ?? 64);
+        const zoom = getZoom();
+        setCenter(target.position.x + width / 2, target.position.y + height / 2, {
+          zoom: Number.isFinite(zoom) ? Math.max(0.9, zoom) : 1,
+          duration: 320,
+        });
+      }
+      // Through its own action rather than by focusing null, which would deselect the
+      // component that was just selected.
+      state.clearFocus();
+    });
+  }, [setCenter, getZoom]);
+
 
   /**
    * Teach at the moment of the mistake. The connection is still made — being told
