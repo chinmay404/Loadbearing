@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { paramsFor } from '@loadbearing/shared';
+import { paramsFor, type ParamSpec } from '@loadbearing/shared';
 import type { ArchNodeType, NodeAttrs } from '@loadbearing/shared';
 import { api, ApiError } from '../lib/api';
 import { useApp } from '../state/appStore';
@@ -39,7 +39,7 @@ export function NodeTools() {
   const allLocked = chosen.every((n) => n.draggable === false);
   const spec = archData ? NODE_SPEC[archData.archType] : null;
   // Same schema as the inspector, so a component offers the same knobs in both places.
-  const fields = archData ? paramsFor(archData.archType).map((param) => param.key) : [];
+  const fields = archData ? paramsFor(archData.archType) : [];
 
   return (
     <div
@@ -89,12 +89,12 @@ export function NodeTools() {
 
           {fields.length > 0 && (
             <div className="row wrap" style={{ gap: 4 }}>
-              {fields.map((field) => (
+              {fields.map((spec) => (
                 <AttrField
-                  key={field}
-                  field={field}
-                  value={archData.attrs[field]}
-                  onChange={(v) => updateNodeAttrs(single.id, { [field]: v } as NodeAttrs)}
+                  key={spec.key}
+                  spec={spec}
+                  value={archData.attrs[spec.key]}
+                  onChange={(v) => updateNodeAttrs(single.id, { [spec.key]: v } as NodeAttrs)}
                 />
               ))}
             </div>
@@ -145,7 +145,13 @@ export function NodeTools() {
   );
 }
 
-const LABELS: Record<string, string> = {
+/**
+ * Short forms for the cramped on-canvas panel, where the inspector's full sentence
+ * does not fit. Anything without one falls back to the shared label rather than to the
+ * raw key, which is what briefly turned this panel into a list reading AUTOSCALEMIN and
+ * TIMEOUTMS.
+ */
+const SHORT: Partial<Record<keyof NodeAttrs, string>> = {
   capacityRps: 'rps / instance',
   replicas: 'instances',
   latencyMs: 'latency ms',
@@ -153,32 +159,49 @@ const LABELS: Record<string, string> = {
   queueDepthMax: 'max depth',
   multiAz: 'multi-AZ',
   monthlyCost: '$ / month',
+  autoscaleMin: 'scale from',
+  autoscaleMax: 'scale to',
+  concurrency: 'in flight',
+  timeoutMs: 'timeout ms',
+  trafficRps: 'starts at rps',
+  vcpu: 'vCPU',
+  memoryGb: 'memory GB',
+  storageGb: 'storage GB',
+  shards: 'shards',
+  rateLimitRps: 'their limit',
+  pricePerMillion: '$ / M calls',
+  tokensPerRequest: 'tokens / req',
+  pricePer1kTokens: '$ / 1k tok',
+  elastic: 'hosted',
+  sharedHost: 'shared pool',
 };
 
 function AttrField({
-  field,
+  spec,
   value,
   onChange,
 }: {
-  field: keyof NodeAttrs;
+  spec: ParamSpec;
   value: number | boolean | undefined;
   onChange: (v: number | boolean) => void;
 }) {
-  if (field === 'multiAz') {
+  const label = SHORT[spec.key] ?? spec.label;
+  if (spec.kind === 'toggle') {
     return (
-      <button className={value ? 'on' : ''} onClick={() => onChange(!value)} title="Spread across zones">
-        {LABELS[field]}
+      <button className={value ? 'on' : ''} onClick={() => onChange(!value)} title={spec.hint}>
+        {label}
       </button>
     );
   }
   return (
-    <span style={{ display: 'inline-grid', gap: 1 }}>
-      <label style={{ fontSize: 9 }}>{LABELS[field] ?? field}</label>
+    <span style={{ display: 'inline-grid', gap: 1 }} title={spec.hint}>
+      <label style={{ fontSize: 9 }}>{label}</label>
       <input
         type="number"
         value={value === undefined ? '' : Number(value)}
-        min={0}
-        step={field === 'cacheHitRate' ? 0.05 : 1}
+        min={spec.min ?? 0}
+        step={spec.step ?? (spec.kind === 'fraction' ? 0.05 : 1)}
+        placeholder="default"
         onChange={(e) => {
           const n = Number(e.target.value);
           if (Number.isFinite(n)) onChange(n);

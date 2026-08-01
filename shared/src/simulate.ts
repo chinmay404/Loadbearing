@@ -104,6 +104,8 @@ export function report(graph: GraphDSL, engine: EngineResult): SimResult {
     // with a flag instead, and reports the load it carried as its capacity.
     capacityRps: Number.isFinite(h.capacityRps) ? h.capacityRps : h.arrivingRps,
     unlimited: !Number.isFinite(h.capacityRps),
+    hostLimited: h.hostLimited,
+    elastic: h.elastic,
     utilization: h.utilization,
     latencyMs: h.latencyMs,
     droppedRps: h.droppedRps,
@@ -122,6 +124,7 @@ export function report(graph: GraphDSL, engine: EngineResult): SimResult {
     graph.nodes,
     new Map(engine.final.map((h) => [h.nodeId, h.servedRps])),
     new Map(engine.final.map((h) => [h.nodeId, h.replicas])),
+    new Map(Object.entries(engine.hostedBy)),
   );
 
   return {

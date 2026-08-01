@@ -216,23 +216,32 @@ function SimBadge({ sim }: { sim: SimNodeResult }) {
       <div className="util-text">
         <span
           title={
-            sim.unlimited
-              ? 'Nothing about this component limits traffic, so it has no utilisation.'
-              : `${Math.round(sim.incomingRps)} rps arriving against ${Math.round(sim.capacityRps)} rps of capacity${sim.replicas > 1 ? ` across ${sim.replicas} replicas` : ''}.`
+            sim.elastic
+              ? 'Runs on a provider’s capacity, so there is no utilisation to report — only their rate limit and their bill can stop it.'
+              : sim.unlimited
+                ? 'Nothing about this component limits traffic, so it has no utilisation.'
+                : `${Math.round(sim.incomingRps)} rps arriving against ${Math.round(sim.capacityRps)} rps of capacity${sim.replicas > 1 ? ` across ${sim.replicas} replicas` : ''}.`
           }
         >
-          {sim.unlimited
-            ? `passes ${Math.round(sim.incomingRps)} rps`
-            : `${Math.round(Math.min(sim.utilization, 9.99) * 100)}% · ${Math.round(sim.incomingRps)} rps`}
+          {sim.elastic
+            ? `hosted · ${Math.round(sim.incomingRps)} rps`
+            : sim.unlimited
+              ? `passes ${Math.round(sim.incomingRps)} rps`
+              : `${Math.round(Math.min(sim.utilization, 9.99) * 100)}% · ${Math.round(sim.incomingRps)} rps`}
         </span>
         <span
           title={
-            overloaded
-              ? `Past its capacity, so its latency is at the ceiling the model reports rather than a number to plan against. ${Math.round(sim.droppedRps)} rps never got served.`
-              : 'Service time plus queue wait.'
+            sim.hostLimited
+              ? 'Not its own limit: the pool it shares with its neighbours has run out of room.'
+              : overloaded
+                ? `Past its capacity, so its latency is at the ceiling the model reports rather than a number to plan against. ${Math.round(sim.droppedRps)} rps never got served.`
+                : 'Service time plus queue wait.'
           }
         >
-          {shedPct > 0 ? `sheds ${shedPct}%` : duration(sim.latencyMs)}
+          {/* A component squeezed by its pool is not overloaded — its neighbours are
+              eating the machines, and saying "sheds 40%" without saying why sends you
+              to tune the wrong box. */}
+          {shedPct > 0 ? `${sim.hostLimited ? 'pool full · ' : ''}sheds ${shedPct}%` : duration(sim.latencyMs)}
           {scaling(sim)}
         </span>
       </div>

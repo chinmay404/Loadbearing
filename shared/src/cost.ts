@@ -101,7 +101,13 @@ const DEFAULT_MEMORY_GB: Record<Family, number> = {
  * `rps` is the load the simulation carried, not the load that was offered: you are not
  * billed for requests a saturated component refused.
  */
-export function costOfNode(node: GraphNode, rps: number, replicas: number): CostLine {
+export function costOfNode(
+  node: GraphNode,
+  rps: number,
+  replicas: number,
+  /** The pool this runs on, when it is not its own machines. */
+  host?: GraphNode,
+): CostLine {
   const label = node.label;
   const family = familyOf(node.type);
   const override = node.attrs?.monthlyCost;
@@ -127,8 +133,35 @@ export function costOfNode(node: GraphNode, rps: number, replicas: number): Cost
   let usage = 0;
   let basis = '';
 
+  // A process on somebody else's machines has no machines of its own. The pool it runs
+  // on is billed once, for its real size; billing each stage inside it as well counted
+  // the same hardware six times and made a pipeline look six times more expensive than
+  // the workers it actually runs on.
+  if (host) {
+    const perCall = num(node.attrs?.pricePerMillion, 0);
+    usage = millions * perCall;
+    return {
+      nodeId: node.id,
+      label,
+      fixedUsd: 0,
+      usageUsd: round(usage),
+      totalUsd: round(usage),
+      basis: `runs on ${host.label}, which carries the cost of the machines`,
+      overridden: false,
+    };
+  }
+
   switch (family) {
     case 'compute': {
+      // An elastic endpoint is billed for what you call, not for what you run.
+      if (node.attrs?.elastic) {
+        const perCall = num(node.attrs?.pricePerMillion, 0);
+        usage = millions * perCall;
+        basis = perCall
+          ? `${round(millions)}M calls a month at $${perCall} per million, on the provider's capacity`
+          : 'hosted by a provider, with no price per call given — set one to see the bill';
+        break;
+      }
       const vcpu = num(node.attrs?.vcpu, DEFAULT_VCPU.compute);
       const memory = num(node.attrs?.memoryGb, DEFAULT_MEMORY_GB.compute);
       const perReplica = vcpu * RATES.vcpuMonth + memory * RATES.memoryGbMonth;
@@ -187,8 +220,20 @@ export function costOfNode(node: GraphNode, rps: number, replicas: number): Cost
       basis = `about $${RATES.controlMonth}/month for something that runs beside the system`;
       break;
     }
+    case 'boundary': {
+      // A plain boundary is drawing furniture. One declared a shared host is the
+      // machines everything inside it runs on, and it carries their whole bill.
+      if (!node.attrs?.sharedHost) {
+        basis = 'a boundary on the drawing — it runs nothing and costs nothing';
+        break;
+      }
+      const vcpu = num(node.attrs?.vcpu, DEFAULT_VCPU.compute);
+      const memory = num(node.attrs?.memoryGb, DEFAULT_MEMORY_GB.compute);
+      fixed = (vcpu * RATES.vcpuMonth + memory * RATES.memoryGbMonth) * copies * azMultiplier;
+      basis = `a pool of ${copies} x (${vcpu} vCPU + ${memory}GB) running everything inside it${azMultiplier > 1 ? ', doubled for two zones' : ''}`;
+      break;
+    }
     case 'origin':
-    case 'boundary':
       basis = 'costs you nothing — it is not yours to run';
       break;
   }
@@ -213,8 +258,18 @@ export function costReport(
   nodes: readonly GraphNode[],
   served: Map<string, number>,
   replicas: Map<string, number>,
+  /** Which pool each component runs on, for the ones that do not own their machines. */
+  hostedBy?: Map<string, string>,
 ): CostReport {
-  const lines = nodes.map((n) => costOfNode(n, served.get(n.id) ?? 0, replicas.get(n.id) ?? 1));
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const lines = nodes.map((n) =>
+    costOfNode(
+      n,
+      served.get(n.id) ?? 0,
+      replicas.get(n.id) ?? 1,
+      hostedBy ? byId.get(hostedBy.get(n.id) ?? '') : undefined,
+    ),
+  );
   return {
     lines,
     fixedUsd: round(lines.reduce((sum, l) => sum + l.fixedUsd, 0)),

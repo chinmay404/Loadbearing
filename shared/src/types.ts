@@ -201,6 +201,27 @@ export interface NodeAttrs {
   tokensPerRequest?: number;
   /** Price per thousand tokens. */
   pricePer1kTokens?: number;
+
+  /**
+   * Runs on a provider's elastic capacity, so its throughput is not your constraint.
+   *
+   * An Azure embedding endpoint has no replica count you chose and no rps you
+   * provisioned; asking for one invites a made-up number, and a magic sentinel like
+   * -1 is a number that has to be explained every time somebody reads it. A component
+   * marked elastic simply has no capacity limit — what CAN still stop it is the
+   * provider's rate limit and the size of your bill, both of which are asked for
+   * separately because both are real.
+   */
+  elastic?: boolean;
+
+  /**
+   * On a boundary: the components inside it run ON this pool and share its limits.
+   *
+   * Six pipeline stages drawn inside one worker group are six processes on the same
+   * machines, not six independently-sized services. Without this they each claim
+   * their own capacity and their own bill, which flatters the design twice over.
+   */
+  sharedHost?: boolean;
 }
 
 export interface GraphNode {
@@ -515,6 +536,10 @@ export interface SimNodeResult {
   replicasSettled: number;
   /** True when nothing about this component limits traffic — a client, a control plane. */
   unlimited: boolean;
+  /** Squeezed by a pool it shares with its neighbours rather than by its own size. */
+  hostLimited: boolean;
+  /** Runs on a provider's capacity, so it has no utilisation of its own. */
+  elastic: boolean;
 }
 
 export interface SimFlowResult {

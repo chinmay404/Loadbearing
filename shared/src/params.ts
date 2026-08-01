@@ -141,6 +141,24 @@ const COST_OVERRIDE: ParamSpec = {
   min: 0,
 };
 
+const ELASTIC: ParamSpec = {
+  key: 'elastic',
+  label: 'Runs on a provider’s capacity',
+  hint: 'You did not size this and cannot scale it — a hosted endpoint. Capacity stops being your constraint; their rate limit and their price take over.',
+  kind: 'toggle',
+  group: 'size',
+};
+
+const RATE_LIMIT: ParamSpec = {
+  key: 'rateLimitRps',
+  label: 'Their rate limit',
+  hint: 'What the provider accepts before refusing you. This, not capacity, is what stops an elastic component.',
+  kind: 'number',
+  group: 'behaviour',
+  unit: 'rps',
+  min: 0,
+};
+
 const TRAFFIC_SOURCE: ParamSpec = {
   key: 'trafficRps',
   label: 'Traffic starts here',
@@ -174,6 +192,7 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
   routing: [CAPACITY, SERVICE_TIME, REPLICAS, COST_OVERRIDE],
 
   compute: [
+    ELASTIC,
     VCPU,
     MEMORY,
     SERVICE_TIME,
@@ -182,8 +201,19 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
     AUTOSCALE_MIN,
     AUTOSCALE_MAX,
     CONCURRENCY,
+    RATE_LIMIT,
     TIMEOUT,
     MULTI_AZ,
+    {
+      key: 'pricePerMillion',
+      label: 'Price per million calls',
+      hint: 'For a hosted endpoint you are billed per call rather than per hour. Multiplied by the traffic actually served.',
+      kind: 'number',
+      group: 'money',
+      unit: '$',
+      min: 0,
+      step: 0.5,
+    },
     COST_OVERRIDE,
   ],
 
@@ -286,6 +316,8 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
   ],
 
   ai: [
+    ELASTIC,
+    RATE_LIMIT,
     SERVICE_TIME,
     {
       key: 'tokensPerRequest',
@@ -315,7 +347,28 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
 
   control: [COST_OVERRIDE],
 
-  boundary: [],
+  /**
+   * A boundary is usually just drawing furniture. But the moment it is declared a
+   * shared host it stops being decoration and becomes the machines the components
+   * inside it run on — which needs a size, a replica count and a scaling range, since
+   * those are now the limits everything inside is competing for.
+   */
+  boundary: [
+    {
+      key: 'sharedHost',
+      label: 'Everything inside runs on this pool',
+      hint: 'The components drawn inside share these machines and their limits, instead of each having capacity and a bill of its own.',
+      kind: 'toggle',
+      group: 'size',
+    },
+    VCPU,
+    MEMORY,
+    REPLICAS,
+    AUTOSCALE_MIN,
+    AUTOSCALE_MAX,
+    MULTI_AZ,
+    COST_OVERRIDE,
+  ],
 };
 
 /** The parameters this component type offers, in inspector order. */

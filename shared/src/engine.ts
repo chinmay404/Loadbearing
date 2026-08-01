@@ -147,6 +147,10 @@ export interface HopState {
   /** Dead, but transparent: traffic passes through untouched. */
   bypassed: boolean;
   down: boolean;
+  /** Squeezed by the pool it shares rather than by a limit of its own. */
+  hostLimited: boolean;
+  /** Runs on a provider's capacity, so it has no utilisation to report. */
+  elastic: boolean;
 }
 
 export interface TickState {
@@ -205,6 +209,8 @@ export interface EngineResult {
   /** Retries as a share of all attempts at the worst moment, 0..n. */
   retryAmplification: number;
   cycleNodeIds: string[];
+  /** Which shared pool each component runs on, by node id. Empty when nothing shares. */
+  hostedBy: Record<string, string>;
   findings: string[];
   assumptions: string[];
 }
@@ -463,6 +469,13 @@ interface Prepared {
   waited: Set<string>;
   /** Who holds a copy of whose data, from the replication links that were drawn. */
   replicatedWith: Map<string, Set<string>>;
+  /**
+   * Components that run on a shared pool, and the boundary that is that pool. Six
+   * pipeline stages inside one worker group are six processes on the same machines.
+   */
+  hostOf: Map<string, GraphNode>;
+  /** The members of each pool, so its capacity can be divided between them. */
+  hosted: Map<string, string[]>;
   cycleNodeIds: string[];
   paths: PathReport[];
   pathsOmitted: number;
@@ -541,6 +554,28 @@ function prepare(graph: GraphDSL): Prepared {
     }
   }
 
+  // A boundary marked as a shared host is the machines its contents run on. Nesting
+  // walks upward, so a stage inside a subgroup inside a worker pool still lands on the
+  // pool.
+  const byIdAll = new Map(graph.nodes.map((n) => [n.id, n]));
+  const hostOf = new Map<string, GraphNode>();
+  const hosted = new Map<string, string[]>();
+  for (const node of nodes) {
+    let parentId = node.parentId;
+    const seen = new Set<string>([node.id]);
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      const parent = byIdAll.get(parentId);
+      if (!parent) break;
+      if (parent.attrs?.sharedHost) {
+        hostOf.set(node.id, parent);
+        hosted.set(parent.id, [...(hosted.get(parent.id) ?? []), node.id]);
+        break;
+      }
+      parentId = parent.parentId;
+    }
+  }
+
   const sources = findSources({ ...graph, nodes }, inbound);
   const sinkIds = nodes
     .filter((n) => (out.get(n.id)?.length ?? 0) === 0 && (inbound.get(n.id)?.length ?? 0) > 0)
@@ -587,6 +622,8 @@ function prepare(graph: GraphDSL): Prepared {
     sinkIds,
     waited,
     replicatedWith,
+    hostOf,
+    hosted,
     cycleNodeIds: [...cycles].sort(),
     paths,
     pathsOmitted: omitted,
@@ -644,6 +681,28 @@ interface NodeRuntime {
   latencyMs: number;
   backlog: number;
   failFraction: number;
+  /** Constrained by the pool it shares rather than by anything of its own. */
+  hostLimited: boolean;
+}
+
+/**
+ * Concurrent requests a shared pool can hold in flight across all of it.
+ *
+ * Expressed in slots rather than requests per second because the components sharing it
+ * have different service times: a parser at 2.5 seconds and a chunker at 20ms cost the
+ * pool wildly different amounts per request, and only concurrency adds up.
+ */
+function hostSlots(host: GraphNode, scaled?: number): number {
+  const vcpu = host.attrs?.vcpu;
+  const replicas = scaled ?? replicasOf(host);
+  if (typeof vcpu === 'number' && vcpu > 0) {
+    return vcpu * CONCURRENT_REQUESTS_PER_VCPU * replicas;
+  }
+  const stated = host.attrs?.concurrency;
+  if (typeof stated === 'number' && stated > 0) return stated * replicas;
+  // Unsized pool: it is a drawing boundary that happens to be marked shared, and
+  // constraining traffic by a number nobody gave would be inventing one.
+  return Number.POSITIVE_INFINITY;
 }
 
 /**
@@ -725,7 +784,10 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
       const perReplica = perReplicaCapacity(node, serviceMs) * capacityMultiple;
       const replicas = scaledReplicas.get(node.id) ?? 1;
       const passive = PASSIVE_FAMILIES.has(family);
-      const capacity = passive
+      // Elastic means somebody else's capacity, so the only thing that can stop it is
+      // their rate limit — which is applied as shedding, further down.
+      const unbounded = passive || node.attrs?.elastic === true;
+      const capacity = unbounded
         ? Number.POSITIVE_INFINITY
         : Math.max(0, perReplica * replicas);
 
@@ -755,6 +817,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         latencyMs: serviceMs,
         backlog: backlog.get(node.id) ?? 0,
         failFraction: 0,
+        hostLimited: false,
       });
     }
 
@@ -779,7 +842,10 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
     let retriedAttempts = 0;
 
     for (let round = 0; round < RELAX_ROUNDS; round += 1) {
-      for (const r of runtime.values()) r.arriving = 0;
+      for (const r of runtime.values()) {
+        r.arriving = 0;
+        r.hostLimited = false;
+      }
       firstAttempts = 0;
       retriedAttempts = 0;
       for (const [id, rate] of offeredBySource) {
@@ -855,6 +921,37 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
           firstAttempts += attempts;
           retriedAttempts += attempts * multiplier;
         });
+      }
+
+      // Components sharing a pool compete for it.
+      //
+      // The quantity that composes is concurrency, not requests per second: a stage
+      // needs `arrivals x service time` slots at once, and the pool supplies
+      // `vCPU x replicas` worth. Six pipeline stages inside one worker group are six
+      // processes on the same machines — drawn separately, but they cannot each have
+      // their own capacity, and a parser holding a worker for 2.5 seconds starves the
+      // chunker beside it far more than its request count suggests.
+      for (const [hostId, memberIds] of prep.hosted) {
+        const host = prep.hostOf.get(memberIds[0] ?? '');
+        if (!host) continue;
+        const supply = hostSlots(host, scaledReplicas.get(hostId));
+        if (!Number.isFinite(supply) || supply <= 0) continue;
+
+        let demand = 0;
+        for (const id of memberIds) {
+          const r = runtime.get(id);
+          if (r) demand += r.arriving * (r.serviceMs / 1000);
+        }
+        if (demand <= supply + EPSILON) continue;
+
+        // Everyone is squeezed by the same factor: the pool does not choose favourites.
+        const factor = supply / demand;
+        for (const id of memberIds) {
+          const r = runtime.get(id);
+          if (!r) continue;
+          r.capacity = Math.min(r.capacity, r.arriving * factor);
+          r.hostLimited = true;
+        }
       }
 
       // Serve what arrived, shed the rest, and remember how badly each failed so
@@ -1055,6 +1152,8 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         state: stateFor(r.utilization, r.dropped > EPSILON),
         bypassed: r.bypassed,
         down: r.down,
+        hostLimited: r.hostLimited,
+        elastic: r.node.attrs?.elastic === true,
       };
     });
 
@@ -1116,6 +1215,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
     ),
     retryAmplification: round(peakRetry, 3),
     cycleNodeIds: prep.cycleNodeIds,
+    hostedBy: Object.fromEntries([...prep.hostOf].map(([child, host]) => [child, host.id])),
     findings: [],
     assumptions: assumptionsFor(prep, scenario),
   };
@@ -1123,6 +1223,9 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
 
 function reasonFor(r: NodeRuntime): string {
   if (r.down && !r.bypassed) return `${r.node.label} is offline, and nothing else serves its traffic.`;
+  if (r.hostLimited) {
+    return `${r.node.label} shares a pool that has run out of room — the components beside it are using the machines.`;
+  }
   if (r.arriving > r.shedLimit) return `${r.node.label} is shedding above its ${Math.round(r.shedLimit)} rps limit.`;
   if (r.latencyMs > num(r.node.attrs?.timeoutMs, DEFAULT_TIMEOUT_MS[r.family])) {
     return `${r.node.label} answers in ${Math.round(r.latencyMs)}ms, past the ${Math.round(num(r.node.attrs?.timeoutMs, DEFAULT_TIMEOUT_MS[r.family]))}ms its caller waits.`;

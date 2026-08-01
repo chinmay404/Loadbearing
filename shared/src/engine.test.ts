@@ -349,6 +349,109 @@ describe('failing over, and not', () => {
   });
 });
 
+describe('components that share a machine', () => {
+  /** A worker pool with two stages drawn inside it. */
+  const pipeline = (poolAttrs: NodeAttrs, parserMs = 100, chunkerMs = 20): GraphDSL => ({
+    nodes: [
+      node('web', 'client', { trafficRps: 100 }),
+      { ...node('pool', 'group', poolAttrs), label: 'Worker pool' },
+      { ...node('parser', 'doc_parser', { latencyMs: parserMs }), parentId: 'pool' },
+      { ...node('chunker', 'chunker', { latencyMs: chunkerMs }), parentId: 'pool' },
+    ],
+    edges: [edge('web', 'parser'), edge('parser', 'chunker')],
+    stickies: [],
+    flows: [],
+  });
+
+  it('does not constrain anything when the boundary is only a boundary', () => {
+    const result = runEngine(pipeline({}), scenario());
+    expect(hop(result, 'parser').hostLimited).toBe(false);
+    expect(result.hostedBy).toEqual({});
+  });
+
+  it('divides one pool between everything inside it', () => {
+    // 8 slots. The parser needs 100 x 0.1 = 10 and the chunker 100 x 0.02 = 2, so
+    // demand is 12 against a supply of 8 and both are squeezed by the same third.
+    const result = runEngine(pipeline({ sharedHost: true, vcpu: 1 }), scenario());
+
+    expect(result.hostedBy).toEqual({ parser: 'pool', chunker: 'pool' });
+    expect(hop(result, 'parser').hostLimited).toBe(true);
+    expect(hop(result, 'parser').droppedRps).toBeGreaterThan(0);
+    expect(result.firstFailure?.reason).toContain('shares a pool');
+  });
+
+  it('charges the slow stage against its neighbours, not just against itself', () => {
+    // The parser's service time is what eats the pool: ten times slower means ten times
+    // the slots for the same request rate, and the chunker beside it starves.
+    const fast = runEngine(pipeline({ sharedHost: true, vcpu: 2 }, 20, 20), scenario());
+    const slow = runEngine(pipeline({ sharedHost: true, vcpu: 2 }, 400, 20), scenario());
+
+    expect(hop(fast, 'chunker').droppedRps).toBe(0);
+    expect(hop(slow, 'chunker').droppedRps).toBeGreaterThan(0);
+  });
+
+  it('gives the pool more room when it is given more machines', () => {
+    const small = runEngine(pipeline({ sharedHost: true, vcpu: 1 }), scenario());
+    const large = runEngine(pipeline({ sharedHost: true, vcpu: 4 }), scenario());
+
+    expect(hop(small, 'parser').droppedRps).toBeGreaterThan(0);
+    expect(hop(large, 'parser').droppedRps).toBe(0);
+  });
+
+  it('reaches a stage nested deeper inside the pool', () => {
+    const nested: GraphDSL = {
+      nodes: [
+        node('web', 'client', { trafficRps: 100 }),
+        { ...node('pool', 'group', { sharedHost: true, vcpu: 1 }), label: 'Pool' },
+        { ...node('inner', 'group', {}), label: 'Stage group', parentId: 'pool' },
+        { ...node('parser', 'doc_parser', { latencyMs: 100 }), parentId: 'inner' },
+      ],
+      edges: [edge('web', 'parser')],
+      stickies: [],
+      flows: [],
+    };
+    expect(runEngine(nested, scenario()).hostedBy).toEqual({ parser: 'pool' });
+  });
+
+  it('leaves an unsized pool alone rather than inventing a limit for it', () => {
+    const result = runEngine(pipeline({ sharedHost: true }), scenario());
+    expect(hop(result, 'parser').hostLimited).toBe(false);
+  });
+});
+
+describe('a component on somebody else’s capacity', () => {
+  const hosted = (attrs: NodeAttrs) =>
+    graph(
+      [node('web', 'client', { trafficRps: 2000 }), node('embed', 'embedding_svc', attrs)],
+      [edge('web', 'embed')],
+    );
+
+  it('has no capacity limit of its own, however much arrives', () => {
+    // The alternative was a magic -1. A hosted endpoint has no replica count you chose
+    // and no rps you provisioned, so the honest model is no limit at all.
+    const result = runEngine(hosted({ elastic: true }), scenario());
+    const embed = hop(result, 'embed');
+
+    expect(embed.elastic).toBe(true);
+    expect(embed.droppedRps).toBe(0);
+    expect(embed.capacityRps).toBe(Number.POSITIVE_INFINITY);
+    expect(last(result.ticks).successRate).toBeCloseTo(1, 3);
+  });
+
+  it('is still stopped by the provider’s rate limit, which is the real ceiling', () => {
+    const result = runEngine(hosted({ elastic: true, rateLimitRps: 500 }), scenario());
+    const embed = hop(result, 'embed');
+
+    expect(embed.servedRps).toBeCloseTo(500, 0);
+    expect(embed.droppedRps).toBeCloseTo(1500, 0);
+  });
+
+  it('is bounded normally when it is yours to run', () => {
+    const result = runEngine(hosted({ capacityRps: 300 }), scenario());
+    expect(hop(result, 'embed').droppedRps).toBeGreaterThan(0);
+  });
+});
+
 describe('timeouts and retries', () => {
   it('fails a call that is merely slow, once it is past the caller’s patience', () => {
     const g = graph(
