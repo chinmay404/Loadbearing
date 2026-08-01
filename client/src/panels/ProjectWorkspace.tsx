@@ -10,6 +10,7 @@ import { InspectorPanel } from './InspectorPanel';
 import { ChecksPanel } from './ChecksPanel';
 import { NotesPanel } from './NotesPanel';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
+import { Panes } from '../ui/Panes';
 import { IconBack } from '../ui/UiIcons';
 
 /**
@@ -89,9 +90,12 @@ export function ProjectWorkspace() {
   }, [dirty, canvasId, toDoc, markClean]);
 
   return (
-    <div className="workspace">
-      <aside className="pane">
-        <div className="pane-tabs">
+    <Panes
+      leftLabel="add"
+      rightLabel="this view"
+      left={
+        <>
+          <div className="pane-tabs">
           {TABS.map((t) => (
             <button key={t.id} className={leftTab === t.id ? 'active' : ''} onClick={() => setLeftTab(t.id)}>
               {t.label}
@@ -130,16 +134,13 @@ export function ProjectWorkspace() {
           <button className="ghost" onClick={() => openProject(projectId)} title="Back to the project">
             <IconBack size={15} /> Project
           </button>
-          <span className="grow" />
-          <span className="stencil">{dirty ? 'saving…' : 'saved'}</span>
-        </div>
-      </aside>
-
-      <div className="canvas-wrap">
-        <Canvas />
-      </div>
-
-      <aside className="pane right">
+            <span className="grow" />
+            <span className="stencil">{dirty ? 'saving…' : 'saved'}</span>
+          </div>
+        </>
+      }
+      right={
+        <>
         <div className="pane-tabs">
           <button className="active">This view</button>
         </div>
@@ -218,8 +219,11 @@ export function ProjectWorkspace() {
             </>
           )}
         </div>
-      </aside>
-    </div>
+        </>
+      }
+    >
+      <Canvas />
+    </Panes>
   );
 }
 

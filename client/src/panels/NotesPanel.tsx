@@ -3,6 +3,7 @@ import type { Note, NoteScope } from '@loadbearing/shared';
 import { api, ApiError } from '../lib/api';
 import { useApp } from '../state/appStore';
 import { IconPlus } from '../ui/UiIcons';
+import { Markdown } from '../ui/Markdown';
 
 /**
  * As many written notes as you want, beside the drawing rather than on it.
@@ -129,7 +130,6 @@ export function NotesPanel({
 
       {notes.map((note) => {
         const open = openId === note.id;
-        const firstLine = note.body.trim().split('\n')[0] ?? '';
         return (
           <div className="card" key={note.id} style={{ marginBottom: 0 }}>
             {open ? (
@@ -167,16 +167,26 @@ export function NotesPanel({
                 </div>
               </>
             ) : (
-              <button
-                onClick={() => setOpenId(note.id)}
-                style={{ display: 'block', width: '100%', textAlign: 'left', border: 0, padding: 0 }}
-                title="Open this note"
-              >
-                <strong style={{ fontSize: 12.5 }}>{note.title.trim() || 'Untitled note'}</strong>
-                <span className="muted" style={{ display: 'block', fontSize: 11.5, marginTop: 2 }}>
-                  {firstLine ? firstLine.slice(0, 90) : 'empty'}
-                </span>
-              </button>
+              <>
+                <button
+                  onClick={() => setOpenId(note.id)}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', border: 0, padding: 0 }}
+                  title="Open this note to edit it"
+                >
+                  <strong style={{ fontSize: 12.5 }}>{note.title.trim() || 'Untitled note'}</strong>
+                  {note.body.trim() === '' && (
+                    <span className="muted" style={{ display: 'block', fontSize: 11.5, marginTop: 2 }}>
+                      empty
+                    </span>
+                  )}
+                </button>
+                {/* Read as written. A note pasted from a chat is full of headings, bold
+                    and code fences, and showing the asterisks made it harder to read
+                    than the plain prose it replaced. Editing still shows the source. */}
+                {note.body.trim() !== '' && (
+                  <Markdown source={note.body} className="note-body" />
+                )}
+              </>
             )}
           </div>
         );

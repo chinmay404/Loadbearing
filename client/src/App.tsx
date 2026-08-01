@@ -17,6 +17,7 @@ import { SettingsPanel } from './panels/SettingsPanel';
 import { ComposePanel } from './panels/ComposePanel';
 import { ChecksPanel } from './panels/ChecksPanel';
 import { NotesPanel } from './panels/NotesPanel';
+import { Panes } from './ui/Panes';
 import { SignInPanel } from './panels/SignInPanel';
 import { ProjectsPanel } from './panels/ProjectsPanel';
 import { ProjectPanel } from './panels/ProjectPanel';
@@ -306,9 +307,12 @@ function Workspace() {
   };
 
   return (
-    <div className="workspace">
-      <aside className="pane">
-        <div className="pane-tabs">
+    <Panes
+      leftLabel="brief"
+      rightLabel="review"
+      left={
+        <>
+          <div className="pane-tabs">
           {LEFT_TABS.map((t) => (
             <button key={t.id} className={leftTab === t.id ? 'active' : ''} onClick={() => setLeftTab(t.id)}>
               {t.label}
@@ -340,29 +344,29 @@ function Workspace() {
             {submitting ? <span className="spinner" /> : null}
             {submitting ? 'Reviewing' : 'Submit for review'}
           </button>
-        </div>
-      </aside>
-
-      <div className="canvas-wrap">
-        <Canvas />
-      </div>
-
-      <aside className="pane right">
-        <div className="pane-tabs">
-          {RIGHT_TABS.map((t) => (
-            <button key={t.id} className={rightTab === t.id ? 'active' : ''} onClick={() => setRightTab(t.id)}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <div className="pane-body">
-          <ErrorBoundary area={rightTab === 'feedback' ? 'review' : rightTab}>
-            {rightTab === 'feedback' && <FeedbackPanel />}
-            {rightTab === 'ask' && <AskPanel />}
-            {rightTab === 'history' && <HistoryPanel />}
-          </ErrorBoundary>
-        </div>
-      </aside>
-    </div>
+          </div>
+        </>
+      }
+      right={
+        <>
+          <div className="pane-tabs">
+            {RIGHT_TABS.map((t) => (
+              <button key={t.id} className={rightTab === t.id ? 'active' : ''} onClick={() => setRightTab(t.id)}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="pane-body">
+            <ErrorBoundary area={rightTab === 'feedback' ? 'review' : rightTab}>
+              {rightTab === 'feedback' && <FeedbackPanel />}
+              {rightTab === 'ask' && <AskPanel />}
+              {rightTab === 'history' && <HistoryPanel />}
+            </ErrorBoundary>
+          </div>
+        </>
+      }
+    >
+      <Canvas />
+    </Panes>
   );
 }
