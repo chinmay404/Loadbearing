@@ -22,6 +22,7 @@ export function ProblemBrowser() {
   const [level, setLevel] = useState<number | 'all'>('all');
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<Record<string, number>>({});
+  const [recent, setRecent] = useState<{ problemId: string; lastTouchedAt: string; attempts: number }[]>([]);
   const [ownOpen, setOwnOpen] = useState(false);
   const [brief, setBrief] = useState('');
   const [queue, setQueue] = useState<{
@@ -32,15 +33,17 @@ export function ProblemBrowser() {
   useEffect(() => {
     void (async () => {
       try {
-        const [p, m, attempts, rq] = await Promise.all([
+        const [p, m, attempts, rq, act] = await Promise.all([
           api.problems(),
           api.mastery(),
           api.attempts(),
           api.reviewQueue().catch(() => null),
+          api.activity().catch(() => ({ recent: [] })),
         ]);
         setProblems(p);
         setMastery(m);
         setQueue(rq);
+        setRecent(act.recent);
         const best: Record<string, number> = {};
         for (const a of attempts) best[a.problemId] = Math.max(best[a.problemId] ?? 0, a.overall);
         setDone(best);
@@ -89,6 +92,16 @@ export function ProblemBrowser() {
 
   const shown = problems.filter((p) => level === 'all' || p.level === level);
   const byLevel = [1, 2, 3, 4, 5, 6].map((l) => ({ l, items: shown.filter((p) => p.level === l) }));
+
+  // The level filter applies here too, so filtering to L4 does not leave an L1 sheet
+  // stranded at the top of the page.
+  const recentlyWorkedOn = useMemo(() => {
+    const byId = new Map(shown.map((p) => [p.id, p]));
+    return recent
+      .map((r) => ({ problem: byId.get(r.problemId), touched: r.lastTouchedAt }))
+      .filter((r): r is { problem: ProblemSummary; touched: string } => Boolean(r.problem))
+      .slice(0, 6);
+  }, [recent, shown]);
 
   return (
     <div className="sheet">
@@ -210,6 +223,32 @@ export function ProblemBrowser() {
         ))}
       </div>
 
+      {/* Where you left off, before the catalogue. Sheets you have drawn on come back
+          to the top: a half-finished design is the thing you actually want to reopen,
+          and hunting for it in six levels is the friction this removes. */}
+      {recentlyWorkedOn.length > 0 && (
+        <div className="tier">
+          <div className="tier-head">
+            <span className="lvl recent">•</span>
+            <h3>Where you left off</h3>
+            <span className="count">{recentlyWorkedOn.length} recent</span>
+          </div>
+          <div className="index-grid">
+            {recentlyWorkedOn.map(({ problem, touched }) => (
+              <ProblemCard
+                key={`recent-${problem.id}`}
+                p={problem}
+                best={done[problem.id]}
+                weak={problem.concepts.filter((c) => weakSet.has(c)).length}
+                busy={busy === problem.id}
+                touched={touched}
+                onOpen={() => void open(problem.id)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {byLevel.map(({ l, items }) =>
         items.length === 0 ? null : (
           <div className="tier" key={l}>
@@ -243,21 +282,39 @@ export function ProblemBrowser() {
   );
 }
 
+/** "3h ago", "yesterday", "12 Mar" — precise enough to recognise, short enough to scan. */
+function whenTouched(iso: string): string {
+  const then = new Date(iso.includes('T') ? iso : `${iso.replace(' ', 'T')}Z`).getTime();
+  if (!Number.isFinite(then)) return '';
+  const minutes = Math.max(0, Math.round((Date.now() - then) / 60000));
+  if (minutes < 2) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  if (hours < 48) return 'yesterday';
+  const days = Math.round(hours / 24);
+  if (days < 14) return `${days}d ago`;
+  return new Date(then).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
 function ProblemCard({
   p,
   best,
   weak,
   busy,
+  touched,
   onOpen,
 }: {
   p: ProblemSummary;
   best?: number;
   weak: number;
   busy: boolean;
+  /** Set only in the recent section: when this sheet was last worked on. */
+  touched?: string;
   onOpen: () => void;
 }) {
   return (
-    <button className="plate" onClick={onOpen} disabled={busy}>
+    <button className={`plate${p.custom ? ' mine' : ''}`} onClick={onOpen} disabled={busy}>
       {best !== undefined && (
         <span
           className={`best ${best >= 80 ? 'hi' : best >= 60 ? 'mid' : 'lo'}`}
@@ -267,11 +324,19 @@ function ProblemCard({
         </span>
       )}
       <div className="t" style={{ paddingRight: best !== undefined ? 32 : 0 }}>
+        {/* Yours are marked rather than merely labelled: the catalogue and the things
+            you wrote yourself are different kinds of thing and should not need reading
+            to tell apart. */}
+        {p.custom && (
+          <span className="mine-tag" title="Your own problem, not from the catalogue">
+            yours
+          </span>
+        )}
         {p.title}
       </div>
       <div className="m">
         {p.domain}
-        {p.custom ? ' · generated' : ''}
+        {touched ? ` · ${whenTouched(touched)}` : ''}
         {weak > 0 ? ` · ${weak} weak concept${weak > 1 ? 's' : ''}` : ''}
       </div>
       <div className="row wrap" style={{ gap: 3, marginTop: 7 }}>

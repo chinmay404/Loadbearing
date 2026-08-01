@@ -129,6 +129,12 @@ export interface Storage {
   // ---- canvas designs (one per problem sheet) ----
   getDesign(userId: string, problemId: string): Promise<{ graphJson: string; updatedAt: string } | null>;
   putDesign(userId: string, problemId: string, graphJson: string): Promise<void>;
+  /**
+   * When each sheet was last drawn on, newest first. Drawing counts as working on a
+   * problem — most sheets are touched many times before anything is submitted, so
+   * attempts alone would call a problem untouched right up until it is finished.
+   */
+  listDesignActivity(userId: string, limit?: number): Promise<{ problemId: string; updatedAt: string }[]>;
 
   // ---- notes (as many as you like, per sheet or per project) ----
   listNotes(userId: string, scope: NoteScope, scopeId: string): Promise<NoteRow[]>;

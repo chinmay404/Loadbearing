@@ -251,6 +251,10 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  /** What this account has drawn on or submitted lately, most recent first. */
+  activity: () =>
+    req<{ recent: { problemId: string; lastTouchedAt: string; attempts: number }[] }>('/activity'),
+
   /**
    * Notes beside the drawing. `sheet` is one drawing (a problem sheet or one view
    * of a project); `project` is the system as a whole.

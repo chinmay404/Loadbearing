@@ -214,6 +214,25 @@ for (const backend of backends) {
       expect(await s.getDesign(b.id, 'p1')).toBeNull();
     });
 
+    it('design activity: what was drawn on, newest first, per user', async () => {
+      const s = await fresh();
+      const a = await s.createUser(uniq('aa'), 'h');
+      const b = await s.createUser(uniq('ab'), 'h');
+      expect(await s.listDesignActivity(a.id)).toEqual([]);
+
+      await s.putDesign(a.id, 'p1', '{}');
+      await new Promise((r) => setTimeout(r, 5));
+      await s.putDesign(a.id, 'p2', '{}');
+      await new Promise((r) => setTimeout(r, 5));
+      // Touching the first sheet again brings it back to the front, which is the
+      // whole point: recency is about when you last worked, not when you started.
+      await s.putDesign(a.id, 'p1', '{"v":2}');
+      await s.putDesign(b.id, 'p3', '{}');
+
+      expect((await s.listDesignActivity(a.id)).map((d) => d.problemId)).toEqual(['p1', 'p2']);
+      expect((await s.listDesignActivity(b.id)).map((d) => d.problemId)).toEqual(['p3']);
+    });
+
     it('notes: many per scope, newest first, isolated per scope and user', async () => {
       const s = await fresh();
       const a = await s.createUser(uniq('na'), 'h');

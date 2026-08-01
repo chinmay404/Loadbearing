@@ -561,6 +561,18 @@ export class PostgresStorage implements Storage {
     );
   }
 
+  async listDesignActivity(
+    userId: string,
+    limit = 40,
+  ): Promise<{ problemId: string; updatedAt: string }[]> {
+    const rows = await this.q<{ problem_id: string; updated_at: Date | string }>(
+      `SELECT problem_id, updated_at FROM designs WHERE user_id = $1
+       ORDER BY updated_at DESC LIMIT $2`,
+      [userId, limit],
+    );
+    return rows.map((r) => ({ problemId: r.problem_id, updatedAt: iso(r.updated_at) }));
+  }
+
   // ---- notes ----
 
   async listNotes(userId: string, scope: NoteScope, scopeId: string): Promise<NoteRow[]> {

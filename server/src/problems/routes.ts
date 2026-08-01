@@ -76,6 +76,44 @@ problemRoutes.get('/problems', async (c) => {
 
 problemRoutes.get('/concepts', (c) => c.json(CONCEPT_CARDS));
 
+/**
+ * What this account has been working on, most recent first.
+ *
+ * Both signals count. A submitted attempt is obvious, but most sheets are drawn on
+ * many times before anything is submitted — so designs are included, and a problem
+ * opened yesterday and left half-drawn is exactly the one someone wants at the top of
+ * the list tomorrow.
+ */
+problemRoutes.get('/activity', requireUser, async (c) => {
+  const store = await storage();
+  const userId = c.get('userId');
+  const [designs, attempts] = await Promise.all([
+    store.listDesignActivity(userId),
+    store.listAttempts(userId, undefined, 100),
+  ]);
+
+  const latest = new Map<string, { problemId: string; lastTouchedAt: string; attempts: number }>();
+  const touch = (problemId: string, at: string, wasAttempt: boolean) => {
+    const seen = latest.get(problemId);
+    if (!seen) {
+      latest.set(problemId, { problemId, lastTouchedAt: at, attempts: wasAttempt ? 1 : 0 });
+      return;
+    }
+    if (at > seen.lastTouchedAt) seen.lastTouchedAt = at;
+    if (wasAttempt) seen.attempts += 1;
+  };
+
+  for (const d of designs) touch(d.problemId, d.updatedAt, false);
+  for (const a of attempts) touch(a.problemId, a.createdAt, true);
+
+  const recent = [...latest.values()].sort((a, b) =>
+    a.lastTouchedAt === b.lastTouchedAt
+      ? a.problemId.localeCompare(b.problemId)
+      : b.lastTouchedAt.localeCompare(a.lastTouchedAt),
+  );
+  return c.json({ recent });
+});
+
 problemRoutes.get('/weakness-target', requireUser, async (c) =>
   c.json(await weaknessTarget(await storage(), c.get('userId'))),
 );

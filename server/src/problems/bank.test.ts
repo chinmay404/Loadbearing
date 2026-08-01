@@ -4,14 +4,14 @@ import { PROBLEM_BANK, PROBLEM_BY_ID } from './bank.js';
 import { auditSeedProblem, validateProblem } from './validate.js';
 
 describe('problem bank', () => {
-  it('has 25 problems with unique ids and the intended level spread', () => {
-    expect(PROBLEM_BANK).toHaveLength(25);
-    expect(new Set(PROBLEM_BANK.map((p) => p.id)).size).toBe(25);
+  it('has 37 problems with unique ids and the intended level spread', () => {
+    expect(PROBLEM_BANK).toHaveLength(37);
+    expect(new Set(PROBLEM_BANK.map((p) => p.id)).size).toBe(37);
     const byLevel = PROBLEM_BANK.reduce<Record<number, number>>((acc, p) => {
       acc[p.level] = (acc[p.level] ?? 0) + 1;
       return acc;
     }, {});
-    expect(byLevel).toEqual({ 1: 4, 2: 4, 3: 5, 4: 5, 5: 4, 6: 3 });
+    expect(byLevel).toEqual({ 1: 6, 2: 6, 3: 7, 4: 7, 5: 6, 6: 5 });
   });
 
   it('every problem meets the seed-content bar', () => {

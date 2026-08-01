@@ -500,6 +500,11 @@ input[type='checkbox'] {
   color: var(--fail);
   border-color: #7a3a33;
 }
+/* The "where you left off" heading marker: a level badge shape with no level. */
+.lvl.recent {
+  color: var(--brass);
+  border-color: #6b5524;
+}
 
 .sev-high {
   border-left: 2px solid var(--fail);
@@ -1076,6 +1081,31 @@ details.disclose[open] > summary {
 }
 .plate.active {
   border-color: var(--brass);
+}
+/*
+ * A problem you wrote or generated, as opposed to one from the catalogue. Marked with
+ * a left edge and a warmer ground rather than a colour swap, so the distinction reads
+ * at a glance down a column without the card competing with the score badge.
+ */
+.plate.mine {
+  border-left: 2px solid var(--brass);
+  background: #1f1b15;
+}
+.plate.mine:hover {
+  border-color: #4e4841;
+  border-left-color: var(--brass);
+  background: #241f18;
+}
+.plate .mine-tag {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brass);
+  border: 1px solid #6b5524;
+  border-radius: var(--r);
+  padding: 0 3px;
+  flex-shrink: 0;
 }
 .plate .t {
   font-family: var(--display);

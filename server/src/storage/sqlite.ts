@@ -172,7 +172,7 @@ export class SqliteStorage implements Storage {
         user_id TEXT NOT NULL,
         problem_id TEXT NOT NULL,
         graph_json TEXT NOT NULL,
-        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')),
         PRIMARY KEY (user_id, problem_id)
       );
 
@@ -483,10 +483,26 @@ export class SqliteStorage implements Storage {
   async putDesign(userId: string, problemId: string, graphJson: string): Promise<void> {
     this.db
       .prepare(
-        `INSERT INTO designs (user_id, problem_id, graph_json, updated_at) VALUES (?, ?, ?, datetime('now'))
-         ON CONFLICT(user_id, problem_id) DO UPDATE SET graph_json = excluded.graph_json, updated_at = datetime('now')`,
+        // Millisecond resolution, because this timestamp is what "where you left off"
+        // orders by: three sheets touched in the same second tie, and the list comes
+        // back in an order that has nothing to do with when you worked on them.
+        `INSERT INTO designs (user_id, problem_id, graph_json, updated_at) VALUES (?, ?, ?, ${NOW_MS})
+         ON CONFLICT(user_id, problem_id) DO UPDATE SET graph_json = excluded.graph_json, updated_at = ${NOW_MS}`,
       )
       .run(userId, problemId, graphJson);
+  }
+
+  async listDesignActivity(
+    userId: string,
+    limit = 40,
+  ): Promise<{ problemId: string; updatedAt: string }[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT problem_id, updated_at FROM designs WHERE user_id = ?
+         ORDER BY updated_at DESC LIMIT ?`,
+      )
+      .all(userId, limit) as unknown as { problem_id: string; updated_at: string }[];
+    return rows.map((r) => ({ problemId: r.problem_id, updatedAt: r.updated_at }));
   }
 
   // ---- notes ----

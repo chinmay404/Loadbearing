@@ -1,4 +1,4 @@
-// The Loadbearing problem bank. Pure data: 25 system-design problems across six
+// The Loadbearing problem bank. Pure data: 37 system-design problems across six
 // levels, from single-service fundamentals to distributed and AI-platform work.
 // Every `concepts` entry is an id from CONCEPT_CARDS in @loadbearing/shared.
 
@@ -1448,6 +1448,674 @@ export const PROBLEM_BANK: Problem[] = [
         rpsMultiplier: 5,
         killNodes: ['cache', 'redis'],
         passCriteria: 'Spend ceilings and rate limits still bind; the gateway degrades cost and latency in a stated way rather than uncapped spending.',
+      },
+    ],
+  },
+
+  // ==========================================================================
+  // A second wave, written against the mechanisms the load engine models: an
+  // autoscaler that arrives late, a cache whose hit rate collapses at once,
+  // retries amplifying a brownout, somebody else's rate limit, a backlog that
+  // has to drain before morning. Each one has a failure that is only visible
+  // when you run it, rather than one you can reason about from the picture.
+  // ==========================================================================
+
+  // ------------------------------------------------------------------ L1 ----
+  {
+    id: 'l1-signup-email-verification',
+    title: 'Signup With Email Verification',
+    level: 1,
+    domain: 'identity',
+    prompt:
+      "New users sign up, you send a verification email, they click the link, the account activates. It works fine at 20 signups a minute. Then a product launch put 900 signups in the first two minutes and three things broke at once: the email provider started returning 429 because your plan allows 100 messages a second, the signup endpoint held a thread for the whole 2-second provider call so it stopped accepting anything, and roughly 200 people clicked their link twice and got 'token already used' errors that read like failures. Nobody lost data, but 40% of that cohort never activated. Design the signup and verification paths so a launch is survivable.",
+    functional: [
+      'Create an account from an email address and password',
+      'Send a verification email containing a single-use link',
+      'Activate the account when the link is visited, including when it is visited twice',
+      'Let a user ask for the email again without creating a second account',
+    ],
+    nonFunctional: {
+      peakRps: 15,
+      normalRps: 0.3,
+      p99Ms: 'signup responds under 400ms',
+      providerLimitRps: 100,
+      providerP95Ms: 2000,
+      tokenLifetime: '24h',
+    },
+    constraints: [
+      'Team of 2, no dedicated infrastructure engineer',
+      'The email provider is bought, not built, and its rate limit is contractual',
+      'Budget: under $200/month at this size',
+    ],
+    concepts: ['idempotency', 'timeout-retry', 'queue-backpressure', 'rate-limiting', 'degradation'],
+    expectedFlows: ['signup request', 'verification email send', 'link activation'],
+    rubricHints:
+      'The load-bearing decision is whether the provider call is on the signup request path at all. A design that calls the email provider synchronously fails all three ways described: the thread is held for 2 seconds, a 429 becomes a signup failure, and the user is told to try again — which creates a second account or a second email. Look for the send moved behind a buffer with a bounded retry, and for the retry respecting the provider limit rather than hammering a 429. Then check the activation link: clicking twice must be the SAME outcome, not an error, which means activation is idempotent on the token rather than a state transition that can only run once. Penalise a design that stores the token as a row deleted on use, because the second click then cannot tell "already activated" from "forged". Ask what the user sees while the email is still queued.',
+    twists: [
+      'The email provider has a 20-minute outage during the launch — nobody may be permanently stuck unverified.',
+      'Marketing wants a "resend" button, and a user presses it eleven times in ten seconds.',
+    ],
+    scenarios: [
+      {
+        id: 'launch-burst',
+        name: 'Launch burst',
+        description: 'Signups rise 50x for two minutes when the launch post goes out.',
+        rpsMultiplier: 50,
+        passCriteria: 'Signup keeps responding under 400ms and every account eventually receives exactly one verification email.',
+      },
+      {
+        id: 'provider-slow',
+        name: 'Email provider degraded',
+        description: 'The provider adds 4 seconds to every send during the burst.',
+        rpsMultiplier: 20,
+        thirdPartyLatencyMs: 4000,
+        passCriteria: 'Signup latency is unaffected, because nobody is waiting on the provider.',
+      },
+      {
+        id: 'provider-down',
+        name: 'Email provider offline',
+        description: 'The provider refuses every request for twenty minutes.',
+        rpsMultiplier: 5,
+        killNodes: ['email', 'provider'],
+        passCriteria: 'Accounts are still created and sends resume when the provider returns; no signup is lost and no user is permanently unverified.',
+      },
+    ],
+  },
+  {
+    id: 'l1-nightly-report-export',
+    title: 'Nightly Report That Must Finish By Morning',
+    level: 1,
+    domain: 'productivity',
+    prompt:
+      'Every night at 02:00 you generate a PDF report per customer account and email a link. There are 4,000 accounts, each report takes about 9 seconds of work, and the whole run has to be done before people arrive at 08:00. It has been fine for a year. Last month the customer count passed 3,000 and the job began finishing at 07:40; last week one account with a decade of history took 40 minutes on its own and the run finished at 09:15 with the last 600 accounts missing. The job is a single process that loops over accounts. Design the run so growth does not silently eat the margin, and so one enormous account cannot delay everyone else.',
+    functional: [
+      'Generate one report per active account each night',
+      'Email each account a link when its report is ready',
+      'Re-run a single account on demand without repeating the whole night',
+      'Report which accounts failed and why',
+    ],
+    nonFunctional: {
+      accounts: 4000,
+      perAccountSeconds: 9,
+      windowHours: 6,
+      growthRate: '15% more accounts per quarter',
+      worstAccountMinutes: 40,
+    },
+    constraints: [
+      'The database this reads from also serves daytime traffic and must not be saturated at 02:00',
+      'Team of 3, and nobody is awake at 02:00',
+      'Budget: the nightly run may cost up to $300/month',
+    ],
+    concepts: ['scheduled-jobs', 'queue-backpressure', 'capacity-estimation', 'observability', 'hot-partition'],
+    expectedFlows: ['nightly fan-out', 'per-account report generation', 'failure retry'],
+    rubricHints:
+      'The arithmetic is the point: 4,000 accounts at 9 seconds is 10 hours of work in a 6-hour window, so a single sequential process was ALREADY over budget before the outlier appeared — a design that keeps one worker and tunes it has not read the numbers. Look for the run split into per-account units on a queue with a pool of workers, and for the worker count justified against the window rather than picked. The outlier is the second lesson: with one queue and blind workers, a 40-minute account occupies a worker but does not delay others, whereas a design that partitions by account range does stall a whole partition — reward noticing the difference. Check for a per-unit timeout so a pathological account fails rather than runs forever, for retries that do not restart the entire night, and for the run reporting completion against the 08:00 deadline instead of only logging errors. Watch for the read load on the shared database being ignored.',
+    twists: [
+      'Two accounts now take over an hour each, and legal requires their reports on the same schedule as everyone else.',
+      'The window shrinks to four hours because an overnight maintenance job moves.',
+    ],
+    scenarios: [
+      {
+        id: 'growth',
+        name: 'Two years of growth',
+        description: 'Account count triples while the window stays the same.',
+        rpsMultiplier: 3,
+        passCriteria: 'The run still completes inside the window, or the design states plainly what it scales to add.',
+      },
+      {
+        id: 'worker-loss',
+        name: 'Half the workers die',
+        description: 'A deploy takes out half the worker pool mid-run.',
+        rpsMultiplier: 1,
+        killNodes: ['worker'],
+        passCriteria: 'Work already claimed is not lost, and the remaining capacity picks it up without duplicating reports.',
+      },
+    ],
+  },
+
+  // ------------------------------------------------------------------ L2 ----
+  {
+    id: 'l2-autoscaled-campaign-tier',
+    title: 'A Web Tier That Scales Too Late',
+    level: 2,
+    domain: 'growth',
+    prompt:
+      "Your marketing site and signup API run on an autoscaling group: minimum 1 instance, maximum 40, target 70% CPU, and it takes about 90 seconds for a new instance to be in service. Baseline is 60 rps. Every campaign email goes out at 09:00 and puts 4,000 rps on the tier within 20 seconds. The autoscaler is doing exactly what it was configured to do and it is useless: by the time instances arrive the campaign traffic has already peaked and the first two minutes returned errors to roughly 100,000 people. Somebody has proposed setting the minimum to 40. Design the tier so a scheduled spike is survivable without paying for 40 instances all month.",
+    functional: [
+      'Serve the campaign landing page',
+      'Accept signups from the landing page',
+      'Stay available for ordinary traffic during a campaign',
+      'Return something useful rather than an error when saturated',
+    ],
+    nonFunctional: {
+      baselineRps: 60,
+      peakRps: 4000,
+      timeToPeakSeconds: 20,
+      instanceWarmupSeconds: 90,
+      perInstanceRps: 120,
+      p99Ms: 300,
+    },
+    constraints: [
+      'Budget: average monthly spend must stay under $900, so 40 always-on instances are not an option',
+      'Campaign times are known in advance, to the minute',
+      'Team of 4',
+    ],
+    concepts: ['capacity-estimation', 'load-balancing', 'caching', 'cdn', 'degradation', 'cost-control', 'rate-limiting'],
+    expectedFlows: ['campaign landing page read', 'signup write', 'baseline traffic'],
+    rubricHints:
+      'Reactive autoscaling cannot beat a 20-second ramp when instances take 90 seconds, and the model will show it: the floor is what serves the spike. So the interesting answers are the ones that avoid needing 34 instances at all — the landing page is static and belongs on a CDN, which removes most of the 4,000 rps before it reaches compute, leaving only signups. Reward that before rewarding any scaling configuration. Then look for scheduled scaling ahead of a known campaign time, which is legitimate precisely because the schedule is known; a design that only raises the minimum permanently should be marked against the stated budget. Check that the signup path sheds or queues rather than failing when it does saturate, and that the arithmetic for instances-versus-cost appears somewhere. A design claiming the autoscaler solves it, with no warm-up reasoning, is the failure this problem is testing for.',
+    twists: [
+      'A campaign is sent by mistake at an unscheduled time, so pre-scaling did not happen.',
+      'The landing page becomes personalised per recipient, so it is no longer trivially cacheable.',
+    ],
+    scenarios: [
+      {
+        id: 'campaign-send',
+        name: 'Campaign send',
+        description: 'Traffic goes from baseline to 4,000 rps inside 20 seconds.',
+        rpsMultiplier: 66,
+        passCriteria: 'The landing page keeps serving; signups either succeed or are queued, and errors are not the primary response.',
+      },
+      {
+        id: 'sustained',
+        name: 'Sustained interest',
+        description: 'Traffic stays at 10x baseline for an hour after the send.',
+        rpsMultiplier: 10,
+        passCriteria: 'The tier settles into steady state within its budget and nothing is still shedding.',
+      },
+    ],
+  },
+  {
+    id: 'l2-cache-stampede-homepage',
+    title: 'The Homepage That Falls Over Every Hour',
+    level: 2,
+    domain: 'social',
+    prompt:
+      "The homepage feed is computed from a query that takes 1.4 seconds and is cached with a 60-minute TTL. It serves 6,000 rps happily at a 99% hit rate. But every hour, on the hour, the entry expires and several thousand requests miss simultaneously; they all run the 1.4-second query, the database saturates, latency climbs to 12 seconds, and the site is effectively down for 30 to 90 seconds. It recovers on its own, which is why it survived three months before anyone investigated. A second version of this happens after every deploy that flushes the cache. Design the read path so an expiry is not an outage.",
+    functional: [
+      'Serve the computed homepage feed',
+      'Reflect new content within the staleness budget',
+      'Survive a deploy that empties the cache',
+      'Keep serving during a database slowdown',
+    ],
+    nonFunctional: {
+      peakRps: 6000,
+      hitRate: 0.99,
+      recomputeSeconds: 1.4,
+      dbCapacityRps: 900,
+      stalenessBudget: '10 minutes',
+      p99Ms: 250,
+    },
+    constraints: [
+      'The feed query cannot be made materially faster without a schema change nobody has budget for',
+      'Team of 5',
+      'Budget: cache tier up to $400/month',
+    ],
+    concepts: ['caching', 'hot-partition', 'degradation', 'timeout-retry', 'observability', 'capacity-estimation'],
+    expectedFlows: ['homepage read on hit', 'homepage read on miss', 'cache refresh'],
+    rubricHints:
+      'Check the arithmetic first: 6,000 rps arriving at a database sized for 900 is a 6.7x overload, so the expiry is not a slow path, it is an outage — a design that merely shortens the TTL makes it happen more often. The mechanisms worth reward: coalescing concurrent misses so one request recomputes and the rest wait on it; refreshing ahead of expiry so the entry is never absent; jittering the TTL per key so thousands of keys do not expire together; and serving the stale value while a refresh runs, which the 10-minute staleness budget explicitly permits. Any one of those fixes it, and naming which one and why is better than listing all four. The deploy case is the tell for whether the design actually understands the failure: a cold cache has no stale value to serve, so coalescing and a shed-or-queue path are what save it. Penalise a design where a miss retries the database on timeout, which is the amplification that turns a slow database into a dead one.',
+    twists: [
+      'The feed becomes per-user for logged-in visitors, so there is no single hot key to protect.',
+      'A cache node is lost at peak and its share of keys is suddenly cold.',
+    ],
+    scenarios: [
+      {
+        id: 'expiry',
+        name: 'The entry expires',
+        description: 'Every request misses at once when the cached feed expires.',
+        rpsMultiplier: 1,
+        killNodes: ['cache', 'redis'],
+        passCriteria: 'The database is not offered more than it can serve; readers get a stale or queued answer rather than a 12-second wait.',
+      },
+      {
+        id: 'cold-deploy',
+        name: 'Deploy flushes the cache',
+        description: 'The cache is empty at full traffic.',
+        rpsMultiplier: 2,
+        killNodes: ['cache', 'redis'],
+        passCriteria: 'The site degrades in a stated way and recovers without manual intervention.',
+      },
+    ],
+  },
+
+  // ------------------------------------------------------------------ L3 ----
+  {
+    id: 'l3-retry-storm-cascade',
+    title: 'The Outage That Retries Made',
+    level: 3,
+    domain: 'platform',
+    prompt:
+      "Post-mortem to design against. The pricing service slowed from 40ms to 600ms because of a bad query plan — degraded, not dead, and it would have recovered on its own. Instead the whole checkout path went down for 25 minutes. The chain: the cart service calls pricing with a 500ms timeout and 3 retries, so every slow call became four; the API gateway in front of cart has its own 2 retries; the mobile client retries on failure too. Pricing went from 800 rps of real traffic to just over 9,000 rps of attempts, which took it from slow to dead, which made every layer retry harder. Design the call path so a dependency getting slower cannot become a dependency that is gone.",
+    functional: [
+      'Price a cart on demand',
+      'Complete checkout when pricing is healthy',
+      'Do something defensible when pricing is slow',
+      'Recover automatically when pricing recovers',
+    ],
+    nonFunctional: {
+      normalRps: 800,
+      observedAttemptRps: 9000,
+      normalP50Ms: 40,
+      degradedP50Ms: 600,
+      checkoutBudgetMs: 1500,
+      outageMinutes: 25,
+    },
+    constraints: [
+      'The pricing service cannot be rewritten this quarter',
+      'Three teams own the three retrying layers and each configured theirs sensibly in isolation',
+      'Prices may not be invented; a wrong price is worse than no price',
+    ],
+    concepts: ['timeout-retry', 'circuit-breaker', 'degradation', 'observability', 'idempotency', 'caching'],
+    expectedFlows: ['cart pricing call', 'checkout with pricing degraded', 'recovery after the dependency heals'],
+    rubricHints:
+      'The arithmetic is the whole problem: 800 rps with retries at three independent layers is 800 x 4 x 3, and a design that adds retries anywhere without saying what the total multiplier becomes has not understood it. Look for retries budgeted end to end rather than per layer — one layer retries and the others do not, or a deadline is propagated so an inner retry is not attempted when the outer caller has already given up. Reward a circuit breaker that stops sending to a failing dependency, and specifically reward saying what happens to the request while the breaker is open, since a breaker with no fallback merely fails faster. Timeouts must be shorter than the caller\'s budget, not longer, or a retry is issued after the user has gone. The last-known price from a cache is the obvious fallback, and the constraint says a wrong price is worse than none — so a good answer bounds how stale a price may be and refuses beyond it. Penalise retries without jitter, which resynchronise the herd.',
+    twists: [
+      'The mobile client cannot be changed for six weeks, because it is in app-store review.',
+      'Pricing becomes correct-but-slow permanently, at 300ms, and checkout must still meet its budget.',
+    ],
+    scenarios: [
+      {
+        id: 'brownout',
+        name: 'Pricing slows down',
+        description: 'The pricing dependency adds 600ms to every call.',
+        rpsMultiplier: 1,
+        thirdPartyLatencyMs: 600,
+        passCriteria: 'Attempts on the dependency stay near real traffic rather than multiplying, and checkout still answers within its budget.',
+      },
+      {
+        id: 'pricing-dead',
+        name: 'Pricing offline',
+        description: 'The pricing service refuses every call for ten minutes.',
+        rpsMultiplier: 1,
+        killNodes: ['pricing', 'service'],
+        passCriteria: 'Checkout degrades in a stated way rather than hanging, and no layer floods the dead dependency.',
+      },
+      {
+        id: 'peak-brownout',
+        name: 'Slow at peak',
+        description: 'The same slowdown lands during a five-times-normal traffic hour.',
+        rpsMultiplier: 5,
+        thirdPartyLatencyMs: 600,
+        passCriteria: 'The system sheds deliberately at the edge instead of collapsing inward.',
+      },
+    ],
+  },
+  {
+    id: 'l3-quota-limited-enrichment',
+    title: 'Enrichment Behind Somebody Else’s Quota',
+    level: 3,
+    domain: 'devtools',
+    prompt:
+      "Every lead that enters your CRM is enriched by a third-party data provider: company size, funding, tech stack. Your contract allows 50 requests per second and 4 million calls a month, and they answer in about 700ms. Sales imports leads in bulk — a 200,000-row CSV drops 200,000 enrichment requests into the system in about a minute, which blows the per-second limit immediately, gets you throttled for the rest of the hour, and starves the trickle of real-time enrichments that the sales floor is actually watching on screen. Two months in a row you have also blown the monthly quota by the 20th and paid overage. Design the enrichment path.",
+    functional: [
+      'Enrich a lead created through the UI, while a person waits',
+      'Enrich leads created by a bulk import, eventually',
+      'Never exceed the provider’s rate limit or monthly quota',
+      'Show the state of an unenriched lead honestly',
+    ],
+    nonFunctional: {
+      providerLimitRps: 50,
+      providerMonthlyCalls: 4000000,
+      providerP95Ms: 700,
+      bulkImportRows: 200000,
+      interactiveRps: 3,
+      enrichmentFreshnessDays: 90,
+    },
+    constraints: [
+      'The provider contract is fixed for a year; overage is billed at four times the unit rate',
+      'A person is watching the screen for interactive enrichment; a bulk row is not',
+      'Team of 4',
+    ],
+    concepts: ['rate-limiting', 'queue-backpressure', 'caching', 'cost-control', 'degradation', 'scheduled-jobs'],
+    expectedFlows: ['interactive enrichment', 'bulk import enrichment', 'provider call under quota'],
+    rubricHints:
+      'Two different customers share one scarce resource, so the design has to say who wins. A single queue in front of the provider fixes the rate limit but starves the interactive path behind 200,000 bulk rows — reward separating them, whether by priority, by two queues with a weighted drain, or by reserving a slice of the 50 rps for interactive work. The monthly quota is the second, easier-to-miss constraint: 50 rps sustained is 130 million calls a month, so the per-second limit does not protect the monthly budget at all, and a design needs a spend or call ceiling of its own. Look for caching on the 90-day freshness window, which is what actually reduces call volume, and for deduplication inside a single import where the same company appears hundreds of times. Check that the bulk path is drained deliberately over hours rather than raced, and that an unenriched lead is shown as pending rather than as empty.',
+    twists: [
+      'The provider halves your rate limit with 24 hours notice during a contract dispute.',
+      'Sales asks for re-enrichment of the entire 2-million-row database before quarter end.',
+    ],
+    scenarios: [
+      {
+        id: 'bulk-import',
+        name: 'Bulk import lands',
+        description: 'A 200,000-row import arrives in a minute alongside normal interactive traffic.',
+        rpsMultiplier: 40,
+        passCriteria: 'The provider is never offered more than 50 rps and interactive enrichment still answers while a person waits.',
+      },
+      {
+        id: 'provider-throttles',
+        name: 'Provider throttles you',
+        description: 'The provider starts refusing above its limit and adds latency.',
+        rpsMultiplier: 10,
+        thirdPartyLatencyMs: 2000,
+        passCriteria: 'Refusals are absorbed and retried within the limit; nothing is lost and the backlog drains.',
+      },
+    ],
+  },
+
+  // ------------------------------------------------------------------ L4 ----
+  {
+    id: 'l4-video-transcode-pipeline',
+    title: 'Video Transcoding Under a Deadline',
+    level: 4,
+    domain: 'media',
+    prompt:
+      "Creators upload video; you transcode each one into five renditions and publish. A 10-minute 4K upload is about 8 minutes of GPU work per rendition. Volume is spiky — 200 uploads an hour on a normal afternoon, 3,000 in the hour after a big creator posts a call to action. Creators are promised publication within 30 minutes and they watch the progress bar. Currently one shared queue feeds a fixed pool of 40 GPU workers: during the spike the queue reached 6 hours deep, small clips sat behind feature-length ones, and three creators with 8-second clips waited two hours. GPU capacity costs $2.10 an hour per worker. Design the pipeline.",
+    functional: [
+      'Accept an upload and acknowledge it immediately',
+      'Produce five renditions per source video',
+      'Publish when all renditions are ready, and show progress meanwhile',
+      'Retry a failed rendition without redoing the ones that succeeded',
+    ],
+    nonFunctional: {
+      normalUploadsPerHour: 200,
+      peakUploadsPerHour: 3000,
+      gpuMinutesPerRendition: 8,
+      renditions: 5,
+      publishDeadlineMinutes: 30,
+      gpuCostPerHour: 2.1,
+    },
+    constraints: [
+      'GPU workers take four minutes to start',
+      'Budget: transcoding may average $9k/month, with headroom for spikes',
+      'A rendition that fails twice must surface to a human, not vanish',
+    ],
+    concepts: ['queue-backpressure', 'fanout', 'hot-partition', 'capacity-estimation', 'cost-control', 'observability', 'idempotency'],
+    expectedFlows: ['upload accepted', 'rendition fan-out', 'publish when complete', 'failed rendition retry'],
+    rubricHints:
+      'Start with the arithmetic, because it decides everything: 3,000 uploads x 5 renditions x 8 minutes is 2,000 GPU-hours for one peak hour, which 40 workers cannot touch and which would cost more than the monthly budget in a day. So a good answer states plainly that the 30-minute promise cannot hold for every upload at peak and chooses what to do about it — priority by duration, a different promise for large files, or a stated queue-depth ceiling. Reward short-job-first or separate queues by size, since the two-hour wait for an 8-second clip is a head-of-line problem that more workers do not fix. Look for fan-out per rendition rather than per video, so five renditions run in parallel and a single failure retries alone; for idempotent rendition keys so a retry does not double-charge GPU time; and for the four-minute worker start being accounted for rather than assumed away. Check that progress shown to the creator comes from real state rather than an estimate.',
+    twists: [
+      'A creator uploads a 4-hour stream recording, which is 40 times the largest job the pipeline has seen.',
+      'A new rendition format is added, and the existing library of 2 million videos must be backfilled without delaying live uploads.',
+    ],
+    scenarios: [
+      {
+        id: 'creator-spike',
+        name: 'Big creator posts',
+        description: 'Uploads rise fifteen-fold for an hour.',
+        rpsMultiplier: 15,
+        passCriteria: 'The backlog is bounded and drains; short jobs are not stuck behind long ones; the deadline miss is explicit rather than silent.',
+      },
+      {
+        id: 'worker-pool-lost',
+        name: 'GPU pool lost',
+        description: 'The worker pool is lost for ten minutes mid-spike.',
+        rpsMultiplier: 5,
+        killNodes: ['worker', 'transcoder'],
+        passCriteria: 'In-flight work is not lost or duplicated, and the queue absorbs the gap rather than dropping uploads.',
+      },
+    ],
+  },
+  {
+    id: 'l4-noisy-neighbour-isolation',
+    title: 'One Tenant Ruining It For Everyone',
+    level: 4,
+    domain: 'saas',
+    prompt:
+      "Your analytics product serves 4,000 business customers from one shared cluster. Last Tuesday a single customer ran a report across three years of their own data; it consumed most of the connection pool for eleven minutes and every other customer saw timeouts. This is the fourth time this year, always a different tenant, always technically a legitimate query. The largest tenant has 900 times the data of the median, so throwing everyone into the same pool means the median customer's experience is decided by the largest one. Design the isolation so one tenant's worst day is not everyone's.",
+    functional: [
+      'Run interactive analytics queries for any tenant',
+      'Allow large tenants to query their full history',
+      'Keep small tenants fast while a large one is working',
+      'Tell a tenant when their own usage is being limited, and why',
+    ],
+    nonFunctional: {
+      tenants: 4000,
+      medianTenantRowsMillions: 2,
+      largestTenantRowsMillions: 1800,
+      interactiveP99Ms: 2000,
+      worstIncidentMinutes: 11,
+      concurrentQueryCapacity: 120,
+    },
+    constraints: [
+      'One cluster today; a cluster per tenant is not affordable at 4,000 tenants',
+      'Tenants are on the same plan and may not be told some are second class',
+      'Team of 7',
+    ],
+    concepts: ['tenant-isolation', 'hot-partition', 'cell-isolation', 'rate-limiting', 'degradation', 'observability', 'capacity-estimation'],
+    expectedFlows: ['interactive tenant query', 'large tenant history query', 'limit applied to a heavy tenant'],
+    rubricHints:
+      'The failure is resource capture, not load: one tenant took the connection pool, so per-tenant concurrency limits and separate pools matter more than total capacity. Reward a per-tenant quota on concurrent queries or on work units, and reward admission control that refuses or queues rather than letting a query in and hoping. The 900x data skew is the second half: a design that treats tenants uniformly cannot be right, so look for tiering — the largest tenants on their own cells or their own resources, which is affordable precisely because there are few of them — while the long tail shares. Watch for the query itself: an unbounded time range is the trigger, so a maximum scan or a forced async path for large ranges is a legitimate answer. Check for the tenant being told what happened, since the constraint forbids silently making some customers worse. A design with no per-tenant visibility cannot detect the next incident, so observability keyed by tenant is part of the answer, not a footnote.',
+    twists: [
+      'Two of the largest tenants run their month-end reports in the same ten-minute window.',
+      'A tenant\'s data grows 50x after an acquisition, moving them from the long tail to the largest cohort overnight.',
+    ],
+    scenarios: [
+      {
+        id: 'heavy-tenant',
+        name: 'One tenant goes heavy',
+        description: 'A single tenant issues expensive queries continuously for ten minutes.',
+        rpsMultiplier: 8,
+        passCriteria: 'Other tenants keep their p99; the heavy tenant is throttled or queued rather than starving the cluster.',
+      },
+      {
+        id: 'month-end',
+        name: 'Month end',
+        description: 'Reporting load rises across all tenants at once.',
+        rpsMultiplier: 12,
+        passCriteria: 'Degradation is even across tenants rather than random, and the design says who is shed first.',
+      },
+    ],
+  },
+
+  // ------------------------------------------------------------------ L5 ----
+  {
+    id: 'l5-zero-downtime-schema-migration',
+    title: 'Changing the Schema Under Live Traffic',
+    level: 5,
+    domain: 'platform',
+    prompt:
+      "The orders table has an `address` text column that must become a normalised `addresses` table with a foreign key: 800 million rows, 12,000 writes/sec, and no maintenance window because the business runs in every timezone. A previous attempt did `ALTER TABLE` in a transaction, held a lock for 40 minutes and took the site down. The second attempt dual-wrote to both shapes but the backfill and the live writes disagreed on 60,000 rows, and nobody noticed for a week because nothing compared them. Design the migration: how the change ships, how the data moves, how you know it is correct, and how you get back if it is not.",
+    functional: [
+      'Read and write orders continuously throughout the migration',
+      'Move 800 million rows to the new shape',
+      'Serve reads from the new shape once it is trusted',
+      'Abandon the migration safely at any point before the cutover',
+    ],
+    nonFunctional: {
+      rows: 800000000,
+      writeRps: 12000,
+      readRps: 45000,
+      maintenanceWindow: 'none',
+      previousLockMinutes: 40,
+      previousDriftRows: 60000,
+    },
+    constraints: [
+      'A rollback must be possible without losing writes made after the cutover began',
+      'The migration may take weeks; it may not take the site down for a minute',
+      'Backfill must not saturate the database that is serving live traffic',
+    ],
+    concepts: ['deployment-safety', 'schema-design', 'consistency-models', 'observability', 'idempotency', 'outbox', 'degradation'],
+    expectedFlows: ['live order write during migration', 'backfill batch', 'read cutover', 'rollback'],
+    rubricHints:
+      'This is a process design as much as a component design, and the phases are the answer: add the new shape, write both, backfill old rows, verify, read from the new one, stop writing the old, drop it. A design that jumps to the end has not addressed the problem. The 60,000-row drift is the specific thing being tested — reward a continuous comparison between the two shapes rather than a one-off check at the end, because drift found a week late is the failure described. Backfill must be batched with a rate that yields to live traffic, and must be resumable and idempotent so a restart does not redo or skip. Look for the cutover being a flag that can move both ways, with reads switched before writes and a period where both are still correct. Ask what happens to a write that lands between the backfill reading a row and writing it — an answer with no story there has the same bug as attempt two. Rollback after the old column stops being written is a different, harder question, and noticing that is a strong signal.',
+    twists: [
+      'Halfway through the backfill, a product change adds a new field to the address shape.',
+      'The comparison finds drift on 200 rows a day and nobody can explain it.',
+    ],
+    scenarios: [
+      {
+        id: 'backfill-at-peak',
+        name: 'Backfill during peak',
+        description: 'The backfill runs while live traffic is at its daily high.',
+        rpsMultiplier: 3,
+        passCriteria: 'Live reads and writes keep their latency; the backfill slows down rather than the site.',
+      },
+      {
+        id: 'cutover-failure',
+        name: 'Cutover goes wrong',
+        description: 'The new read path is wrong for a subset of orders after the switch.',
+        rpsMultiplier: 1,
+        killNodes: ['new', 'addresses'],
+        passCriteria: 'Reads fall back without data loss and writes made during the attempt survive the rollback.',
+      },
+    ],
+  },
+  {
+    id: 'l5-region-loss-recovery',
+    title: 'Losing a Region, and Proving You Can',
+    level: 5,
+    domain: 'fintech',
+    prompt:
+      "You run a payments ledger in a single region with cross-region backups. The board has asked for a stated recovery point and recovery time and a demonstration that you can meet them. Right now nobody knows: backups are taken hourly and have never been restored; the restore procedure is a wiki page from two years ago; the secondary region has no running compute; and DNS TTLs are 3600 seconds. A regional outage last quarter at a competitor lasted 6 hours. Money movement cannot be lost or duplicated. Design the recovery: what the targets are, what runs where, how failover is triggered, and how the claim is proven rather than asserted.",
+    functional: [
+      'Record money movement durably in the primary region',
+      'Continue recording money movement after losing the primary region',
+      'Reconcile anything in flight at the moment of failure',
+      'Fail back once the primary returns',
+    ],
+    nonFunctional: {
+      writeRps: 3000,
+      ledgerSizeTb: 14,
+      currentBackupIntervalMinutes: 60,
+      dnsTtlSeconds: 3600,
+      targetRpoMinutes: 5,
+      targetRtoMinutes: 30,
+    },
+    constraints: [
+      'A duplicated or lost ledger entry is a regulatory incident, not a bug',
+      'Budget: standby capacity may cost up to 40% of the primary',
+      'The recovery claim must be demonstrable on demand, not argued',
+    ],
+    concepts: ['multi-region', 'replication', 'consistency-models', 'cap-tradeoff', 'idempotency', 'observability', 'deployment-safety', 'exactly-once'],
+    expectedFlows: ['ledger write in primary', 'replication to secondary', 'failover', 'reconciliation after failover'],
+    rubricHints:
+      'The gap between the current state and the targets is the problem: hourly backups cannot give a 5-minute recovery point and a 3600-second DNS TTL cannot give a 30-minute recovery time, so a design that keeps either and claims the targets is wrong on arithmetic. Reward continuous replication over periodic backup, and reward saying explicitly whether replication is synchronous — because that is the CAP decision the money makes for you, and a synchronous choice costs write latency that should be named. The 40% budget rules out a hot mirror and invites a warm standby, so look for what is kept running versus what is started at failover, and for the start time being inside the recovery target. Failover must be triggered by something specific, with a stated decision maker, because an automatic failover on a partition can produce two primaries writing the same ledger. Reconciliation of in-flight movement needs idempotency keys that survive the region, not just the process. Above all, the constraint says the claim must be demonstrable: a design with no rehearsal, no restore test, and no measured numbers has not answered the question that was asked.',
+    twists: [
+      'The outage is a partition rather than a failure: the primary is alive and still accepting writes but unreachable from you.',
+      'Failback must happen during business hours because the team refuses another overnight.',
+    ],
+    scenarios: [
+      {
+        id: 'region-lost',
+        name: 'Primary region lost',
+        description: 'Everything in the primary region becomes unreachable at once.',
+        rpsMultiplier: 1,
+        killNodes: ['primary', 'sql_db'],
+        passCriteria: 'Writes resume within the recovery target and no ledger entry is lost or duplicated.',
+      },
+      {
+        id: 'failover-at-peak',
+        name: 'Failover under load',
+        description: 'The region is lost during the daily settlement peak.',
+        rpsMultiplier: 6,
+        killNodes: ['primary'],
+        passCriteria: 'The standby carries peak traffic, or the design states what it sheds and for how long.',
+      },
+    ],
+  },
+
+  // ------------------------------------------------------------------ L6 ----
+  {
+    id: 'l6-realtime-voice-agent',
+    title: 'A Voice Agent That Cannot Pause To Think',
+    level: 6,
+    domain: 'ai-platform',
+    prompt:
+      "A support line answered by a voice agent: speech in, model reasoning with tool calls against order and account systems, speech out. Humans notice silence at about 500ms and start talking over the agent at 1 second, so the budget from end of user speech to first audio out is 800ms — and inside that you have transcription, a model call that averages 1.2 seconds, sometimes a tool call to an order system that takes 400ms, and speech synthesis. The arithmetic does not fit, which is the problem. 600 concurrent calls at peak, each about 4 minutes, and a wrong answer about somebody's money is worse than a slow one. Design the call path and say where the time goes.",
+    functional: [
+      'Transcribe caller speech as it arrives',
+      'Answer using the model, with tool calls when account data is needed',
+      'Speak the answer back',
+      'Hand off to a human when the agent should not continue',
+    ],
+    nonFunctional: {
+      concurrentCalls: 600,
+      firstAudioBudgetMs: 800,
+      modelP50Ms: 1200,
+      toolCallP50Ms: 400,
+      averageCallMinutes: 4,
+      tokensPerTurn: 1400,
+    },
+    constraints: [
+      'A wrong statement about a balance or an order is an incident',
+      'Budget: under $0.55 per call at 600 concurrent',
+      'The order system is owned by another team and rate limits you at 200 rps',
+    ],
+    concepts: ['llm-cost-control', 'agent-tool-sandboxing', 'timeout-retry', 'degradation', 'eval-gates', 'observability', 'rate-limiting', 'prompt-injection-defense'],
+    expectedFlows: ['caller speech to transcription', 'model turn with a tool call', 'speech synthesis to caller', 'handoff to human'],
+    rubricHints:
+      'The budget does not fit and a good answer says so before it designs anything: 1.2 seconds of model time cannot be hidden inside 800ms of silence, so the design has to change what "first audio" means — streaming the first tokens into synthesis rather than waiting for the whole answer, a filler utterance while a tool call runs, or a smaller model for the first turn. Reward whichever is chosen being justified by the number. Look for streaming end to end, because any stage that buffers a whole response destroys the budget on its own. The tool call is the second squeeze: 400ms plus a 200 rps ceiling shared by 600 concurrent calls means caching account context at call start rather than per turn. On correctness, the constraint is explicit — reward the agent being unable to state a balance it did not retrieve, which is a tool-and-grounding decision rather than a prompt instruction. Check the cost arithmetic against $0.55: tokens per turn times turns per call times price, plus transcription and synthesis, which are not free. A design that never multiplies those out has not met the constraint.',
+    twists: [
+      'Callers start interrupting mid-sentence and expect the agent to stop and listen.',
+      'The order system\'s rate limit is cut to 50 rps during their own incident.',
+    ],
+    scenarios: [
+      {
+        id: 'peak-calls',
+        name: 'Monday morning',
+        description: 'Concurrent calls rise to five times the usual.',
+        rpsMultiplier: 5,
+        passCriteria: 'Time to first audio holds or the agent degrades audibly and deliberately; cost per call stays inside budget.',
+      },
+      {
+        id: 'model-slow',
+        name: 'Model provider degraded',
+        description: 'The model adds two seconds to every call.',
+        rpsMultiplier: 2,
+        thirdPartyLatencyMs: 2000,
+        passCriteria: 'Callers are not left in silence; the design falls back or hands off rather than waiting.',
+      },
+      {
+        id: 'tools-down',
+        name: 'Order system offline',
+        description: 'The order system refuses every call for five minutes.',
+        rpsMultiplier: 1,
+        killNodes: ['order', 'third_party'],
+        passCriteria: 'The agent says it cannot see the order rather than inventing one, and hands off cleanly.',
+      },
+    ],
+  },
+  {
+    id: 'l6-embedding-reindex',
+    title: 'Re-Embedding Ten Million Documents Without Going Dark',
+    level: 6,
+    domain: 'ai-platform',
+    prompt:
+      "Your retrieval system holds 10 million document chunks embedded with a model you now want to replace: the new one is measurably better on your eval set but its vectors are a different size and are not comparable with the old ones, so a half-migrated index returns nonsense. Re-embedding all 10 million costs about $4,000 and 30 hours of provider throughput at your rate limit. Meanwhile the product serves 40 retrieval queries a second and cannot go down, documents keep arriving at 20,000 a day, and the last attempt at this ran the backfill against the live index and made retrieval quality visibly worse for a day before it was rolled back. Design the re-index.",
+    functional: [
+      'Serve retrieval continuously from a consistent index',
+      'Re-embed 10 million existing chunks with the new model',
+      'Keep embedding newly arriving documents throughout',
+      'Cut over only when the new index is demonstrably better',
+    ],
+    nonFunctional: {
+      chunks: 10000000,
+      queryRps: 40,
+      newDocsPerDay: 20000,
+      reembedCostUsd: 4000,
+      reembedHours: 30,
+      providerLimitRps: 500,
+    },
+    constraints: [
+      'Vectors from the two models may never be compared against each other',
+      'Budget: one full re-embed is funded; a second is not',
+      'Retrieval quality regressions must be caught before users see them, not after',
+    ],
+    concepts: ['rag-retrieval', 'rag-chunking', 'vector-db-choice', 'eval-gates', 'deployment-safety', 'cost-control', 'queue-backpressure', 'observability'],
+    expectedFlows: ['live retrieval query', 'bulk re-embedding', 'new document ingestion during the migration', 'index cutover'],
+    rubricHints:
+      'The mixed-vector constraint decides the shape: you cannot backfill in place, so the answer is a second index built alongside and switched atomically — a design that writes new vectors into the live index has reproduced the failure described. New documents arriving during the 30 hours must go into BOTH indexes, or the new one is stale on the day it goes live; that is the detail most answers miss. Reward the cutover being gated on the eval set rather than on the backfill finishing, since the constraint says regressions must be caught first, and reward keeping the old index warm long enough to switch back. The budget rules out a second attempt, so idempotent, resumable batches matter more than usual: a crash at hour 25 must not mean paying again, which means recording what has been embedded at a granularity you can resume from. Check the arithmetic against the 500 rps provider limit — 10 million at 500 rps is about 5.5 hours of pure calls, so 30 hours implies batching or a lower effective rate, and a design should say which. Watch for the re-embed competing with live ingestion for the same quota.',
+    twists: [
+      'The new model is deprecated by the provider three weeks after you finish, with six months notice.',
+      'Chunking strategy changes at the same time, so the 10 million chunks become 14 million with different boundaries.',
+    ],
+    scenarios: [
+      {
+        id: 'backfill-live',
+        name: 'Backfill while serving',
+        description: 'The bulk re-embed runs at full rate alongside live queries and ingestion.',
+        rpsMultiplier: 4,
+        passCriteria: 'Retrieval latency and quality are unaffected; the provider quota is shared deliberately rather than raced.',
+      },
+      {
+        id: 'provider-throttled',
+        name: 'Embedding provider throttles',
+        description: 'The provider halves throughput midway through the backfill.',
+        rpsMultiplier: 2,
+        thirdPartyLatencyMs: 3000,
+        passCriteria: 'The backfill slows and resumes without losing progress or paying twice; live ingestion keeps its share.',
       },
     ],
   },
