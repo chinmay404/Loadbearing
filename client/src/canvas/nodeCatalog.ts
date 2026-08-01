@@ -39,7 +39,6 @@ export interface NodeSpec {
   /** Realistic starting knobs for the simulator. */
   defaults: NodeAttrs;
   /** Which knobs the inspector should expose for this type. */
-  attrFields: (keyof NodeAttrs)[];
 }
 
 export const CATEGORY_ORDER: NodeCategory[] = [
@@ -55,56 +54,10 @@ export const CATEGORY_ORDER: NodeCategory[] = [
   'Layout',
 ];
 
-// Common inspector field sets, so the knobs stay consistent across types.
 // Stateless compute is exactly the thing that scales horizontally, so the autoscale
 // range belongs here rather than on a handful of special cases.
-const STATELESS: (keyof NodeAttrs)[] = [
-  'capacityRps',
-  'replicas',
-  'latencyMs',
-  'autoscaleMin',
-  'autoscaleMax',
-  'monthlyCost',
-];
-const STATELESS_HA: (keyof NodeAttrs)[] = [
-  'capacityRps',
-  'replicas',
-  'latencyMs',
-  'multiAz',
-  'monthlyCost',
-];
-const MANAGED: (keyof NodeAttrs)[] = ['capacityRps', 'latencyMs', 'multiAz', 'monthlyCost'];
-/**
- * Compute that grows with load. The floor and the ceiling are separate decisions and
- * the floor is the one that matters in the first minute of a spike, so both are asked
- * for rather than inferred.
- */
-const SCALED: (keyof NodeAttrs)[] = [
-  'capacityRps',
-  'latencyMs',
-  'autoscaleMin',
-  'autoscaleMax',
-  'concurrency',
-  'monthlyCost',
-];
 /** Anything that absorbs traffic instead of forwarding it. */
-const CACHED: (keyof NodeAttrs)[] = [
-  'capacityRps',
-  'replicas',
-  'latencyMs',
-  'cacheHitRate',
-  'multiAz',
-  'monthlyCost',
-];
 /** Anything that buffers messages, so the backlog ceiling matters. */
-const BUFFERED: (keyof NodeAttrs)[] = [
-  'capacityRps',
-  'replicas',
-  'latencyMs',
-  'queueDepthMax',
-  'multiAz',
-  'monthlyCost',
-];
 
 const CATALOG = [
   // ---------------------------------------------------------------- Edge & Traffic
@@ -115,7 +68,6 @@ const CATALOG = [
     color: '#e0bd6c',
     hint: 'Where traffic originates — the browser your users actually hold.',
     defaults: {},
-    attrFields: [],
   },
   {
     type: 'mobile_client',
@@ -124,7 +76,6 @@ const CATALOG = [
     color: '#d7b05c',
     hint: 'A client you cannot hotfix: assume old versions and flaky networks forever.',
     defaults: {},
-    attrFields: [],
   },
   {
     type: 'dns',
@@ -132,8 +83,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#c69a3d',
     hint: 'Turns a name into an address — and is your cheapest failover and geo-routing lever.',
-    defaults: { capacityRps: 100000, replicas: 1, latencyMs: 15, multiAz: true, monthlyCost: 5 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 100000, replicas: 1, latencyMs: 15, multiAz: true },
   },
   {
     type: 'cdn',
@@ -147,9 +97,7 @@ const CATALOG = [
       latencyMs: 15,
       cacheHitRate: 0.9,
       multiAz: true,
-      monthlyCost: 100,
     },
-    attrFields: ['capacityRps', 'latencyMs', 'cacheHitRate', 'multiAz', 'monthlyCost'],
   },
   {
     type: 'load_balancer',
@@ -157,8 +105,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#d9b45f',
     hint: 'Spreads traffic over healthy replicas and hides instance failures from callers.',
-    defaults: { capacityRps: 50000, replicas: 2, latencyMs: 1, multiAz: true, monthlyCost: 25 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 50000, replicas: 2, latencyMs: 1, multiAz: true },
   },
   {
     type: 'api_gateway',
@@ -166,8 +113,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#e3c47a',
     hint: 'One front door: routing, authn, quotas and versioning applied before any service sees the call.',
-    defaults: { capacityRps: 10000, replicas: 2, latencyMs: 5, multiAz: true, monthlyCost: 60 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 10000, replicas: 2, latencyMs: 5, multiAz: true },
   },
   {
     type: 'rate_limiter',
@@ -175,8 +121,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#dcb765',
     hint: 'Sheds load on purpose so one abusive caller cannot take the system down for everyone.',
-    defaults: { capacityRps: 30000, replicas: 2, latencyMs: 1, monthlyCost: 20 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 30000, replicas: 2, latencyMs: 1 },
   },
   {
     type: 'websocket_gw',
@@ -184,8 +129,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#caa04a',
     hint: 'Holds long-lived duplex connections for push and realtime — connection count, not rps, is the limit.',
-    defaults: { capacityRps: 5000, replicas: 2, latencyMs: 3, multiAz: true, monthlyCost: 80 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 5000, replicas: 2, latencyMs: 3, multiAz: true },
   },
   {
     type: 'waf',
@@ -193,8 +137,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#c8a555',
     hint: 'Blocks injection, bots and L7 floods at the perimeter, before a request can reach your app.',
-    defaults: { capacityRps: 40000, replicas: 2, latencyMs: 3, multiAz: true, monthlyCost: 45 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 40000, replicas: 2, latencyMs: 3, multiAz: true },
   },
   {
     type: 'reverse_proxy',
@@ -202,8 +145,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#b98d31',
     hint: 'Terminates TLS and fronts your origins — routing, compression and connection reuse in one cheap hop.',
-    defaults: { capacityRps: 40000, replicas: 2, latencyMs: 2, multiAz: true, monthlyCost: 20 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 40000, replicas: 2, latencyMs: 2, multiAz: true },
   },
   {
     type: 'bff',
@@ -211,8 +153,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#d2a83f',
     hint: 'One API shaped for one client: aggregates services so the app needs a single round trip.',
-    defaults: { capacityRps: 400, replicas: 3, latencyMs: 45, monthlyCost: 55 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 400, replicas: 3, latencyMs: 45 },
   },
   {
     type: 'graphql_gateway',
@@ -220,8 +161,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#c19b4b',
     hint: 'Clients request exactly the fields they need across services — you own the N+1 fan-out and query-cost limits.',
-    defaults: { capacityRps: 800, replicas: 2, latencyMs: 35, monthlyCost: 70 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 800, replicas: 2, latencyMs: 35 },
   },
   {
     type: 'service_mesh',
@@ -229,8 +169,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#b08a3a',
     hint: 'Sidecars that add mTLS, retries, timeouts and traffic shifting to every call without touching service code.',
-    defaults: { capacityRps: 30000, replicas: 1, latencyMs: 1, multiAz: true, monthlyCost: 65 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 30000, replicas: 1, latencyMs: 1, multiAz: true },
   },
 
   // ---------------------------------------------------------------------- Compute
@@ -240,8 +179,7 @@ const CATALOG = [
     category: 'Compute',
     color: '#c9703f',
     hint: 'A stateless unit of business logic you can scale horizontally and deploy on its own.',
-    defaults: { capacityRps: 500, replicas: 2, latencyMs: 40, monthlyCost: 30 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 500, replicas: 2, latencyMs: 40 },
   },
   {
     type: 'monolith',
@@ -249,8 +187,7 @@ const CATALOG = [
     category: 'Compute',
     color: '#b96234',
     hint: 'All logic in one deployable — simplest and fastest to build, until scaling and teams collide.',
-    defaults: { capacityRps: 800, replicas: 1, latencyMs: 60, monthlyCost: 120 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 800, replicas: 1, latencyMs: 60 },
   },
   {
     type: 'serverless_fn',
@@ -258,8 +195,7 @@ const CATALOG = [
     category: 'Compute',
     color: '#d47f4d',
     hint: 'Scales to zero and to thousands per event — pay per call, but mind cold starts and connection limits.',
-    defaults: { capacityRps: 200, replicas: 20, latencyMs: 60, monthlyCost: 40 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 200, replicas: 20, latencyMs: 60 },
   },
   {
     type: 'third_party',
@@ -267,8 +203,7 @@ const CATALOG = [
     category: 'Integration',
     color: '#dc8a6e',
     hint: 'A dependency you cannot fix or scale — wrap it in timeouts, retries and a circuit breaker.',
-    defaults: { capacityRps: 200, replicas: 1, latencyMs: 250, monthlyCost: 0 },
-    attrFields: ['capacityRps', 'latencyMs', 'monthlyCost'],
+    defaults: { capacityRps: 200, replicas: 1, latencyMs: 250 },
   },
   {
     type: 'edge_function',
@@ -276,8 +211,7 @@ const CATALOG = [
     category: 'Compute',
     color: '#e08c5b',
     hint: 'Runs small logic in the PoP nearest the user — auth checks, redirects, personalisation with no origin hop.',
-    defaults: { capacityRps: 5000, replicas: 1, latencyMs: 20, multiAz: true, monthlyCost: 15 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 5000, replicas: 1, latencyMs: 20, multiAz: true },
   },
   {
     type: 'container_platform',
@@ -291,9 +225,7 @@ const CATALOG = [
       latencyMs: 40,
       autoscaleMin: 1,
       autoscaleMax: 10,
-      monthlyCost: 30,
     },
-    attrFields: SCALED,
   },
   {
     type: 'vm',
@@ -301,8 +233,7 @@ const CATALOG = [
     category: 'Compute',
     color: '#c07a4d',
     hint: 'A whole OS you own and patch — reach for it when you need the box, not just the process.',
-    defaults: { capacityRps: 300, replicas: 2, latencyMs: 50, monthlyCost: 70 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 300, replicas: 2, latencyMs: 50 },
   },
   {
     type: 'batch_job',
@@ -310,8 +241,7 @@ const CATALOG = [
     category: 'Compute',
     color: '#a85128',
     hint: 'Chews through a whole dataset on a schedule — throughput is the goal, per-request latency is irrelevant.',
-    defaults: { capacityRps: 50, replicas: 1, latencyMs: 5000, monthlyCost: 25 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 50, replicas: 1, latencyMs: 5000 },
   },
 
   // ------------------------------------------------------------------------- Data
@@ -326,9 +256,7 @@ const CATALOG = [
       replicas: 1,
       latencyMs: 1,
       cacheHitRate: 0.8,
-      monthlyCost: 40,
     },
-    attrFields: ['capacityRps', 'replicas', 'latencyMs', 'cacheHitRate', 'multiAz', 'monthlyCost'],
   },
   {
     type: 'sql_db',
@@ -336,8 +264,7 @@ const CATALOG = [
     category: 'Data',
     color: '#9aa95f',
     hint: 'Transactions, joins and real constraints. Usually your first bottleneck and your first SPOF.',
-    defaults: { capacityRps: 3000, replicas: 1, latencyMs: 8, monthlyCost: 200 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 3000, replicas: 1, latencyMs: 8 },
   },
   {
     type: 'nosql_db',
@@ -345,8 +272,7 @@ const CATALOG = [
     category: 'Data',
     color: '#a4b164',
     hint: 'Scales by partition key with flexible schemas — you trade joins and strong consistency for it.',
-    defaults: { capacityRps: 10000, replicas: 3, latencyMs: 5, multiAz: true, monthlyCost: 250 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 10000, replicas: 3, latencyMs: 5, multiAz: true },
   },
   {
     type: 'blob_store',
@@ -354,8 +280,7 @@ const CATALOG = [
     category: 'Data',
     color: '#8f9e58',
     hint: 'Cheap durable home for large immutable bytes — images, video, backups; serve via CDN, not your app.',
-    defaults: { capacityRps: 5500, replicas: 1, latencyMs: 60, multiAz: true, monthlyCost: 25 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 5500, replicas: 1, latencyMs: 60, multiAz: true },
   },
   {
     type: 'search_index',
@@ -363,8 +288,7 @@ const CATALOG = [
     category: 'Data',
     color: '#b0bd75',
     hint: 'Full-text and faceted queries your database cannot do fast — a derived, rebuildable copy.',
-    defaults: { capacityRps: 2000, replicas: 2, latencyMs: 25, monthlyCost: 150 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 2000, replicas: 2, latencyMs: 25 },
   },
   {
     type: 'read_replica',
@@ -372,8 +296,7 @@ const CATALOG = [
     category: 'Data',
     color: '#8d9c54',
     hint: 'Moves read load off the primary and gives it a failover target — reads are slightly stale by design.',
-    defaults: { capacityRps: 3000, replicas: 2, latencyMs: 8, multiAz: true, monthlyCost: 150 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 3000, replicas: 2, latencyMs: 8, multiAz: true },
   },
   {
     type: 'data_warehouse',
@@ -381,8 +304,7 @@ const CATALOG = [
     category: 'Data',
     color: '#7f8e4c',
     hint: 'Columnar store for analytics across all of history — never put it on a user request path.',
-    defaults: { capacityRps: 50, replicas: 1, latencyMs: 2000, multiAz: true, monthlyCost: 400 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 50, replicas: 1, latencyMs: 2000, multiAz: true },
   },
   {
     type: 'olap_db',
@@ -390,8 +312,7 @@ const CATALOG = [
     category: 'Data',
     color: '#96a45a',
     hint: 'Slices and aggregates billions of rows in near-real time — dashboards and funnels, not transactions.',
-    defaults: { capacityRps: 200, replicas: 3, latencyMs: 500, multiAz: true, monthlyCost: 250 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 200, replicas: 3, latencyMs: 500, multiAz: true },
   },
   {
     type: 'timeseries_db',
@@ -399,8 +320,7 @@ const CATALOG = [
     category: 'Data',
     color: '#a9b76e',
     hint: 'Append-heavy metric store with retention and downsampling built in — the right home for telemetry.',
-    defaults: { capacityRps: 5000, replicas: 2, latencyMs: 10, multiAz: true, monthlyCost: 110 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 5000, replicas: 2, latencyMs: 10, multiAz: true },
   },
   {
     type: 'graph_db',
@@ -408,8 +328,7 @@ const CATALOG = [
     category: 'Data',
     color: '#889751',
     hint: 'Treats relationships as data — multi-hop traversals (friends-of-friends, fraud rings) a SQL join chokes on.',
-    defaults: { capacityRps: 1500, replicas: 2, latencyMs: 20, multiAz: true, monthlyCost: 180 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 1500, replicas: 2, latencyMs: 20, multiAz: true },
   },
   {
     type: 'data_lake',
@@ -417,8 +336,7 @@ const CATALOG = [
     category: 'Data',
     color: '#748345',
     hint: 'Cheap raw storage for everything you might analyse later — schema is applied on read, not on write.',
-    defaults: { capacityRps: 100, replicas: 1, latencyMs: 1000, multiAz: true, monthlyCost: 60 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 100, replicas: 1, latencyMs: 1000, multiAz: true },
   },
   {
     type: 'cdc_connector',
@@ -426,8 +344,7 @@ const CATALOG = [
     category: 'Data',
     color: '#9db06a',
     hint: 'Streams every row change out of the database so search, caches and analytics stay in sync without dual writes.',
-    defaults: { capacityRps: 5000, replicas: 2, latencyMs: 50, monthlyCost: 80 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 5000, replicas: 2, latencyMs: 50 },
   },
 
   // ------------------------------------------------------------------------ Async
@@ -442,16 +359,7 @@ const CATALOG = [
       replicas: 1,
       latencyMs: 3,
       queueDepthMax: 100000,
-      monthlyCost: 30,
     },
-    attrFields: [
-      'capacityRps',
-      'replicas',
-      'latencyMs',
-      'queueDepthMax',
-      'multiAz',
-      'monthlyCost',
-    ],
   },
   {
     type: 'stream',
@@ -465,16 +373,7 @@ const CATALOG = [
       latencyMs: 5,
       queueDepthMax: 5000000,
       multiAz: true,
-      monthlyCost: 120,
     },
-    attrFields: [
-      'capacityRps',
-      'replicas',
-      'latencyMs',
-      'queueDepthMax',
-      'multiAz',
-      'monthlyCost',
-    ],
   },
   {
     type: 'worker',
@@ -482,8 +381,7 @@ const CATALOG = [
     category: 'Async',
     color: '#84b586',
     hint: 'Drains a queue in the background so slow work never blocks a user request.',
-    defaults: { capacityRps: 200, replicas: 4, latencyMs: 120, monthlyCost: 45 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 200, replicas: 4, latencyMs: 120 },
   },
   {
     type: 'scheduler',
@@ -491,8 +389,7 @@ const CATALOG = [
     category: 'Async',
     color: '#6d9c6a',
     hint: 'Fires periodic and delayed jobs — cleanups, rollups, retries. Must be idempotent and leader-elected.',
-    defaults: { capacityRps: 50, replicas: 1, latencyMs: 10, monthlyCost: 10 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 50, replicas: 1, latencyMs: 10 },
   },
   {
     type: 'event_bus',
@@ -506,9 +403,7 @@ const CATALOG = [
       latencyMs: 4,
       queueDepthMax: 1000000,
       multiAz: true,
-      monthlyCost: 45,
     },
-    attrFields: BUFFERED,
   },
   {
     type: 'dead_letter_queue',
@@ -522,9 +417,7 @@ const CATALOG = [
       latencyMs: 3,
       queueDepthMax: 100000,
       multiAz: true,
-      monthlyCost: 10,
     },
-    attrFields: BUFFERED,
   },
   {
     type: 'workflow_engine',
@@ -532,8 +425,7 @@ const CATALOG = [
     category: 'Async',
     color: '#5f9163',
     hint: 'Runs long multi-step processes durably — state, retries and timers survive a crash mid-flight.',
-    defaults: { capacityRps: 500, replicas: 2, latencyMs: 30, multiAz: true, monthlyCost: 90 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 500, replicas: 2, latencyMs: 30, multiAz: true },
   },
   {
     type: 'saga_orchestrator',
@@ -541,8 +433,7 @@ const CATALOG = [
     category: 'Async',
     color: '#78a878',
     hint: 'Drives a transaction across services and issues compensating actions when a later step fails.',
-    defaults: { capacityRps: 400, replicas: 2, latencyMs: 40, monthlyCost: 55 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 400, replicas: 2, latencyMs: 40 },
   },
 
   // --------------------------------------------------------------------------- AI
@@ -552,8 +443,7 @@ const CATALOG = [
     category: 'AI',
     color: '#c06a9e',
     hint: 'Slow, expensive and non-deterministic per call — cache, stream tokens and cap concurrency.',
-    defaults: { capacityRps: 20, replicas: 1, latencyMs: 1200, monthlyCost: 500 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 20, replicas: 1, latencyMs: 1200 },
   },
   {
     type: 'embedding_svc',
@@ -561,8 +451,7 @@ const CATALOG = [
     category: 'AI',
     color: '#cb7cab',
     hint: 'Turns text into vectors for retrieval — batch it, and re-embed everything when the model changes.',
-    defaults: { capacityRps: 300, replicas: 2, latencyMs: 90, monthlyCost: 120 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 300, replicas: 2, latencyMs: 90 },
   },
   {
     type: 'vector_db',
@@ -570,8 +459,7 @@ const CATALOG = [
     category: 'AI',
     color: '#b25c90',
     hint: 'Nearest-neighbour search over embeddings — the retrieval half of RAG; recall is a tuning knob.',
-    defaults: { capacityRps: 1500, replicas: 2, latencyMs: 35, multiAz: true, monthlyCost: 180 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 1500, replicas: 2, latencyMs: 35, multiAz: true },
   },
   {
     type: 'eval_gate',
@@ -579,8 +467,7 @@ const CATALOG = [
     category: 'AI',
     color: '#a54f83',
     hint: 'Scores or filters model output before it reaches a user — safety, grounding and regression checks.',
-    defaults: { capacityRps: 400, replicas: 2, latencyMs: 150, monthlyCost: 60 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 400, replicas: 2, latencyMs: 150 },
   },
   {
     type: 'model_router',
@@ -588,8 +475,7 @@ const CATALOG = [
     category: 'AI',
     color: '#d68cb8',
     hint: 'Sends each request to the cheapest model that can handle it and escalates only when it must.',
-    defaults: { capacityRps: 5000, replicas: 2, latencyMs: 5, monthlyCost: 30 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 5000, replicas: 2, latencyMs: 5 },
   },
   {
     type: 'prompt_cache',
@@ -602,9 +488,7 @@ const CATALOG = [
       replicas: 1,
       latencyMs: 2,
       cacheHitRate: 0.8,
-      monthlyCost: 35,
     },
-    attrFields: CACHED,
   },
   {
     type: 'guardrail',
@@ -612,8 +496,7 @@ const CATALOG = [
     category: 'AI',
     color: '#98457a',
     hint: 'Screens what goes into and out of the model — prompt injection, PII leakage, jailbreaks, off-policy answers.',
-    defaults: { capacityRps: 200, replicas: 2, latencyMs: 150, monthlyCost: 60 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 200, replicas: 2, latencyMs: 150 },
   },
   {
     type: 'reranker',
@@ -621,8 +504,7 @@ const CATALOG = [
     category: 'AI',
     color: '#c97aa6',
     hint: 'Re-scores retrieved candidates so only the best few enter the prompt — the precision fix for cheap recall.',
-    defaults: { capacityRps: 100, replicas: 2, latencyMs: 120, monthlyCost: 90 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 100, replicas: 2, latencyMs: 120 },
   },
   {
     type: 'agent_runtime',
@@ -630,8 +512,7 @@ const CATALOG = [
     category: 'AI',
     color: '#ad5589',
     hint: 'Loops a model over tools until the task is done — cap steps, budget and concurrency or it never stops.',
-    defaults: { capacityRps: 10, replicas: 2, latencyMs: 4000, monthlyCost: 400 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 10, replicas: 2, latencyMs: 4000 },
   },
 
   // ---- pipeline stages ----
@@ -645,8 +526,7 @@ const CATALOG = [
     category: 'AI',
     color: '#b8688f',
     hint: 'Where the corpus comes from — bucket, Drive, SharePoint, crawler. Owns change detection, so it decides how stale the index can be.',
-    defaults: { capacityRps: 2000, replicas: 1, latencyMs: 40, monthlyCost: 25 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 2000, replicas: 1, latencyMs: 40 },
   },
   {
     type: 'doc_parser',
@@ -654,8 +534,7 @@ const CATALOG = [
     category: 'AI',
     color: '#c0708a',
     hint: 'Turns a PDF, scan or slide deck into text with structure kept. Slow, failure-prone, and the ceiling on everything downstream.',
-    defaults: { capacityRps: 5, replicas: 3, latencyMs: 2500, monthlyCost: 200 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 5, replicas: 3, latencyMs: 2500 },
   },
   {
     type: 'chunker',
@@ -663,8 +542,7 @@ const CATALOG = [
     category: 'AI',
     color: '#c67c86',
     hint: 'Splits parsed text into retrievable units. Boundaries and overlap decide retrieval quality more than the model does.',
-    defaults: { capacityRps: 500, replicas: 2, latencyMs: 20, monthlyCost: 40 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 500, replicas: 2, latencyMs: 20 },
   },
   {
     type: 'extractor',
@@ -672,8 +550,7 @@ const CATALOG = [
     category: 'AI',
     color: '#cc8880',
     hint: 'Model call that must return one fixed shape. Needs a schema, a retry on invalid output, and somewhere for the ones that never validate.',
-    defaults: { capacityRps: 15, replicas: 2, latencyMs: 1800, monthlyCost: 320 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 15, replicas: 2, latencyMs: 1800 },
   },
   {
     type: 'output_validator',
@@ -681,8 +558,7 @@ const CATALOG = [
     category: 'AI',
     color: '#c9926f',
     hint: 'Checks model output against the schema and the rules before anything downstream trusts it. Rejects need a path, not a log line.',
-    defaults: { capacityRps: 2000, replicas: 2, latencyMs: 8, monthlyCost: 30 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 2000, replicas: 2, latencyMs: 8 },
   },
   {
     type: 'retriever',
@@ -690,8 +566,7 @@ const CATALOG = [
     category: 'AI',
     color: '#bd7f9c',
     hint: 'Orchestrates the search: lexical and vector together, then rerank. The component that decides what the model is allowed to know.',
-    defaults: { capacityRps: 300, replicas: 2, latencyMs: 90, monthlyCost: 90 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 300, replicas: 2, latencyMs: 90 },
   },
   {
     type: 'tool_sandbox',
@@ -699,8 +574,7 @@ const CATALOG = [
     category: 'AI',
     color: '#a86294',
     hint: 'Isolated execution for whatever an agent decides to call. Least privilege, no network by default, and a hard timeout.',
-    defaults: { capacityRps: 50, replicas: 2, latencyMs: 600, monthlyCost: 150 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 50, replicas: 2, latencyMs: 600 },
   },
   {
     type: 'mcp_server',
@@ -708,8 +582,7 @@ const CATALOG = [
     category: 'AI',
     color: '#9d68a0',
     hint: 'Exposes tools to a model over a protocol. Its schema is a prompt the model reads, so a compromised tool server is prompt injection.',
-    defaults: { capacityRps: 200, replicas: 2, latencyMs: 120, monthlyCost: 60 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 200, replicas: 2, latencyMs: 120 },
   },
   {
     type: 'agent_memory',
@@ -717,8 +590,7 @@ const CATALOG = [
     category: 'AI',
     color: '#8f6ca8',
     hint: 'What the agent remembers between steps and sessions. Untrusted text written here is read back as instructions later.',
-    defaults: { capacityRps: 3000, replicas: 2, latencyMs: 15, multiAz: true, monthlyCost: 80 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 3000, replicas: 2, latencyMs: 15, multiAz: true },
   },
   {
     type: 'pii_redactor',
@@ -726,8 +598,7 @@ const CATALOG = [
     category: 'Security',
     color: '#c2705f',
     hint: 'Strips or tokenises sensitive fields before they leave your boundary. The only way a third-party model call stays in scope.',
-    defaults: { capacityRps: 1500, replicas: 2, latencyMs: 25, monthlyCost: 50 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 1500, replicas: 2, latencyMs: 25 },
   },
   {
     type: 'human_review',
@@ -735,8 +606,7 @@ const CATALOG = [
     category: 'AI',
     color: '#a98b5c',
     hint: 'A person in the loop. Replicas are reviewers, and the latency is theirs — which is why this cannot sit on a synchronous path.',
-    defaults: { capacityRps: 1, replicas: 2, latencyMs: 60000, monthlyCost: 4000 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 1, replicas: 2, latencyMs: 60000 },
   },
   {
     type: 'model_server',
@@ -744,8 +614,7 @@ const CATALOG = [
     category: 'AI',
     color: '#a2699e',
     hint: 'Inference you host yourself on GPUs. Fixed cost whether or not anyone asks a question, and batching decides the throughput.',
-    defaults: { capacityRps: 8, replicas: 2, latencyMs: 900, monthlyCost: 1200 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 8, replicas: 2, latencyMs: 900 },
   },
   {
     type: 'dataset_store',
@@ -753,8 +622,7 @@ const CATALOG = [
     category: 'AI',
     color: '#9a7a9e',
     hint: 'Versioned training and evaluation data. Without it an eval gate has nothing to run against, and no result is reproducible.',
-    defaults: { capacityRps: 500, replicas: 1, latencyMs: 40, multiAz: true, monthlyCost: 60 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 500, replicas: 1, latencyMs: 40, multiAz: true },
   },
   {
     type: 'fine_tune_job',
@@ -762,8 +630,7 @@ const CATALOG = [
     category: 'AI',
     color: '#8d7f9d',
     hint: 'Training run, measured in hours. Belongs on a pipeline, never on a request path — and its output needs an eval gate before it ships.',
-    defaults: { capacityRps: 1, replicas: 1, latencyMs: 1800000, monthlyCost: 900 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 1, replicas: 1, latencyMs: 1800000 },
   },
   {
     type: 'feature_store',
@@ -771,8 +638,7 @@ const CATALOG = [
     category: 'AI',
     color: '#d29ac0',
     hint: 'Serves the same computed features to training and to inference — the cure for train/serve skew.',
-    defaults: { capacityRps: 3000, replicas: 2, latencyMs: 15, multiAz: true, monthlyCost: 130 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 3000, replicas: 2, latencyMs: 15, multiAz: true },
   },
 
   // --------------------------------------------------------------------- Security
@@ -782,8 +648,7 @@ const CATALOG = [
     category: 'Security',
     color: '#c8514c',
     hint: 'Defines which identity may do what to which resource — the policy layer behind every authorization check.',
-    defaults: { capacityRps: 5000, replicas: 2, latencyMs: 15, multiAz: true, monthlyCost: 30 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 5000, replicas: 2, latencyMs: 15, multiAz: true },
   },
   {
     type: 'kms',
@@ -791,8 +656,7 @@ const CATALOG = [
     category: 'Security',
     color: '#b64440',
     hint: 'Holds encryption keys and does the crypto for you, so raw key material never reaches your app or logs.',
-    defaults: { capacityRps: 10000, replicas: 1, latencyMs: 5, multiAz: true, monthlyCost: 15 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 10000, replicas: 1, latencyMs: 5, multiAz: true },
   },
   {
     type: 'audit_log',
@@ -800,8 +664,7 @@ const CATALOG = [
     category: 'Security',
     color: '#d4685f',
     hint: 'Append-only, tamper-evident record of every privileged action — what compliance and incident review actually need.',
-    defaults: { capacityRps: 20000, replicas: 1, latencyMs: 5, multiAz: true, monthlyCost: 40 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 20000, replicas: 1, latencyMs: 5, multiAz: true },
   },
 
   // -------------------------------------------------------------------------- Ops
@@ -811,8 +674,7 @@ const CATALOG = [
     category: 'Ops',
     color: '#b8a794',
     hint: 'Establishes who the caller is and what they may do — verify tokens at the edge, authorize at the service.',
-    defaults: { capacityRps: 4000, replicas: 2, latencyMs: 20, multiAz: true, monthlyCost: 50 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 4000, replicas: 2, latencyMs: 20, multiAz: true },
   },
   {
     type: 'observability',
@@ -820,8 +682,7 @@ const CATALOG = [
     category: 'Ops',
     color: '#a79684',
     hint: 'Metrics, logs and traces off the request path — without it you cannot tell degraded from down.',
-    defaults: { capacityRps: 20000, replicas: 1, latencyMs: 0, monthlyCost: 90 },
-    attrFields: ['capacityRps', 'latencyMs', 'monthlyCost'],
+    defaults: { capacityRps: 20000, replicas: 1, latencyMs: 0 },
   },
   {
     type: 'feature_flags',
@@ -829,8 +690,7 @@ const CATALOG = [
     category: 'Ops',
     color: '#96866f',
     hint: 'Decouples deploy from release: ship dark, enable per cohort, and kill a bad feature without a rollback.',
-    defaults: { capacityRps: 50000, replicas: 1, latencyMs: 1, multiAz: true, monthlyCost: 25 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 50000, replicas: 1, latencyMs: 1, multiAz: true },
   },
   {
     type: 'secrets_manager',
@@ -838,8 +698,7 @@ const CATALOG = [
     category: 'Ops',
     color: '#a2917d',
     hint: 'Stores and rotates credentials outside the repo, handed to services at runtime instead of baked into images.',
-    defaults: { capacityRps: 5000, replicas: 1, latencyMs: 5, multiAz: true, monthlyCost: 20 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 5000, replicas: 1, latencyMs: 5, multiAz: true },
   },
   {
     type: 'siem',
@@ -847,8 +706,7 @@ const CATALOG = [
     category: 'Security',
     color: '#b06a58',
     hint: 'Security events collected somewhere the acting service cannot rewrite. Application logs are sampled and mutable; these are evidence.',
-    defaults: { capacityRps: 2000, replicas: 2, latencyMs: 50, multiAz: true, monthlyCost: 400 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 2000, replicas: 2, latencyMs: 50, multiAz: true },
   },
   {
     type: 'consent_store',
@@ -856,8 +714,7 @@ const CATALOG = [
     category: 'Security',
     color: '#a8705f',
     hint: 'What each person agreed to, when, and for which purpose. Every downstream use has to check it, so it sits on more paths than you expect.',
-    defaults: { capacityRps: 3000, replicas: 2, latencyMs: 10, multiAz: true, monthlyCost: 60 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 3000, replicas: 2, latencyMs: 10, multiAz: true },
   },
   {
     type: 'ci_cd',
@@ -865,8 +722,7 @@ const CATALOG = [
     category: 'Ops',
     color: '#8d7d68',
     hint: 'Builds, tests and rolls out every change — your deploy frequency and time-to-rollback are decided here.',
-    defaults: { capacityRps: 10, replicas: 1, latencyMs: 60000, monthlyCost: 50 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 10, replicas: 1, latencyMs: 60000 },
   },
   {
     type: 'chaos_injector',
@@ -874,8 +730,7 @@ const CATALOG = [
     category: 'Ops',
     color: '#9a7156',
     hint: 'Kills instances and adds latency on purpose, in a window, with a hypothesis. A failover path never exercised does not work.',
-    defaults: { capacityRps: 100, replicas: 1, latencyMs: 10, monthlyCost: 40 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 100, replicas: 1, latencyMs: 10 },
   },
   {
     type: 'budget_guard',
@@ -883,8 +738,7 @@ const CATALOG = [
     category: 'Ops',
     color: '#94836a',
     hint: 'Hard ceiling and alarm on the paths whose cost scales with enthusiasm rather than users — inference, egress, third-party calls.',
-    defaults: { capacityRps: 5000, replicas: 1, latencyMs: 5, monthlyCost: 30 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 5000, replicas: 1, latencyMs: 5 },
   },
 
   // ------------------------------------------------------- Migration & legacy
@@ -897,8 +751,7 @@ const CATALOG = [
     category: 'Integration',
     color: '#8a7f73',
     hint: 'The system you must integrate with and cannot change. You do not get to add replicas to it — which is why it is usually the constraint.',
-    defaults: { capacityRps: 80, latencyMs: 400, monthlyCost: 800 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 80, latencyMs: 400 },
   },
   {
     type: 'strangler_facade',
@@ -906,8 +759,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#b08a52',
     hint: 'Routes each request to the old path or the new one, per route or per tenant. This is how a migration actually happens, and how it is rolled back.',
-    defaults: { capacityRps: 8000, replicas: 2, latencyMs: 8, multiAz: true, monthlyCost: 60 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 8000, replicas: 2, latencyMs: 8, multiAz: true },
   },
   {
     type: 'reconciler',
@@ -915,8 +767,7 @@ const CATALOG = [
     category: 'Async',
     color: '#7f9a66',
     hint: 'Compares two stores and repairs the drift. Every dual write and every migration needs one, and it is the component most often left out.',
-    defaults: { capacityRps: 20, replicas: 1, latencyMs: 1500, monthlyCost: 90 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 20, replicas: 1, latencyMs: 1500 },
   },
 
   // --------------------------------------------- concepts that had no component
@@ -926,8 +777,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#c19a5e',
     hint: 'Maps each tenant to one cell and never lets a request cross. Blast radius becomes one cell instead of the fleet.',
-    defaults: { capacityRps: 20000, replicas: 2, latencyMs: 5, multiAz: true, monthlyCost: 80 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 20000, replicas: 2, latencyMs: 5, multiAz: true },
   },
   {
     type: 'idempotency_store',
@@ -935,8 +785,7 @@ const CATALOG = [
     category: 'Data',
     color: '#6e94a8',
     hint: 'Keys mapped to the first attempt’s result, written in the same transaction as the effect. Turns a retry into a lookup.',
-    defaults: { capacityRps: 20000, replicas: 2, latencyMs: 3, multiAz: true, monthlyCost: 70 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 20000, replicas: 2, latencyMs: 3, multiAz: true },
   },
   {
     type: 'service_registry',
@@ -944,8 +793,7 @@ const CATALOG = [
     category: 'Ops',
     color: '#7f8b74',
     hint: 'Who is running, where, and is it healthy. Everything depends on it, so it needs more redundancy than anything that queries it.',
-    defaults: { capacityRps: 5000, replicas: 3, latencyMs: 5, multiAz: true, monthlyCost: 50 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 5000, replicas: 3, latencyMs: 5, multiAz: true },
   },
   {
     type: 'sync_engine',
@@ -953,8 +801,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#5f97a3',
     hint: 'Reconciles device state with server state: change tracking, conflict resolution, resumable sync. Offline-first lives or dies here.',
-    defaults: { capacityRps: 400, replicas: 2, latencyMs: 60, multiAz: true, monthlyCost: 120 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 400, replicas: 2, latencyMs: 60, multiAz: true },
   },
   {
     type: 'offline_store',
@@ -962,8 +809,7 @@ const CATALOG = [
     category: 'Data',
     color: '#6f8fa0',
     hint: 'The database on the user’s device. Costs you nothing, cannot be scaled by you, and holds writes you have not seen yet.',
-    defaults: { capacityRps: 5000, latencyMs: 2, monthlyCost: 0 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 5000, latencyMs: 2 },
   },
 
   // ----------------------------------------------------------------- Custom
@@ -973,8 +819,7 @@ const CATALOG = [
     category: 'Layout',
     color: '#9c968b',
     hint: 'Anything this palette does not name. Rename it, write what it does, and set its own numbers — the simulator and the checks treat it like any other component.',
-    defaults: { capacityRps: 500, replicas: 1, latencyMs: 50, monthlyCost: 100 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 500, replicas: 1, latencyMs: 50 },
   },
 
   // ----------------------------------------------------------------------- Layout
@@ -985,7 +830,6 @@ const CATALOG = [
     color: '#7c766c',
     hint: 'A boundary, not a component: region, VPC, cell or team. Draws the blast radius.',
     defaults: {},
-    attrFields: [],
   },
   {
     type: 'geo_router',
@@ -993,8 +837,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#bd9134',
     hint: 'Steers each user to the nearest healthy region by latency or geography.',
-    defaults: { capacityRps: 100000, replicas: 2, latencyMs: 20, multiAz: true, monthlyCost: 10 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 100000, replicas: 2, latencyMs: 20, multiAz: true },
   },
   {
     type: 'bastion',
@@ -1002,8 +845,7 @@ const CATALOG = [
     category: 'Edge & Traffic',
     color: '#af8628',
     hint: 'The single audited door for human access to private infrastructure.',
-    defaults: { capacityRps: 50, replicas: 1, latencyMs: 30, monthlyCost: 15 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 50, replicas: 1, latencyMs: 30 },
   },
   {
     type: 'sidecar',
@@ -1011,8 +853,7 @@ const CATALOG = [
     category: 'Compute',
     color: '#d68a63',
     hint: 'Per-instance proxy adding mTLS, retries and telemetry without touching your code.',
-    defaults: { capacityRps: 30000, replicas: 1, latencyMs: 1, monthlyCost: 10 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 30000, replicas: 1, latencyMs: 1 },
   },
   {
     type: 'connection_pooler',
@@ -1020,8 +861,7 @@ const CATALOG = [
     category: 'Compute',
     color: '#bb6a45',
     hint: 'Multiplexes many client connections onto the few a database can actually hold.',
-    defaults: { capacityRps: 20000, replicas: 2, latencyMs: 1, monthlyCost: 20 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 20000, replicas: 2, latencyMs: 1 },
   },
   {
     type: 'db_proxy',
@@ -1029,8 +869,7 @@ const CATALOG = [
     category: 'Data',
     color: '#b5c07e',
     hint: 'Routes reads to replicas and writes to the primary, hiding failover from callers.',
-    defaults: { capacityRps: 15000, replicas: 2, latencyMs: 2, multiAz: true, monthlyCost: 30 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 15000, replicas: 2, latencyMs: 2, multiAz: true },
   },
   {
     type: 'materialized_view',
@@ -1038,8 +877,7 @@ const CATALOG = [
     category: 'Data',
     color: '#84964f',
     hint: 'A precomputed read model: an expensive query paid for on write instead of on read.',
-    defaults: { capacityRps: 8000, replicas: 1, latencyMs: 4, monthlyCost: 40 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 8000, replicas: 1, latencyMs: 4 },
   },
   {
     type: 'session_store',
@@ -1047,8 +885,7 @@ const CATALOG = [
     category: 'Data',
     color: '#a2ae63',
     hint: 'Server-side session state, so any instance can serve any logged-in user.',
-    defaults: { capacityRps: 40000, replicas: 2, latencyMs: 2, multiAz: true, monthlyCost: 50 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 40000, replicas: 2, latencyMs: 2, multiAz: true },
   },
   {
     type: 'backup_store',
@@ -1056,8 +893,7 @@ const CATALOG = [
     category: 'Data',
     color: '#7a8949',
     hint: 'Snapshots and point-in-time archives — the only thing that survives a bad migration.',
-    defaults: { capacityRps: 20, replicas: 1, latencyMs: 2000, monthlyCost: 40 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 20, replicas: 1, latencyMs: 2000 },
   },
   {
     type: 'sharded_cluster',
@@ -1065,8 +901,7 @@ const CATALOG = [
     category: 'Data',
     color: '#93a256',
     hint: 'Data split across nodes by a partition key, when one machine can no longer hold it.',
-    defaults: { capacityRps: 12000, replicas: 3, latencyMs: 8, multiAz: true, monthlyCost: 400 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 12000, replicas: 3, latencyMs: 8, multiAz: true },
   },
   {
     type: 'ledger_db',
@@ -1074,8 +909,7 @@ const CATALOG = [
     category: 'Data',
     color: '#869440',
     hint: 'Append-only financial record: entries are never updated, only compensated.',
-    defaults: { capacityRps: 1500, replicas: 2, latencyMs: 12, multiAz: true, monthlyCost: 250 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 1500, replicas: 2, latencyMs: 12, multiAz: true },
   },
   {
     type: 'change_feed',
@@ -1083,8 +917,7 @@ const CATALOG = [
     category: 'Async',
     color: '#8bb98d',
     hint: "Subscribe to a store's changes in order, without polling it.",
-    defaults: { capacityRps: 8000, replicas: 1, latencyMs: 20, queueDepthMax: 100000, monthlyCost: 45 },
-    attrFields: BUFFERED,
+    defaults: { capacityRps: 8000, replicas: 1, latencyMs: 20, queueDepthMax: 100000 },
   },
   {
     type: 'batch_scheduler',
@@ -1092,8 +925,7 @@ const CATALOG = [
     category: 'Async',
     color: '#4f8250',
     hint: 'Owns the batch window: what runs when, in what order, and what happens if it overruns.',
-    defaults: { capacityRps: 500, replicas: 1, latencyMs: 10, monthlyCost: 15 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 500, replicas: 1, latencyMs: 10 },
   },
   {
     type: 'webhook_dispatcher',
@@ -1101,8 +933,7 @@ const CATALOG = [
     category: 'Async',
     color: '#6aa06f',
     hint: 'Signed, retried outbound delivery to systems you do not control.',
-    defaults: { capacityRps: 2000, replicas: 2, latencyMs: 60, queueDepthMax: 200000, monthlyCost: 35 },
-    attrFields: BUFFERED,
+    defaults: { capacityRps: 2000, replicas: 2, latencyMs: 60, queueDepthMax: 200000 },
   },
   {
     type: 'payment_gateway',
@@ -1110,8 +941,7 @@ const CATALOG = [
     category: 'Integration',
     color: '#d47a5c',
     hint: 'The PSP that moves money: slow, rate-limited, and the one call you must never double-send.',
-    defaults: { capacityRps: 150, latencyMs: 450, monthlyCost: 0 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 150, latencyMs: 450 },
   },
   {
     type: 'email_provider',
@@ -1119,8 +949,7 @@ const CATALOG = [
     category: 'Integration',
     color: '#e39a80',
     hint: 'Transactional email delivery, with bounces and suppression you have to handle.',
-    defaults: { capacityRps: 500, latencyMs: 300, monthlyCost: 25 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 500, latencyMs: 300 },
   },
   {
     type: 'sms_provider',
@@ -1128,8 +957,7 @@ const CATALOG = [
     category: 'Integration',
     color: '#cb6f52',
     hint: 'Text delivery: expensive per message, and carriers silently drop some of them.',
-    defaults: { capacityRps: 200, latencyMs: 500, monthlyCost: 40 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 200, latencyMs: 500 },
   },
   {
     type: 'push_service',
@@ -1137,8 +965,7 @@ const CATALOG = [
     category: 'Integration',
     color: '#e8a893',
     hint: 'APNs and FCM fanout, where device tokens expire and quietly stop working.',
-    defaults: { capacityRps: 5000, latencyMs: 150, monthlyCost: 20 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 5000, latencyMs: 150 },
   },
   {
     type: 'identity_provider',
@@ -1146,8 +973,7 @@ const CATALOG = [
     category: 'Integration',
     color: '#c26647',
     hint: 'External login (social or corporate SSO): an availability dependency on your front door.',
-    defaults: { capacityRps: 1000, latencyMs: 220, monthlyCost: 30 },
-    attrFields: MANAGED,
+    defaults: { capacityRps: 1000, latencyMs: 220 },
   },
   {
     type: 'transcoder',
@@ -1155,8 +981,7 @@ const CATALOG = [
     category: 'Media',
     color: '#b07ca8',
     hint: 'Turns one upload into every format and size you serve. Slow, bursty, expensive.',
-    defaults: { capacityRps: 5, replicas: 2, latencyMs: 20000, monthlyCost: 150 },
-    attrFields: STATELESS,
+    defaults: { capacityRps: 5, replicas: 2, latencyMs: 20000 },
   },
   {
     type: 'media_streamer',
@@ -1164,8 +989,7 @@ const CATALOG = [
     category: 'Media',
     color: '#a06c98',
     hint: "Serves segmented video (HLS/DASH) and adapts quality to each viewer's bandwidth.",
-    defaults: { capacityRps: 20000, replicas: 2, latencyMs: 25, multiAz: true, monthlyCost: 120 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 20000, replicas: 2, latencyMs: 25, multiAz: true },
   },
   {
     type: 'feedback_store',
@@ -1173,8 +997,7 @@ const CATALOG = [
     category: 'AI',
     color: '#bf78a4',
     hint: 'Collects thumbs, corrections and labels from real use — the raw material for evals.',
-    defaults: { capacityRps: 3000, replicas: 1, latencyMs: 10, monthlyCost: 30 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 3000, replicas: 1, latencyMs: 10 },
   },
   {
     type: 'experiment_platform',
@@ -1182,8 +1005,7 @@ const CATALOG = [
     category: 'AI',
     color: '#a86293',
     hint: 'Assigns users to variants and holdouts, so a change is measured rather than assumed.',
-    defaults: { capacityRps: 20000, replicas: 2, latencyMs: 3, monthlyCost: 60 },
-    attrFields: STATELESS_HA,
+    defaults: { capacityRps: 20000, replicas: 2, latencyMs: 3 },
   },
 ] satisfies NodeSpec[];
 

@@ -265,6 +265,12 @@ const RELAX_ROUNDS = 8;
 /** Headroom on top of the worst congestion the model will report. */
 const TIMEOUT_HEADROOM = 1.1;
 /**
+ * In-flight requests one vCPU sustains. Higher than one because a request spends most
+ * of its life waiting on something else rather than burning CPU — which is also why a
+ * dependency getting slower costs a service throughput it never used.
+ */
+export const CONCURRENT_REQUESTS_PER_VCPU = 8;
+/**
  * How much worse the slowest 1% is than the average, on a component with nothing
  * queueing at all.
  *
@@ -357,8 +363,26 @@ function perReplicaCapacity(node: GraphNode, serviceMs: number): number {
   const explicit = node.attrs?.capacityRps;
   if (typeof explicit === 'number' && explicit > 0) return explicit;
   if (serviceMs <= 0) return DEFAULT_CAPACITY[node.type] ?? 500;
-  const concurrency = num(node.attrs?.concurrency, defaultConcurrency(node));
-  return concurrency / (serviceMs / 1000);
+  const concurrency = num(node.attrs?.concurrency, concurrencyFor(node));
+  const shards = Math.max(1, Math.floor(num(node.attrs?.shards, 1)));
+  // Shards hold DIFFERENT data, so throughput multiplies. Replicas hold the same data
+  // and are handled separately, because they buy availability rather than capacity.
+  return (concurrency / (serviceMs / 1000)) * shards;
+}
+
+/**
+ * Requests one replica holds at once — from its size when it has been sized.
+ *
+ * Stating "2 vCPU" and having capacity follow is the honest direction: a number of
+ * requests per second typed straight in can be anything, whereas a size has to be paid
+ * for. The two are the same statement, which is why the cost model reads the same field.
+ */
+function concurrencyFor(node: GraphNode): number {
+  const vcpu = node.attrs?.vcpu;
+  if (typeof vcpu === 'number' && vcpu > 0) {
+    return Math.max(1, vcpu * CONCURRENT_REQUESTS_PER_VCPU);
+  }
+  return defaultConcurrency(node);
 }
 
 /**
@@ -715,9 +739,14 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         absorb: down ? 0 : absorb,
         down,
         bypassed: down && isTransparentWhenDown(node.type),
-        shedLimit: SHEDDING_TYPES.has(node.type)
-          ? num(node.attrs?.capacityRps, DEFAULT_CAPACITY[node.type] ?? 0) * replicas
-          : Number.POSITIVE_INFINITY,
+        // Two ways to be refused rather than queued: something built to shed at the
+        // edge, or somebody else's rate limit. A provider's quota rejects you at their
+        // door, which costs you nothing but loses the request just the same.
+        shedLimit: node.attrs?.rateLimitRps
+          ? Math.max(0, node.attrs.rateLimitRps)
+          : SHEDDING_TYPES.has(node.type)
+            ? num(node.attrs?.capacityRps, DEFAULT_CAPACITY[node.type] ?? 0) * replicas
+            : Number.POSITIVE_INFINITY,
         arriving: 0,
         admitted: 0,
         served: 0,

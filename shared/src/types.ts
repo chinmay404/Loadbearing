@@ -2,6 +2,8 @@
 // LLM boundary; everything else here is the language the app, the simulator,
 // and the grader all speak.
 
+import type { CostReport } from './cost.js';
+
 export const ARCH_NODE_TYPES = [
   'client',
   'mobile_client',
@@ -173,6 +175,32 @@ export interface NodeAttrs {
   autoscaleMin?: number;
   /** The ceiling it may grow to. Beyond this, load sheds however much is offered. */
   autoscaleMax?: number;
+
+  // ---- what the instance actually is --------------------------------------
+  //
+  // Sizing, rather than a capacity number pulled from the air. These drive BOTH what
+  // a replica can serve and what it costs, so the two can never disagree: a design
+  // cannot be cheap and fast because someone typed both.
+
+  /** vCPUs per replica. With service time this is where capacity comes from. */
+  vcpu?: number;
+  /** Memory per replica, GB. A cache's working set; a service's headroom. */
+  memoryGb?: number;
+  /** Data held, GB. The part of a datastore's bill that grows on its own. */
+  storageGb?: number;
+  /**
+   * Partitions the data is split across. Distinct from replicas: shards multiply
+   * throughput because each holds different data, replicas hold the same data.
+   */
+  shards?: number;
+  /** What somebody else's system will let you send before it refuses. */
+  rateLimitRps?: number;
+  /** Price per million calls, for things billed per request. */
+  pricePerMillion?: number;
+  /** Tokens in and out for one request — an LLM's bill is measured in these. */
+  tokensPerRequest?: number;
+  /** Price per thousand tokens. */
+  pricePer1kTokens?: number;
 }
 
 export interface GraphNode {
@@ -506,6 +534,9 @@ export interface SimResult {
   flows: SimFlowResult[];
   bottleneckNodeId: string | null;
   totalDroppedRps: number;
+  /** Provisioned plus per-request, calculated from sizes and the traffic carried. */
+  cost: CostReport;
+  /** The same total, kept because everything already reads it. */
   monthlyCost: number;
   verdict: string;
   findings: string[];

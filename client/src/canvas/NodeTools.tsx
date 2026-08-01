@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { paramsFor } from '@loadbearing/shared';
 import type { ArchNodeType, NodeAttrs } from '@loadbearing/shared';
 import { api, ApiError } from '../lib/api';
 import { useApp } from '../state/appStore';
@@ -37,7 +38,8 @@ export function NodeTools() {
 
   const allLocked = chosen.every((n) => n.draggable === false);
   const spec = archData ? NODE_SPEC[archData.archType] : null;
-  const fields = spec?.attrFields ?? [];
+  // Same schema as the inspector, so a component offers the same knobs in both places.
+  const fields = archData ? paramsFor(archData.archType).map((param) => param.key) : [];
 
   return (
     <div

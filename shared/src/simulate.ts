@@ -19,14 +19,9 @@ import {
   type HopState,
   type Scenario,
 } from './engine.js';
+import { costReport } from './cost.js';
 import { familyOf } from './families.js';
-import {
-  CACHE_TYPES,
-  DATASTORE_TYPES,
-  DEFAULT_COST,
-  QUEUE_TYPES,
-  STATEFUL_TYPES,
-} from './components.js';
+import { CACHE_TYPES, DATASTORE_TYPES, QUEUE_TYPES, STATEFUL_TYPES } from './components.js';
 import type {
   Flow,
   GraphDSL,
@@ -64,12 +59,6 @@ const round = (v: number, dp = 2): number => {
 const int = (v: number): string => String(Math.round(v));
 const pct = (fraction: number): string => `${Math.round(fraction * 100)}%`;
 
-function costOf(node: GraphNode): number {
-  const explicit = node.attrs?.monthlyCost;
-  const perReplica = typeof explicit === 'number' ? explicit : (DEFAULT_COST[node.type] ?? 0);
-  const replicas = typeof node.attrs?.replicas === 'number' ? Math.max(1, node.attrs.replicas) : 1;
-  return perReplica * replicas;
-}
 
 /**
  * The old three-knob config, expressed as a scenario the engine understands.
@@ -126,12 +115,22 @@ export function report(graph: GraphDSL, engine: EngineResult): SimResult {
 
   const flows = flowResults(graph, engine, byId);
 
+  // Cost follows the traffic that actually arrived and the replicas it settled at, so a
+  // design that sheds half its load is not billed for the half it refused, and one that
+  // scaled to fifty replicas is billed for fifty.
+  const cost = costReport(
+    graph.nodes,
+    new Map(engine.final.map((h) => [h.nodeId, h.servedRps])),
+    new Map(engine.final.map((h) => [h.nodeId, h.replicas])),
+  );
+
   return {
     nodes,
     flows,
+    cost,
     bottleneckNodeId: engine.bottleneckNodeId,
     totalDroppedRps: round(engine.worst.reduce((sum, h) => sum + h.droppedRps, 0)),
-    monthlyCost: round(graph.nodes.reduce((sum, n) => sum + costOf(n), 0)),
+    monthlyCost: cost.totalUsd,
     verdict: buildVerdict(engine, flows, nodesById),
     findings: buildFindings(graph, engine, byId, nodesById),
   };

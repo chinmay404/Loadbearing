@@ -4,6 +4,8 @@ export * from './concepts.js';
 // compatibility.ts, and nothing outside this package needs them. Anything that does
 // imports it by path.
 export * from './families.js';
+export * from './params.js';
+export * from './cost.js';
 export * from './engine.js';
 export * from './simulate.js';
 export * from './compatibility.js';

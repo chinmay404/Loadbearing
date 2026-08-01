@@ -1,23 +1,92 @@
-import type { NodeAttrs } from '@loadbearing/shared';
+import {
+  GROUP_LABEL,
+  GROUP_ORDER,
+  paramsFor,
+  type ArchNodeType,
+  type NodeAttrs,
+} from '@loadbearing/shared';
 import { NODE_SPEC } from '../canvas/nodeCatalog';
 import { useCanvas, type ArchNodeData } from '../state/canvasStore';
 import { IconSkull } from '../ui/UiIcons';
 import { explainNode } from '../lib/mathExplain';
 
-const FIELD_LABEL: Record<keyof NodeAttrs, string> = {
-  capacityRps: 'Capacity (rps per replica)',
-  replicas: 'Replicas / shards',
-  latencyMs: 'Service latency (ms)',
-  cacheHitRate: 'Cache hit rate (0–1)',
-  queueDepthMax: 'Max queue depth (messages)',
-  multiAz: 'Spread across AZs',
-  monthlyCost: 'Cost ($/month per replica)',
-  concurrency: 'Concurrent requests (per replica)',
-  timeoutMs: 'Caller gives up after (ms)',
-  trafficRps: 'Traffic starts here (rps)',
-  autoscaleMin: 'Autoscale floor (replicas) — meets the spike',
-  autoscaleMax: 'Autoscale ceiling (replicas) — arrives a minute late',
-};
+/**
+ * Every knob a component has, and only the ones it has.
+ *
+ * The list comes from the component's family rather than from a per-type field array,
+ * so a managed load balancer stops offering a zone toggle it has no say over, an
+ * autoscaling group gains a floor and a ceiling, and a component someone named
+ * themselves inherits the right set from whatever it is based on. Empty means "use the
+ * default", which is stated in the placeholder rather than silently filled in.
+ */
+function Params({
+  node,
+  type,
+  attrs,
+  onChange,
+}: {
+  node: string;
+  type: ArchNodeType;
+  attrs: NodeAttrs | undefined;
+  onChange: (id: string, patch: NodeAttrs) => void;
+}) {
+  const specs = paramsFor(type);
+  if (specs.length === 0) return null;
+
+  return (
+    <>
+      {GROUP_ORDER.filter((group) => specs.some((s) => s.group === group)).map((group) => (
+        <div key={group} style={{ marginTop: 8 }}>
+          <span className="stencil">{GROUP_LABEL[group]}</span>
+          {specs
+            .filter((s) => s.group === group)
+            .map((spec) => {
+              const value = attrs?.[spec.key];
+              if (spec.kind === 'toggle') {
+                return (
+                  <label
+                    key={spec.key}
+                    className="row"
+                    style={{ marginBottom: 5, textTransform: 'none' }}
+                    title={spec.hint}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(value)}
+                      onChange={(e) => onChange(node, { [spec.key]: e.target.checked } as NodeAttrs)}
+                      style={{ width: 'auto' }}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--graphite)' }}>{spec.label}</span>
+                  </label>
+                );
+              }
+              return (
+                <div key={spec.key} style={{ marginBottom: 5 }} title={spec.hint}>
+                  <label style={{ textTransform: 'none' }}>
+                    {spec.label}
+                    {spec.unit ? ` (${spec.unit})` : ''}
+                  </label>
+                  <input
+                    type="number"
+                    step={spec.step ?? (spec.kind === 'fraction' ? 0.05 : 1)}
+                    min={spec.min}
+                    max={spec.max}
+                    placeholder="default"
+                    value={value === undefined ? '' : Number(value)}
+                    onChange={(e) =>
+                      onChange(node, {
+                        [spec.key]: e.target.value === '' ? undefined : Number(e.target.value),
+                      } as NodeAttrs)
+                    }
+                  />
+                </div>
+              );
+            })}
+        </div>
+      ))}
+    </>
+  );
+}
 
 export function InspectorPanel() {
   const nodes = useCanvas((s) => s.nodes);
@@ -76,37 +145,7 @@ export function InspectorPanel() {
                 onBlur={(e) => updateNodeData(n.id, { annotation: e.target.value })}
                 style={{ marginBottom: 8 }}
               />
-              {spec.attrFields.map((field) => {
-                const value = data.attrs?.[field];
-                if (field === 'multiAz') {
-                  return (
-                    <label key={field} className="row" style={{ marginBottom: 6, textTransform: 'none' }}>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(value)}
-                        onChange={(e) => updateNodeAttrs(n.id, { multiAz: e.target.checked })}
-                        style={{ width: 'auto' }}
-                      />
-                      <span style={{ fontSize: 12, color: 'var(--graphite)' }}>{FIELD_LABEL[field]}</span>
-                    </label>
-                  );
-                }
-                return (
-                  <div key={field} style={{ marginBottom: 6 }}>
-                    <label>{FIELD_LABEL[field]}</label>
-                    <input
-                      type="number"
-                      step={field === 'cacheHitRate' ? 0.05 : 1}
-                      value={value === undefined ? '' : Number(value)}
-                      onChange={(e) =>
-                        updateNodeAttrs(n.id, {
-                          [field]: e.target.value === '' ? undefined : Number(e.target.value),
-                        } as NodeAttrs)
-                      }
-                    />
-                  </div>
-                );
-              })}
+              <Params node={n.id} type={data.archType} attrs={data.attrs} onChange={updateNodeAttrs} />
               {sim &&
                 (() => {
                   const r = sim.nodes.find((x) => x.nodeId === n.id);

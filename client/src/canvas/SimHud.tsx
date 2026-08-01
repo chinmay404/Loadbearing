@@ -152,9 +152,22 @@ export function SimHud() {
                 <b style={{ color: worst.p99Ms > 1000 ? 'var(--load)' : undefined }}>{Math.round(worst.p99Ms)}ms</b>
               </div>
             )}
-            <div className="readout">
+            {/* Provisioned and per-request shown apart, because they respond to
+                different decisions: sizing moves one, the load slider moves the other. */}
+            <div
+              className="readout"
+              title={result.cost.lines
+                .filter((l) => l.totalUsd > 0)
+                .sort((a, b) => b.totalUsd - a.totalUsd)
+                .slice(0, 8)
+                .map((l) => `${l.label}: $${Math.round(l.totalUsd)} — ${l.basis}`)
+                .join('\n')}
+            >
               <span className="stencil">cost</span>
-              <b>${Math.round(result.monthlyCost)}/mo</b>
+              <b>${Math.round(result.cost.totalUsd)}/mo</b>
+              <span className="stencil">
+                ${Math.round(result.cost.fixedUsd)} run · ${Math.round(result.cost.usageUsd)} traffic
+              </span>
             </div>
           </>
         )}
