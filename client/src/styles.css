@@ -1895,3 +1895,69 @@ button.danger {
   font-size: 11px;
   overflow-x: auto;
 }
+
+/* ------------------------------------------------------------- the primer --
+ * Somebody else's writing, credited at the top rather than in a footnote, and
+ * searched at passage granularity so a hit is two paragraphs and not a chapter.
+ */
+.primer-credit {
+  font-size: 12.5px;
+  color: var(--graphite);
+  border-left: 2px solid var(--plum);
+}
+.primer-credit strong {
+  color: var(--chalk);
+}
+button.primer-hit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 6px;
+  background: var(--ink-2);
+  cursor: pointer;
+}
+button.primer-hit:hover {
+  border-color: var(--brass);
+  background: var(--ink-3);
+}
+button.primer-hit h4 {
+  font-size: 12.5px;
+}
+.primer-line {
+  font-size: 12px;
+  margin: 3px 0 0;
+  line-height: 1.5;
+}
+.primer-line mark {
+  background: var(--brass-dim);
+  color: var(--brass);
+  padding: 0 1px;
+  border-radius: 2px;
+}
+.primer-read {
+  max-width: 760px;
+}
+.primer-body {
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+.primer-body h3 {
+  margin-top: 22px;
+  font-size: 15px;
+}
+.primer-body h4 {
+  margin-top: 16px;
+}
+.primer-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 8px 0;
+}
+.primer-body th,
+.primer-body td {
+  border: 1px solid var(--rule);
+  padding: 5px 7px;
+  text-align: left;
+  vertical-align: top;
+}

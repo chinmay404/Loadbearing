@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { CONCEPT_CARDS, CONCEPT_GROUPS, DESIGN_CHECKLIST, PLAYBOOK } from '@loadbearing/shared';
+import { PrimerTab } from './PrimerTab';
 
 export function ReferencePanel() {
   const [q, setQ] = useState('');
   const [group, setGroup] = useState<string>('all');
-  const [tab, setTab] = useState<'concepts' | 'playbook'>('concepts');
+  const [tab, setTab] = useState<'concepts' | 'playbook' | 'primer'>('concepts');
 
   const cards = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -46,6 +47,9 @@ export function ReferencePanel() {
         </button>
         <button className={tab === 'playbook' ? 'on' : ''} onClick={() => setTab('playbook')}>
           Playbook · {PLAYBOOK.length}
+        </button>
+        <button className={tab === 'primer' ? 'on' : ''} onClick={() => setTab('primer')} title="The System Design Primer by Donne Martin, vendored so it works offline">
+          The Primer
         </button>
       </div>
 
@@ -99,6 +103,8 @@ export function ReferencePanel() {
           {entries.length === 0 && <p className="faint">Nothing matches that search.</p>}
         </>
       )}
+
+      {tab === 'primer' && <PrimerTab />}
 
       {tab === 'concepts' && (
         <ConceptsTab q={q} setQ={setQ} group={group} setGroup={setGroup} cards={cards} />

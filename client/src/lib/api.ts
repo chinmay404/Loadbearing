@@ -218,6 +218,29 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  /**
+   * The vendored System Design Primer. Public, like the rest of the reference
+   * material — it is somebody else's writing, shared under a licence that says to.
+   */
+  primer: () =>
+    req<{
+      attribution: {
+        title: string;
+        author: string;
+        url: string;
+        licence: string;
+        licenceUrl: string;
+        changes: string[];
+      };
+      sections: { slug: string; title: string; subheadings: string[]; summary: string }[];
+    }>('/primer'),
+  primerSearch: (q: string) =>
+    req<{ query: string; hits: { slug: string; title: string; heading: string; lines: string[] }[] }>(
+      `/primer/search?q=${encodeURIComponent(q)}`,
+    ),
+  primerSection: (slug: string) =>
+    req<{ slug: string; title: string; markdown: string }>(`/primer/${encodeURIComponent(slug)}`),
+
   playbook: () => req<PlaybookEntryView[]>('/playbook'),
   relevantPlaybook: (body: { problemId?: string; graph?: GraphDSL; text?: string; limit?: number }) =>
     req<PlaybookEntryView[]>('/playbook/relevant', { method: 'POST', body: JSON.stringify(body) }),

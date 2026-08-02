@@ -7,6 +7,12 @@ import { PLAYBOOK, PLAYBOOK_BY_ID, retrievePlaybook } from '@loadbearing/shared'
 import { storage } from '../storage/index.js';
 import { attachUser, type AppEnv } from '../auth/middleware.js';
 import { findProblem } from '../problems/routes.js';
+import {
+  PRIMER_ATTRIBUTION,
+  PRIMER_SECTIONS,
+  primerSection,
+  searchPrimer,
+} from './primer/index.js';
 
 export const playbookRoutes = new Hono<AppEnv>();
 
@@ -57,4 +63,37 @@ playbookRoutes.post('/playbook/relevant', attachUser, async (c) => {
       because,
     })),
   );
+});
+
+// ---- the System Design Primer -------------------------------------------
+//
+// Vendored, not linked. A reference that only works when GitHub is reachable is a
+// reference you stop reaching for, and the whole point of having it here is that it
+// is one keystroke away while you are drawing rather than a tab you went and found.
+// Public, like the rest of the reference material: it is somebody else's writing,
+// published under a licence that says to share it, and nothing about it is yours.
+
+playbookRoutes.get('/primer', (c) =>
+  c.json({
+    attribution: PRIMER_ATTRIBUTION,
+    sections: PRIMER_SECTIONS.map(({ slug, title, subheadings, summary }) => ({
+      slug,
+      title,
+      subheadings,
+      summary,
+    })),
+  }),
+);
+
+playbookRoutes.get('/primer/search', (c) => {
+  const q = c.req.query('q') ?? '';
+  return c.json({ query: q, hits: searchPrimer(q) });
+});
+
+playbookRoutes.get('/primer/:slug', (c) => {
+  const section = primerSection(c.req.param('slug'));
+  if (!section) {
+    return c.json({ error: { code: 'not_found', message: 'No such primer section' } }, 404);
+  }
+  return c.json({ ...section, attribution: PRIMER_ATTRIBUTION });
 });
