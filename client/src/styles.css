@@ -1784,3 +1784,72 @@ table.mathwork td.r {
 .filter-gap {
   width: 14px;
 }
+
+/* ----------------------------------------------------------- note library --
+ * One place to read everything written anywhere. Notes stay collapsed to a
+ * single line of plain text until asked for, so a hundred of them still scan.
+ */
+.lib-search {
+  width: 100%;
+  margin-bottom: 10px;
+  font-size: 13.5px;
+  padding: 7px 10px;
+}
+.lib-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lib-note {
+  margin-bottom: 0;
+}
+.lib-note.open {
+  border-left: 2px solid var(--brass);
+}
+button.lib-title {
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  padding: 0;
+  color: var(--chalk);
+  justify-content: flex-start;
+}
+button.lib-title:hover {
+  color: var(--brass);
+  background: none;
+}
+.lib-peek {
+  font-size: 12px;
+  margin: 4px 0 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lib-body {
+  margin: 6px 0 2px;
+  border-top: 1px solid var(--rule);
+  padding-top: 7px;
+}
+/* Where a note was written, coloured by what kind of place that is: brass for a
+   problem sheet, plum for a project or one of its views, muted for a place that
+   has since been deleted. */
+.chip.where {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip.where.problem {
+  color: var(--brass);
+  border-color: #6b5524;
+}
+.chip.where.canvas,
+.chip.where.project {
+  color: var(--plum);
+  border-color: #5c4a58;
+}
+.chip.where.unknown {
+  color: var(--pencil);
+  font-style: italic;
+}

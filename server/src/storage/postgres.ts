@@ -584,6 +584,16 @@ export class PostgresStorage implements Storage {
     return rows.map(toNote);
   }
 
+  async listAllNotes(userId: string): Promise<NoteRow[]> {
+    // Recency, not position: `position` is manual order within one sheet, and
+    // comparing one sheet's ordering against another's would mean nothing.
+    const rows = await this.q<RawNote>(
+      `SELECT ${NOTE_COLS} FROM notes WHERE user_id = $1 ORDER BY updated_at DESC, id`,
+      [userId],
+    );
+    return rows.map(toNote);
+  }
+
   async createNote(
     userId: string,
     note: { scope: NoteScope; scopeId: string; title: string; body: string },

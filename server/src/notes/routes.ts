@@ -6,8 +6,15 @@
 // pinned either to one sheet or to a whole project, and nothing scores them.
 
 import { Hono } from 'hono';
-import { NOTE_BODY_MAX, NOTE_TITLE_MAX, type NoteScope } from '@loadbearing/shared';
+import {
+  NOTE_BODY_MAX,
+  NOTE_TITLE_MAX,
+  type LibraryNote,
+  type NoteLocation,
+  type NoteScope,
+} from '@loadbearing/shared';
 import { storage } from '../storage/index.js';
+import { allProblems } from '../problems/routes.js';
 import { requireUser, type AppEnv } from '../auth/middleware.js';
 
 export const noteRoutes = new Hono<AppEnv>();
@@ -36,6 +43,69 @@ noteRoutes.get('/notes', requireUser, async (c) => {
   }
   const notes = await (await storage()).listNotes(c.get('userId'), scope, scopeId);
   return c.json({ notes });
+});
+
+/**
+ * Every note, in one list, each one knowing where it came from.
+ *
+ * Notes get written where the thinking happened — which is the right place to write
+ * them and a poor place to find them again, once there are nine sheets and three
+ * projects. The scope id a note carries is opaque: a problem id, a view id, a project
+ * id, all of them just strings. Resolving those to names is this route's whole job,
+ * and it happens here rather than in the client so the client is not made to fetch
+ * every project and every problem to render a list.
+ */
+noteRoutes.get('/notes/library', requireUser, async (c) => {
+  const store = await storage();
+  const userId = c.get('userId');
+
+  const [notes, problems, projects] = await Promise.all([
+    store.listAllNotes(userId),
+    allProblems(store, userId),
+    store.listProjects(userId),
+  ]);
+
+  const problemTitle = new Map(problems.map((p) => [p.id, p.title]));
+  const projectName = new Map(projects.map((p) => [p.id, p.name]));
+
+  // One round per project rather than per note: a hundred notes on four views is
+  // four queries, not a hundred.
+  const canvases = new Map<string, { name: string; projectId: string }>();
+  await Promise.all(
+    projects.map(async (project) => {
+      for (const canvas of await store.listCanvases(userId, project.id)) {
+        canvases.set(canvas.id, { name: canvas.name, projectId: project.id });
+      }
+    }),
+  );
+
+  const locate = (scope: NoteScope, scopeId: string): NoteLocation => {
+    if (scope === 'project') {
+      const name = projectName.get(scopeId);
+      return name
+        ? { kind: 'project', label: name, projectId: scopeId }
+        : { kind: 'unknown', label: 'a project that no longer exists' };
+    }
+    const title = problemTitle.get(scopeId);
+    if (title) return { kind: 'problem', label: title, problemId: scopeId };
+    const canvas = canvases.get(scopeId);
+    if (canvas) {
+      return {
+        kind: 'canvas',
+        label: canvas.name,
+        projectName: projectName.get(canvas.projectId) ?? '',
+        projectId: canvas.projectId,
+        canvasId: scopeId,
+      };
+    }
+    // Deleting a project deletes its views; the notes written on them are not
+    // deleted, because a note is somebody's writing and a deleted drawing is not a
+    // reason to throw it away. They surface here, honestly labelled.
+    return { kind: 'unknown', label: 'a sheet that no longer exists' };
+  };
+
+  const library: LibraryNote[] = notes.map((note) => ({ ...note, where: locate(note.scope, note.scopeId) }));
+  return c.json({ notes: library });
 });
 
 noteRoutes.post('/notes', requireUser, async (c) => {

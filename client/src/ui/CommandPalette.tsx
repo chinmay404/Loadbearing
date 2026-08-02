@@ -161,6 +161,14 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         detail: 'navigate',
         run: () => setView('reference'),
       },
+      {
+        id: 'act:notebook',
+        kind: 'action',
+        label: 'Open the note library',
+        detail: 'navigate',
+        keywords: 'notes everything i wrote search',
+        run: () => setView('notebook'),
+      },
     ];
 
     return [...placeable, ...onSheet, ...actions];

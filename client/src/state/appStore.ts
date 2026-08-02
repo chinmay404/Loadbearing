@@ -8,6 +8,7 @@ export type View =
   | 'projects'
   | 'project'
   | 'dashboard'
+  | 'notebook'
   | 'reference'
   | 'settings';
 export type LeftTab = 'brief' | 'palette' | 'flows' | 'inspect' | 'checks' | 'notes';

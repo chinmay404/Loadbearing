@@ -518,6 +518,19 @@ export class SqliteStorage implements Storage {
     return rows.map(toNote);
   }
 
+  async listAllNotes(userId: string): Promise<NoteRow[]> {
+    // Ordered by when it was last touched rather than by position: `position` is
+    // manual order *within* a sheet, and comparing one sheet's ordering against
+    // another's is meaningless. Across everything, recency is the only honest sort.
+    const rows = this.db
+      .prepare(
+        `SELECT id, scope, scope_id, title, body, position, created_at, updated_at
+         FROM notes WHERE user_id = ? ORDER BY updated_at DESC, id`,
+      )
+      .all(userId) as unknown as RawNote[];
+    return rows.map(toNote);
+  }
+
   async createNote(
     userId: string,
     note: { scope: NoteScope; scopeId: string; title: string; body: string },

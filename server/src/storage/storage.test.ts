@@ -274,6 +274,26 @@ for (const backend of backends) {
       expect((await s.listNotes(a.id, 'sheet', 'p1')).map((n) => n.title)).toEqual(['Numbers']);
     });
 
+    it('notes: the whole collection crosses scopes but never crosses accounts', async () => {
+      const s = await fresh();
+      const a = await s.createUser(uniq('la'), 'h');
+      const b = await s.createUser(uniq('lb'), 'h');
+      expect(await s.listAllNotes(a.id)).toEqual([]);
+
+      await s.createNote(a.id, { scope: 'sheet', scopeId: 'p1', title: 'On a sheet', body: '' });
+      await s.createNote(a.id, { scope: 'project', scopeId: 'proj', title: 'On a project', body: '' });
+      await s.createNote(b.id, { scope: 'sheet', scopeId: 'p1', title: 'Not yours', body: '' });
+
+      const mine = await s.listAllNotes(a.id);
+      expect(mine.map((n) => n.title).sort()).toEqual(['On a project', 'On a sheet']);
+      expect((await s.listAllNotes(b.id)).map((n) => n.title)).toEqual(['Not yours']);
+
+      // Recency, not position: within a sheet the newest note sorts first by having
+      // the lowest position, and that ordering means nothing between two sheets.
+      const stamps = mine.map((n) => n.updatedAt);
+      expect([...stamps].sort().reverse()).toEqual(stamps);
+    });
+
     it('chats: one thread per user and sheet, replaced wholesale', async () => {
       const s = await fresh();
       const a = await s.createUser(uniq('ca'), 'h');

@@ -5,6 +5,7 @@ import type {
   CritiqueResponse,
   CustomObject,
   GraphDSL,
+  LibraryNote,
   MasteryEntry,
   Note,
   NoteScope,
@@ -261,6 +262,8 @@ export const api = {
    */
   notes: (scope: NoteScope, scopeId: string) =>
     req<{ notes: Note[] }>(`/notes?scope=${scope}&scopeId=${encodeURIComponent(scopeId)}`),
+  /** Every note ever written, newest first, each knowing where it came from. */
+  noteLibrary: () => req<{ notes: LibraryNote[] }>('/notes/library'),
   createNote: (body: { scope: NoteScope; scopeId: string; title: string; body: string }) =>
     req<Note>('/notes', { method: 'POST', body: JSON.stringify(body) }),
   updateNote: (id: string, patch: { title?: string; body?: string; position?: number }) =>

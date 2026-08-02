@@ -17,6 +17,7 @@ import { ReferencePanel } from './panels/ReferencePanel';
 import { SettingsPanel } from './panels/SettingsPanel';
 import { ComposePanel } from './panels/ComposePanel';
 import { ChecksPanel } from './panels/ChecksPanel';
+import { NoteLibrary } from './panels/NoteLibrary';
 import { NotesPanel } from './panels/NotesPanel';
 import { Panes } from './ui/Panes';
 import { CommandPalette } from './ui/CommandPalette';
@@ -33,6 +34,7 @@ import {
   IconGauge,
   IconInstrument,
   IconManual,
+  IconNote,
   IconSheets,
 } from './ui/UiIcons';
 
@@ -42,6 +44,7 @@ const RAIL: { view: View; Icon: (p: { size?: number }) => JSX.Element; title: st
   { view: 'projects', Icon: IconFolder, title: 'Projects — systems you own' },
   { view: 'workspace', Icon: IconDrafting, title: 'Drawing board' },
   { view: 'dashboard', Icon: IconGauge, title: 'Progress' },
+  { view: 'notebook', Icon: IconNote, title: 'Note library — everything you have written' },
   { view: 'reference', Icon: IconManual, title: 'Design reference' },
   { view: 'settings', Icon: IconInstrument, title: 'Grader model' },
 ];
@@ -227,6 +230,7 @@ export function App() {
         {view === 'workspace' &&
           (canvasId ? <ProjectWorkspace /> : problem ? <Workspace /> : <ProblemBrowser />)}
         {view === 'dashboard' && <Dashboard />}
+        {view === 'notebook' && <NoteLibrary />}
         {view === 'reference' && <ReferencePanel />}
         {view === 'settings' && <SettingsPanel />}
       </main>

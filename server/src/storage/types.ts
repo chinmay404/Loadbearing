@@ -138,6 +138,12 @@ export interface Storage {
 
   // ---- notes (as many as you like, per sheet or per project) ----
   listNotes(userId: string, scope: NoteScope, scopeId: string): Promise<NoteRow[]>;
+  /**
+   * Every note this person has written, newest first, regardless of what it is
+   * attached to. Notes are written where the thinking happened, which is the right
+   * place to write them and the wrong place to find them again six sheets later.
+   */
+  listAllNotes(userId: string): Promise<NoteRow[]>;
   createNote(
     userId: string,
     note: { scope: NoteScope; scopeId: string; title: string; body: string },

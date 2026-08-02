@@ -694,3 +694,29 @@ export interface Note {
 
 export const NOTE_TITLE_MAX = 120;
 export const NOTE_BODY_MAX = 20_000;
+
+/**
+ * Where a note was written.
+ *
+ * A note is stored against a scope and an opaque id, which is all the writing side
+ * needs. Reading them back in one list needs the opposite: what that id *was* — the
+ * problem's title, the view's name, the project it belonged to — because "sheet
+ * 0f3a-…" is not a place anybody remembers being.
+ */
+export type NoteLocationKind = 'problem' | 'canvas' | 'project' | 'unknown';
+
+export interface NoteLocation {
+  kind: NoteLocationKind;
+  /** What to call the place: the problem title, the view name, the project name. */
+  label: string;
+  /** Set for a view, which is a place inside another place. */
+  projectName?: string;
+  problemId?: string;
+  projectId?: string;
+  canvasId?: string;
+}
+
+/** A note plus enough context to go back to where it was written. */
+export interface LibraryNote extends Note {
+  where: NoteLocation;
+}
