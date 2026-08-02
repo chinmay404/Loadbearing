@@ -221,10 +221,16 @@ function ConnectSteps({ secret, entry }: { secret: string | null; entry: string 
         </div>
       )}
 
-      {!secret && (
+      {!secret && client !== 'claude-connector' && (
         <div className="banner info">
           Mint a token above and these steps will fill in with it. A token already minted cannot be shown
           again, so the snippets below say <span className="mono">lb_YOUR_TOKEN</span> until you make one.
+        </div>
+      )}
+      {client === 'claude-connector' && (
+        <div className="banner info">
+          No token needed here — Claude signs in through Loadbearing and mints its own, which then appears
+          in the list above like any other.
         </div>
       )}
 
@@ -265,16 +271,21 @@ function buildSteps(client: Client, base: string, token: string, entry: string |
     case 'claude-connector':
       return [
         {
-          text: 'In Claude, open Settings → Connectors and choose "Add custom connector".',
+          text: 'Make sure you are signed in to Loadbearing in this browser. The approval page needs a session to know which account to connect.',
         },
         {
-          text: 'Name it Loadbearing, and paste this as the remote MCP server URL.',
-          code: path,
+          text: 'In Claude, open Settings → Connectors and choose "Add custom connector". Name it Loadbearing and paste this as the remote MCP server URL.',
+          code: plain,
           copyLabel: 'Connector URL',
-          warn: TOKEN_IN_URL_WARNING,
         },
         {
-          text: 'Leave the OAuth fields empty — the token in the URL is the authentication — and press Add. The tools appear under the connector menu in a new conversation.',
+          text: 'Leave both OAuth fields empty. Claude registers itself; there is no client ID to fill in.',
+        },
+        {
+          text: 'Press Add, then Connect. A Loadbearing page opens asking whether to let Claude act as you — approve it, and the window closes itself.',
+        },
+        {
+          text: 'Approving mints an ordinary token, listed above as "Claude (connector)". Revoking it there disconnects Claude immediately.',
         },
         {
           text: 'Try it by asking: "list the labs in Loadbearing, then run the engine on the one-box storefront".',
@@ -294,7 +305,7 @@ function buildSteps(client: Client, base: string, token: string, entry: string |
           copyLabel: 'Header',
         },
         {
-          text: 'If the connector form has no place for a header, use this URL instead and leave auth empty.',
+          text: 'If the form has nowhere for a header, this server also does OAuth — try the plain URL on its own first, and it will send you to an approval page. Failing both, the token can go in the path:',
           code: path,
           copyLabel: 'URL with token',
           warn: TOKEN_IN_URL_WARNING,

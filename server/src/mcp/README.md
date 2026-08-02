@@ -32,8 +32,14 @@ In Claude: **Settings → Connectors → Add custom connector**, and give it
 https://your-deployment/api/mcp
 ```
 
-If your client can set a header, send `Authorization: Bearer lb_…`. If it cannot —
-Claude's connector dialog offers OAuth and nothing else — put the token in the path:
+No token. Leave the OAuth fields empty — the server is its own authorization server,
+Claude registers itself, and pressing Connect opens a Loadbearing page asking whether
+to let it act as you. Approving mints an ordinary token that appears in the same list
+as every other, named after the client, and revoking it there disconnects immediately.
+Be signed in to Loadbearing in that browser first, or the page has no account to offer.
+
+For a client that can set a header instead, send `Authorization: Bearer lb_…` to the
+same URL. For one that can do neither, the token can go in the path:
 
 ```
 https://your-deployment/api/mcp/lb_…

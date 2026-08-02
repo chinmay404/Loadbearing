@@ -9,7 +9,18 @@
     }
   },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    },
+    {
+      "//": "Without this, the SPA catch-all answers an OAuth discovery probe with index.html and a 200 — a client asking for JSON metadata gets a web page and reports that it could not register.",
+      "source": "/.well-known/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/((?!api/|.well-known/).*)",
+      "destination": "/index.html"
+    }
   ]
 }

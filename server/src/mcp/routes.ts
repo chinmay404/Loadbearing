@@ -137,12 +137,22 @@ async function handle(c: {
   };
   json: (body: unknown, status?: number) => Response;
 }): Promise<Response> {
+  const challenge = (): Response => {
+    const base = new URL(c.req.url).origin;
+    const res = c.json(unauthorised, 401);
+    res.headers.set(
+      'www-authenticate',
+      `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource"`,
+    );
+    return res;
+  };
+
   const token = tokenFor(c.req.header('authorization'), c.req.param('token'));
-  if (!token) return c.json(unauthorised, 401);
+  if (!token) return challenge();
 
   const store = await storage();
   const userId = await userForToken(store, token);
-  if (!userId) return c.json(unauthorised, 401);
+  if (!userId) return challenge();
 
   const body = (await c.req.json().catch(() => null)) as JSONRPCMessage | JSONRPCMessage[] | null;
   if (!body || typeof body !== 'object') {

@@ -64,6 +64,31 @@ function devSecret(): string {
 const sign = (payload: string): string =>
   createHmac('sha256', secret()).update(payload).digest('base64url');
 
+/**
+ * Sign an arbitrary payload with the same secret, as `payload.mac`.
+ *
+ * Used by the OAuth provider for values that must survive a round trip through a
+ * client without being stored here — a registered client's redirect URIs, an
+ * authorization code. On a serverless host that is the difference between two more
+ * tables with expiry sweeps and no tables at all, and rotating the secret
+ * invalidates every one of them at once, which is the behaviour you want anyway.
+ */
+export function signPayload(payload: string): string {
+  return `${payload}.${sign(payload)}`;
+}
+
+/** The payload back, or null if it was not signed by us. */
+export function verifyPayload(signed: string | undefined): string | null {
+  if (!signed) return null;
+  const cut = signed.lastIndexOf('.');
+  if (cut <= 0) return null;
+  const payload = signed.slice(0, cut);
+  const expected = Buffer.from(sign(payload));
+  const given = Buffer.from(signed.slice(cut + 1));
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+  return payload;
+}
+
 /** `userId.expiresAtMs.hmac` — opaque to the client, verifiable without a lookup. */
 export function issueToken(userId: string, now = Date.now()): string {
   const expires = now + SESSION_DAYS * 86_400_000;
