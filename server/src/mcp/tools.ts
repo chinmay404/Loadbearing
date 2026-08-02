@@ -1,17 +1,20 @@
-#!/usr/bin/env node
-// Loadbearing over MCP.
+// What Loadbearing exposes over MCP.
 //
-// The point is that a chatbot elsewhere — Claude Desktop, an agent in an editor,
-// whatever — can look at what is drawn on a sheet, change it, run the load engine
-// over the result, and add problems to the bank. Not as a screen-scrape: as the same
-// API the app itself uses, authenticated by a token you minted and can revoke.
+// A chatbot elsewhere — Claude, an agent in an editor, whatever — can look at what is
+// drawn on a sheet, change it, run the load engine over the result, and add problems
+// to the bank. Not as a screen-scrape: as the same API the app itself uses,
+// authenticated by a token you minted and can revoke.
 //
-// Every tool goes through the HTTP API rather than the database. That keeps one set
-// of rules about what a design may contain and what a problem must look like, and
-// means this process holds no secrets beyond the token it was given.
+// Deliberately separate from any transport. The same table and the same dispatch
+// serve the stdio server a client launches locally and the HTTP endpoint the
+// deployment exposes, so a capability cannot exist over one and not the other.
+//
+// Every tool goes through the HTTP API rather than the database. Over stdio that is a
+// real call to a running Loadbearing; inside the deployment it is the same Hono app
+// answering itself with no socket involved. Either way the rules about what a design
+// may contain and what a problem must look like are enforced in exactly one place.
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -21,21 +24,7 @@ import { docFromBlueprint, graphFromDoc, type CanvasDoc } from '@loadbearing/sha
 import { LoadbearingClient, LoadbearingError } from './client.js';
 import { renderGraph, renderProblem, renderSim } from './render.js';
 
-const BASE_URL = (process.env.LOADBEARING_URL ?? 'http://localhost:8787').replace(/\/+$/, '');
-const TOKEN = process.env.LOADBEARING_TOKEN ?? '';
-
-if (!TOKEN) {
-  // stderr, not stdout: stdout is the protocol channel and anything else on it is a
-  // parse error at the other end.
-  console.error(
-    'LOADBEARING_TOKEN is not set. Mint one in Loadbearing under Grader model → API tokens, then put it in this server\'s env.',
-  );
-  process.exit(1);
-}
-
-const client = new LoadbearingClient(BASE_URL, TOKEN);
-
-const TOOLS: Tool[] = [
+export const TOOLS: Tool[] = [
   {
     name: 'list_sheets',
     description:
@@ -156,55 +145,71 @@ const TOOLS: Tool[] = [
   },
 ];
 
-const server = new Server(
-  { name: 'loadbearing', version: '0.1.0' },
-  { capabilities: { tools: {} } },
-);
+/**
+ * A Server wired to the tools, ready for whichever transport is connecting.
+ *
+ * One per connection rather than one shared instance. Over stdio there is exactly one
+ * connection for the life of the process; over HTTP each request is its own short
+ * conversation carrying its own credential. A shared instance would have to be told
+ * whose it is on every call, which is the kind of thing that is wrong once and then
+ * wrong for everybody.
+ */
+export function mcpServer(client: LoadbearingClient): Server {
+  const server = new Server({ name: 'loadbearing', version: '0.1.0' }, { capabilities: { tools: {} } });
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const args = (request.params.arguments ?? {}) as Record<string, unknown>;
-  try {
-    return { content: [{ type: 'text' as const, text: await dispatch(request.params.name, args) }] };
-  } catch (e) {
-    // Errors come back as content rather than as a protocol error: the caller is a
-    // model, and "that sheet id does not exist, here are the ones that do" is
-    // something it can act on, where a transport failure is not.
-    const message =
-      e instanceof LoadbearingError
-        ? `${e.message}${e.hint ? `\n\n${e.hint}` : ''}`
-        : `${(e as Error).message}`;
-    return { content: [{ type: 'text' as const, text: message }], isError: true };
-  }
-});
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const args = (request.params.arguments ?? {}) as Record<string, unknown>;
+    try {
+      return {
+        content: [{ type: 'text' as const, text: await dispatch(client, request.params.name, args) }],
+      };
+    } catch (e) {
+      // Errors come back as content rather than as a protocol error: the caller is a
+      // model, and "that sheet id does not exist, here are the ones that do" is
+      // something it can act on, where a transport failure is not.
+      const message =
+        e instanceof LoadbearingError
+          ? `${e.message}${e.hint ? `\n\n${e.hint}` : ''}`
+          : `${(e as Error).message}`;
+      return { content: [{ type: 'text' as const, text: message }], isError: true };
+    }
+  });
 
-async function dispatch(tool: string, args: Record<string, unknown>): Promise<string> {
+  return server;
+}
+
+async function dispatch(
+  client: LoadbearingClient,
+  tool: string,
+  args: Record<string, unknown>,
+): Promise<string> {
   switch (tool) {
     case 'list_sheets':
-      return listSheets(args);
+      return listSheets(client, args);
     case 'get_sheet':
       return renderProblem(await client.problem(str(args.id)));
     case 'read_canvas':
-      return readCanvas(args);
+      return readCanvas(client, args);
     case 'write_canvas':
-      return writeCanvas(args);
+      return writeCanvas(client, args);
     case 'place_starting_architecture':
-      return placeStarter(args);
+      return placeStarter(client, args);
     case 'run_engine':
-      return runEngine(args);
+      return runEngine(client, args);
     case 'add_sheet':
-      return addSheet(args);
+      return addSheet(client, args);
     case 'search_notes':
-      return searchNotes(args);
+      return searchNotes(client, args);
     case 'add_note':
-      return addNote(args);
+      return addNote(client, args);
     default:
       return `No such tool: ${tool}`;
   }
 }
 
-async function listSheets(args: Record<string, unknown>): Promise<string> {
+async function listSheets(client: LoadbearingClient, args: Record<string, unknown>): Promise<string> {
   const all = await client.problems();
   const search = str(args.search).toLowerCase();
   const shown = all.filter((p) => {
@@ -232,7 +237,7 @@ async function listSheets(args: Record<string, unknown>): Promise<string> {
   return lines.join('\n');
 }
 
-async function readCanvas(args: Record<string, unknown>): Promise<string> {
+async function readCanvas(client: LoadbearingClient, args: Record<string, unknown>): Promise<string> {
   const sheetId = str(args.sheetId);
   const { doc } = await client.design(sheetId);
   if (args.format === 'json') return JSON.stringify(doc ?? emptyDoc(), null, 2);
@@ -240,7 +245,7 @@ async function readCanvas(args: Record<string, unknown>): Promise<string> {
   return `# What is drawn on ${sheetId}\n\n${renderGraph(graph)}`;
 }
 
-async function writeCanvas(args: Record<string, unknown>): Promise<string> {
+async function writeCanvas(client: LoadbearingClient, args: Record<string, unknown>): Promise<string> {
   const sheetId = str(args.sheetId);
   const doc = args.doc as CanvasDoc | undefined;
   if (!doc || typeof doc !== 'object' || !Array.isArray(doc.nodes)) {
@@ -257,7 +262,7 @@ async function writeCanvas(args: Record<string, unknown>): Promise<string> {
   return `Saved to ${sheetId}.\n\n${renderGraph(graph)}`;
 }
 
-async function placeStarter(args: Record<string, unknown>): Promise<string> {
+async function placeStarter(client: LoadbearingClient, args: Record<string, unknown>): Promise<string> {
   const sheetId = str(args.sheetId);
   const problem = await client.problem(sheetId);
   if (!problem.diagram) {
@@ -274,7 +279,7 @@ async function placeStarter(args: Record<string, unknown>): Promise<string> {
   return `Placed the starting architecture on ${sheetId}.\n\n${problem.diagram.caption}\n\n${renderGraph(graphFromDoc(placed))}`;
 }
 
-async function runEngine(args: Record<string, unknown>): Promise<string> {
+async function runEngine(client: LoadbearingClient, args: Record<string, unknown>): Promise<string> {
   const sheetId = str(args.sheetId);
   const { doc } = await client.design(sheetId);
   const graph = graphFromDoc(doc);
@@ -322,14 +327,14 @@ async function runEngine(args: Record<string, unknown>): Promise<string> {
   return `${heading}\n\n${renderSim(sim, graph)}${notes}`;
 }
 
-async function addSheet(args: Record<string, unknown>): Promise<string> {
+async function addSheet(client: LoadbearingClient, args: Record<string, unknown>): Promise<string> {
   const created = await client.addProblem(args.problem);
   return `Added **${created.title}** as \`${created.id}\`${
     created.kind === 'lab' ? ', with its starting architecture' : ''
   }. It is in this account's bank now and can be opened in the app.`;
 }
 
-async function searchNotes(args: Record<string, unknown>): Promise<string> {
+async function searchNotes(client: LoadbearingClient, args: Record<string, unknown>): Promise<string> {
   const { notes } = await client.noteLibrary();
   const terms = str(args.query).toLowerCase().split(/\s+/).filter(Boolean);
   const matched = terms.length
@@ -345,7 +350,7 @@ async function searchNotes(args: Record<string, unknown>): Promise<string> {
     .join('\n\n---\n\n');
 }
 
-async function addNote(args: Record<string, unknown>): Promise<string> {
+async function addNote(client: LoadbearingClient, args: Record<string, unknown>): Promise<string> {
   const scope = args.scope === 'project' ? 'project' : 'sheet';
   await client.addNote(scope, str(args.scopeId), str(args.title), str(args.body));
   return `Written to ${scope} ${str(args.scopeId)}.`;
@@ -357,9 +362,3 @@ const num = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 const strArray = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
-
-// Announce on stderr so a misconfigured URL is visible in the client's server log
-// rather than showing up later as every tool failing for no stated reason.
-const transport = new StdioServerTransport();
-await server.connect(transport);
-console.error(`[loadbearing-mcp] connected, talking to ${BASE_URL}`);

@@ -34,7 +34,7 @@ export function TokensPanel() {
       .catch(() => setEntry(null));
   }, []);
 
-  const config = mcpConfig(entry, window.location.origin.replace(':5173', ':8787'));
+  const config = mcpConfig(entry, apiOrigin());
 
   const reload = () =>
     api
@@ -145,12 +145,39 @@ export function TokensPanel() {
         </table>
       )}
 
-      <details className="disclose" style={{ marginTop: 10 }}>
-        <summary>Pointing a chatbot at this — the MCP server</summary>
+      <details className="disclose" style={{ marginTop: 10 }} open>
+        <summary>Connecting a hosted chatbot — Claude connectors, ChatGPT</summary>
         <p className="muted" style={{ fontSize: 12.5 }}>
-          The MCP server lets a chatbot read what is on your canvas, change it, run the load engine over
-          the result, and add problems to your bank. Build it once with{' '}
-          <span className="mono">npm run build:mcp</span>, then add this to your MCP client's config:
+          This deployment serves MCP over HTTP, so a chatbot that only takes a URL can use it. In
+          Claude: <span className="mono">Settings → Connectors → Add custom connector</span>, and paste
+          the URL below as the remote MCP server.
+        </p>
+        <pre className="mono config-block">{`${remoteBase()}/api/mcp`}</pre>
+        <p className="muted" style={{ fontSize: 12.5 }}>
+          If the client lets you set a header, send{' '}
+          <span className="mono">Authorization: Bearer lb_…</span> and use that URL as it is. If it does
+          not — the Claude connector dialog offers OAuth and nothing else — put the token in the path
+          instead:
+        </p>
+        <pre className="mono config-block">{`${remoteBase()}/api/mcp/lb_…`}</pre>
+        <p className="muted" style={{ fontSize: 12.5 }}>
+          <strong>That URL is then the credential.</strong> Anything holding it can act as you, and a URL
+          gets into logs, history and screenshots in a way a header does not. Mint a token used for
+          nothing else, and revoke it the moment you are done with it.
+        </p>
+        {window.location.hostname === 'localhost' && (
+          <div className="banner warnb" style={{ marginTop: 6 }}>
+            You are looking at localhost, so that URL is only reachable from this machine. A hosted
+            chatbot needs the deployed address — open the same panel there and copy it from that page.
+          </div>
+        )}
+      </details>
+
+      <details className="disclose" style={{ marginTop: 8 }}>
+        <summary>Running it locally instead — Claude Desktop, Claude Code</summary>
+        <p className="muted" style={{ fontSize: 12.5 }}>
+          For a client that launches a process rather than calling a URL. Nothing to build — it runs
+          from source. Add this to your MCP client's config:
         </p>
         <pre className="mono config-block">{config}</pre>
         <button
@@ -179,11 +206,11 @@ export function TokensPanel() {
 function mcpConfig(entry: string | null, origin: string): string {
   // JSON.stringify handles the Windows backslashes, which is exactly the detail a
   // hand-assembled string gets wrong.
-  const args = JSON.stringify([entry ?? '/path/to/loadbearing/mcp/dist/index.js']);
+  const args = JSON.stringify(['tsx', entry ?? '/path/to/loadbearing/server/src/mcp/stdio.ts']);
   return `{
   "mcpServers": {
     "loadbearing": {
-      "command": "node",
+      "command": "npx",
       "args": ${args},
       "env": {
         "LOADBEARING_URL": ${JSON.stringify(origin)},
@@ -204,3 +231,15 @@ function ago(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
 }
+
+/** Where the API is. In dev the client is on 5173 and the server on 8787. */
+const apiOrigin = (): string => window.location.origin.replace(':5173', ':8787');
+
+/**
+ * The address a hosted chatbot would use.
+ *
+ * Deliberately not massaged: if this is localhost then the honest answer is
+ * localhost, and the panel says plainly that a hosted client cannot reach it, rather
+ * than printing a deployment URL this page has no way to know.
+ */
+const remoteBase = (): string => apiOrigin();

@@ -6,8 +6,7 @@
   "workspaces": [
     "shared",
     "server",
-    "client",
-    "mcp"
+    "client"
   ],
   "engines": {
     "node": ">=22.5"
@@ -20,17 +19,14 @@
     "build": "npm-run-all build:shared build:client",
     "build:shared": "npm run build --workspace @loadbearing/shared",
     "build:client": "npm run build --workspace @loadbearing/client",
-    "test": "npm-run-all build:shared test:shared test:server test:client test:mcp",
+    "test": "npm-run-all build:shared test:shared test:server test:client",
     "test:shared": "npm --workspace shared run test",
     "test:server": "npm --workspace server run test",
     "test:client": "npm --workspace client run test",
-    "typecheck": "npm-run-all build:shared typecheck:api typecheck:server typecheck:client typecheck:mcp",
+    "typecheck": "npm-run-all build:shared typecheck:api typecheck:server typecheck:client",
     "typecheck:api": "tsc --noEmit -p tsconfig.json",
     "typecheck:server": "npm --workspace server run typecheck",
-    "typecheck:client": "npm --workspace client run typecheck",
-    "typecheck:mcp": "npm --workspace mcp run typecheck",
-    "test:mcp": "npm --workspace mcp run test",
-    "build:mcp": "npm run build --workspace @loadbearing/mcp"
+    "typecheck:client": "npm --workspace client run typecheck"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

@@ -22,23 +22,36 @@ interface ApiErrorBody {
   error?: { message?: string; hint?: string };
 }
 
+/** How a request actually gets made. Swappable so the deployment can answer itself. */
+export type Fetcher = (input: Request) => Promise<Response>;
+
 export class LoadbearingClient {
+  /**
+   * @param fetchImpl Defaults to the network. Inside the deployment the Hono app is
+   * passed instead, so a tool call is a function call rather than a request the
+   * server makes to itself over a socket — which would need to know its own public
+   * URL, would spend a second function invocation, and would fail in exactly the
+   * situations where the first one already had trouble.
+   */
   constructor(
     private baseUrl: string,
     private token: string,
+    private fetchImpl: Fetcher = (request) => fetch(request),
   ) {}
 
   private async req<T>(path: string, init: RequestInit = {}): Promise<T> {
     let res: Response;
     try {
-      res = await fetch(`${this.baseUrl}/api${path}`, {
-        ...init,
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${this.token}`,
-          ...(init.headers ?? {}),
-        },
-      });
+      res = await this.fetchImpl(
+        new Request(`${this.baseUrl}/api${path}`, {
+          ...init,
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${this.token}`,
+            ...(init.headers ?? {}),
+          },
+        }),
+      );
     } catch (e) {
       // The most common failure by far, and one whose default message ("fetch
       // failed") tells the caller nothing about what to do.

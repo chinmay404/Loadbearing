@@ -15,6 +15,9 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
+// Run the entry point through tsx: the server workspace is not compiled, and a build
+// step before every test run is a cost paid on every unrelated change.
+const TSX = join(here, '..', '..', '..', 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const dir = mkdtempSync(join(tmpdir(), 'loadbearing-mcp-'));
 process.env.LOADBEARING_DB = join(dir, 'mcp.sqlite');
 process.env.LOADBEARING_SESSION_SECRET = 'test-secret-do-not-ship';
@@ -22,7 +25,7 @@ delete process.env.DATABASE_URL;
 
 // The server package is a sibling workspace, so this reaches into its source the
 // same way the built binary reaches into its dist.
-const { app } = (await import('../../server/src/app.js')) as { app: { fetch: (req: Request) => Promise<Response> } };
+const { app } = (await import('../app.js')) as { app: { fetch: (req: Request) => Promise<Response> } };
 
 let http: HttpServer;
 let baseUrl = '';
@@ -94,7 +97,7 @@ beforeAll(async () => {
   });
   token = ((await minted.json()) as { secret: string }).secret;
 
-  child = spawn(process.execPath, [join(here, '..', 'dist', 'index.js')], {
+  child = spawn(process.execPath, [TSX, join(here, 'stdio.ts')], {
     env: { ...process.env, LOADBEARING_URL: baseUrl, LOADBEARING_TOKEN: token },
     stdio: ['pipe', 'pipe', 'pipe'],
   }) as ChildProcessWithoutNullStreams;
@@ -395,7 +398,7 @@ describe('notes', () => {
 
 describe('when things are wrong', () => {
   it('reports an unreachable server as unreachable, not as a bad request', async () => {
-    const lost = spawn(process.execPath, [join(here, '..', 'dist', 'index.js')], {
+    const lost = spawn(process.execPath, [TSX, join(here, 'stdio.ts')], {
       env: { ...process.env, LOADBEARING_URL: 'http://127.0.0.1:1', LOADBEARING_TOKEN: token },
       stdio: ['pipe', 'pipe', 'pipe'],
     }) as ChildProcessWithoutNullStreams;
@@ -422,7 +425,7 @@ describe('when things are wrong', () => {
   }, 20000);
 
   it('refuses to start without a token, rather than failing on every call', async () => {
-    const naked = spawn(process.execPath, [join(here, '..', 'dist', 'index.js')], {
+    const naked = spawn(process.execPath, [TSX, join(here, 'stdio.ts')], {
       env: { ...process.env, LOADBEARING_URL: baseUrl, LOADBEARING_TOKEN: '' },
       stdio: ['pipe', 'pipe', 'pipe'],
     }) as ChildProcessWithoutNullStreams;

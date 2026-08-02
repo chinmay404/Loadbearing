@@ -22,6 +22,7 @@ import { playbookRoutes } from './reference/routes.js';
 import { templateRoutes } from './templates/routes.js';
 import { projectRoutes } from './projects/routes.js';
 import { noteRoutes } from './notes/routes.js';
+import { mcpRoutes, useAppForMcp } from './mcp/routes.js';
 
 export const app = new Hono<AppEnv>();
 
@@ -138,7 +139,7 @@ function mcpEntry(): string | null {
   if (process.env.VERCEL || process.env.NODE_ENV === 'production') return null;
   let dir = dirname(fileURLToPath(import.meta.url));
   for (let up = 0; up < 6; up += 1) {
-    const candidate = join(dir, 'mcp', 'dist', 'index.js');
+    const candidate = join(dir, 'server', 'src', 'mcp', 'stdio.ts');
     if (existsSync(candidate)) return candidate;
     const parent = dirname(dir);
     if (parent === dir) break;
@@ -163,3 +164,8 @@ app.route('/api', playbookRoutes);
 app.route('/api', templateRoutes);
 app.route('/api', projectRoutes);
 app.route('/api', noteRoutes);
+app.route('/api', mcpRoutes);
+
+// Lets an MCP tool call reach the rest of the API in-process. Handed over here
+// rather than imported by the MCP module, which app.ts already imports.
+useAppForMcp(app);
