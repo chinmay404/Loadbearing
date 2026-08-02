@@ -1,7 +1,10 @@
-import { CONCEPTS } from '@loadbearing/shared';
-import type { LoadScenario, Problem } from '@loadbearing/shared';
+import { ARCH_NODE_TYPES, CONCEPTS } from '@loadbearing/shared';
+import type { LoadScenario, Problem, ProblemDiagram } from '@loadbearing/shared';
 
 const CONCEPT_SET = new Set<string>(CONCEPTS);
+const NODE_TYPE_SET = new Set<string>(ARCH_NODE_TYPES);
+const EDGE_KINDS = new Set(['sync', 'async', 'replication']);
+const FLOW_KINDS = new Set(['read', 'write', 'async', 'admin']);
 
 export class ProblemShapeError extends Error {
   constructor(public problems: string[]) {
@@ -61,7 +64,14 @@ export function validateProblem(raw: unknown): Problem {
 
   if (problems.length) throw new ProblemShapeError(problems);
 
+  // A diagram is optional and never worth failing a problem over: a brief with no
+  // picture is a brief, whereas a brief rejected because an agent got one edge
+  // endpoint wrong is nothing at all.
+  const diagram = validateDiagram(o.diagram);
+  const kind = o.kind === 'lab' && diagram ? ('lab' as const) : ('design' as const);
+
   return {
+    ...(diagram ? { diagram, kind } : {}),
     id,
     title: str(o.title, id),
     level,
@@ -78,6 +88,79 @@ export function validateProblem(raw: unknown): Problem {
     custom: true,
   };
 }
+
+/**
+ * Salvage a diagram, or return nothing.
+ *
+ * The rule throughout is drop rather than reject: an unknown node type, an edge to a
+ * key that does not exist, a flow step naming a box nobody drew — each of those is
+ * discarded on its own, and the rest of the picture survives. Only a diagram with
+ * fewer than two nodes left is worthless, because a single box is not an
+ * architecture.
+ */
+export function validateDiagram(raw: unknown): ProblemDiagram | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const o = raw as Record<string, unknown>;
+
+  const rawNodes = Array.isArray(o.nodes) ? o.nodes : [];
+  const nodes: ProblemDiagram['nodes'] = [];
+  for (const item of rawNodes) {
+    if (typeof item !== 'object' || item === null) continue;
+    const n = item as Record<string, unknown>;
+    const key = str(n.key).trim();
+    const type = str(n.type).trim();
+    if (!key || !NODE_TYPE_SET.has(type)) continue;
+    if (nodes.some((existing) => existing.key === key)) continue;
+    const at = (n.at ?? {}) as Record<string, unknown>;
+    const size = (n.size ?? {}) as Record<string, unknown>;
+    nodes.push({
+      key,
+      type: type as ProblemDiagram['nodes'][number]['type'],
+      label: str(n.label, key),
+      annotation: str(n.annotation),
+      at: { x: num(at.x), y: num(at.y) },
+      ...(num(size.w) > 0 && num(size.h) > 0
+        ? { size: { w: num(size.w), h: num(size.h) } }
+        : {}),
+      ...(typeof n.parent === 'string' ? { parent: n.parent } : {}),
+      ...(typeof n.attrs === 'object' && n.attrs !== null
+        ? { attrs: n.attrs as ProblemDiagram['nodes'][number]['attrs'] }
+        : {}),
+    });
+  }
+  if (nodes.length < 2) return undefined;
+
+  const keys = new Set(nodes.map((n) => n.key));
+  // A parent naming a box that did not survive would place the child at the origin.
+  for (const n of nodes) if (n.parent && !keys.has(n.parent)) delete n.parent;
+
+  const edges = (Array.isArray(o.edges) ? o.edges : [])
+    .filter((e): e is Record<string, unknown> => typeof e === 'object' && e !== null)
+    .filter((e) => keys.has(str(e.from)) && keys.has(str(e.to)) && EDGE_KINDS.has(str(e.kind)))
+    .map((e) => ({
+      from: str(e.from),
+      to: str(e.to),
+      kind: str(e.kind) as ProblemDiagram['edges'][number]['kind'],
+      ...(typeof e.label === 'string' && e.label ? { label: e.label } : {}),
+    }));
+
+  const flows = (Array.isArray(o.flows) ? o.flows : [])
+    .filter((f): f is Record<string, unknown> => typeof f === 'object' && f !== null)
+    .map((f) => ({
+      name: str(f.name, 'flow'),
+      kind: (FLOW_KINDS.has(str(f.kind)) ? str(f.kind) : 'read') as ProblemDiagram['flows'][number]['kind'],
+      steps: strArray(f.steps).filter((s) => keys.has(s)),
+      rps: Math.max(0, num(f.rps)),
+      description: str(f.description),
+    }))
+    // A one-step flow is not a path through anything.
+    .filter((f) => f.steps.length >= 2);
+
+  const caption = str(o.caption).trim();
+  return { name: str(o.name, caption || 'Starting architecture'), caption, nodes, edges, flows };
+}
+
+const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
 /** Used by the bank test: a stricter check for hand-written seed content. */
 export function auditSeedProblem(p: Problem): string[] {
@@ -98,5 +181,70 @@ export function auditSeedProblem(p: Problem): string[] {
     if (!s.passCriteria.trim()) issues.push(`${p.id}/${s.id}: missing passCriteria`);
     if (!(s.rpsMultiplier > 0)) issues.push(`${p.id}/${s.id}: rpsMultiplier must be > 0`);
   }
+  issues.push(...auditSeedDiagram(p));
   return issues;
 }
+
+/**
+ * A lab's diagram is not decoration — it is the sheet you start on, and a broken one
+ * puts a broken design on somebody's canvas. So it is checked the way the problem
+ * text is: every reference resolves, every box says something, and the thing is
+ * actually connected rather than a scatter of unrelated components.
+ */
+function auditSeedDiagram(p: Problem): string[] {
+  const issues: string[] = [];
+  if (p.kind === 'lab' && !p.diagram) issues.push(`${p.id}: a lab with no starting architecture`);
+  const d = p.diagram;
+  if (!d) return issues;
+
+  if (!d.caption.trim()) issues.push(`${p.id}: diagram has no caption`);
+  if (d.nodes.length < 3) issues.push(`${p.id}: diagram has fewer than 3 components`);
+
+  const keys = new Set<string>();
+  for (const n of d.nodes) {
+    if (keys.has(n.key)) issues.push(`${p.id}: duplicate diagram key "${n.key}"`);
+    keys.add(n.key);
+    if (!NODE_TYPE_SET.has(n.type)) issues.push(`${p.id}: unknown component type "${n.type}"`);
+    if (n.parent && !keys.has(n.parent) && !d.nodes.some((o) => o.key === n.parent)) {
+      issues.push(`${p.id}: "${n.key}" is inside "${n.parent}", which is not in the diagram`);
+    }
+    // The annotation is where the defect lives; a box without one teaches nothing.
+    if (n.type !== 'group' && !n.annotation.trim() && !isPlainEdgeComponent(n.type)) {
+      issues.push(`${p.id}: "${n.key}" has no annotation`);
+    }
+  }
+
+  const connected = new Set<string>();
+  for (const e of d.edges) {
+    if (!keys.has(e.from)) issues.push(`${p.id}: edge from unknown "${e.from}"`);
+    if (!keys.has(e.to)) issues.push(`${p.id}: edge to unknown "${e.to}"`);
+    connected.add(e.from);
+    connected.add(e.to);
+  }
+  for (const n of d.nodes) {
+    // A boundary is connected through its members, not by an edge of its own.
+    if (n.type === 'group' || d.nodes.some((o) => o.parent === n.key)) continue;
+    if (n.parent) continue;
+    if (!connected.has(n.key)) issues.push(`${p.id}: "${n.key}" is drawn but connected to nothing`);
+  }
+
+  for (const f of d.flows) {
+    if (f.steps.length < 2) issues.push(`${p.id}: flow "${f.name}" is not a path`);
+    for (const s of f.steps) {
+      if (!keys.has(s)) issues.push(`${p.id}: flow "${f.name}" steps through unknown "${s}"`);
+    }
+  }
+  if (p.kind === 'lab' && d.flows.length < 2) {
+    issues.push(`${p.id}: a lab should arrive with at least 2 flows already declared`);
+  }
+  // Without a source the engine has nothing to offer the design, and every gate on
+  // the sheet would read zero the moment it loaded.
+  if (p.kind === 'lab' && !d.nodes.some((n) => (n.attrs?.trafficRps ?? 0) > 0)) {
+    issues.push(`${p.id}: no component in the diagram is where traffic starts`);
+  }
+  return issues;
+}
+
+/** Plumbing whose presence is the whole statement; a note would only repeat the label. */
+const isPlainEdgeComponent = (type: string): boolean =>
+  type === 'load_balancer' || type === 'dns' || type === 'cdn';

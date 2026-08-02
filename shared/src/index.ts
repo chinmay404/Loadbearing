@@ -12,5 +12,6 @@ export * from './compatibility.js';
 export * from './scenarios.js';
 export * from './diff.js';
 export * from './blueprints.js';
+export * from './diagram.js';
 export * from './playbook.js';
 export * from './retrieve.js';

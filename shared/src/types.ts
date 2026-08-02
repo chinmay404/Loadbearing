@@ -2,6 +2,7 @@
 // LLM boundary; everything else here is the language the app, the simulator,
 // and the grader all speak.
 
+import type { BlueprintLike } from './blueprints.js';
 import type { CostReport } from './cost.js';
 
 export const ARCH_NODE_TYPES = [
@@ -307,11 +308,42 @@ export interface CanvasDoc {
   flows: Flow[];
 }
 
+/**
+ * What kind of sheet this is.
+ *
+ * A `design` problem is a blank canvas and a brief. A `lab` starts you with an
+ * architecture that already exists — usually one with something wrong in it — and
+ * asks you to change it. The difference is one field, `diagram`: a lab loads it onto
+ * your sheet, a design problem only shows it.
+ */
+export type ProblemKind = 'design' | 'lab';
+
+/**
+ * A drawn architecture attached to a brief. Structurally a blueprint — same nodes,
+ * same edges, same flows — so the canvas can place it without knowing it came from a
+ * problem, and the brief can draw it without knowing it can be placed.
+ */
+export interface ProblemDiagram extends BlueprintLike {
+  /** One line under the picture: what you are looking at, and why it is shown. */
+  caption: string;
+}
+
 export interface Problem {
   id: string;
   title: string;
   level: 1 | 2 | 3 | 4 | 5 | 6;
   domain: string;
+  /** Defaults to 'design' when absent, which is what every seed problem was. */
+  kind?: ProblemKind;
+  /**
+   * An architecture drawn alongside the brief. For a design problem this is the
+   * system as it stands today — the thing the prompt describes and you are replacing.
+   * For a lab it is your starting point, loaded onto the canvas when you begin.
+   *
+   * Typed as the same shape the blueprint library and user templates use, so placing
+   * it is the code path that already exists rather than a second one.
+   */
+  diagram?: ProblemDiagram;
   prompt: string;
   functional: string[];
   nonFunctional: Record<string, string | number>;
@@ -355,7 +387,7 @@ export interface LoadScenario {
 
 export type ProblemSummary = Pick<
   Problem,
-  'id' | 'title' | 'level' | 'domain' | 'concepts' | 'custom'
+  'id' | 'title' | 'level' | 'domain' | 'concepts' | 'custom' | 'kind'
 >;
 
 export const DIMENSION_KEYS = [

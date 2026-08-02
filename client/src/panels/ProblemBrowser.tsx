@@ -20,6 +20,7 @@ export function ProblemBrowser() {
   const setError = useApp((s) => s.setError);
   const [mastery, setMastery] = useState<MasteryEntry[]>([]);
   const [level, setLevel] = useState<number | 'all'>('all');
+  const [kind, setKind] = useState<'all' | 'design' | 'lab'>('all');
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<Record<string, number>>({});
   const [recent, setRecent] = useState<{ problemId: string; lastTouchedAt: string; attempts: number }[]>([]);
@@ -90,8 +91,11 @@ export function ProblemBrowser() {
     }
   };
 
-  const shown = problems.filter((p) => level === 'all' || p.level === level);
+  const shown = problems.filter(
+    (p) => (level === 'all' || p.level === level) && (kind === 'all' || (p.kind ?? 'design') === kind),
+  );
   const byLevel = [1, 2, 3, 4, 5, 6].map((l) => ({ l, items: shown.filter((p) => p.level === l) }));
+  const labCount = problems.filter((p) => p.kind === 'lab').length;
 
   // The level filter applies here too, so filtering to L4 does not leave an L1 sheet
   // stranded at the top of the page.
@@ -221,6 +225,25 @@ export function ProblemBrowser() {
             L{l}
           </button>
         ))}
+        {labCount > 0 && (
+          <>
+            <span className="filter-gap" />
+            <button
+              className={kind === 'design' ? 'on' : ''}
+              onClick={() => setKind(kind === 'design' ? 'all' : 'design')}
+              title="Sheets that start blank"
+            >
+              Blank sheets
+            </button>
+            <button
+              className={kind === 'lab' ? 'on' : ''}
+              onClick={() => setKind(kind === 'lab' ? 'all' : 'lab')}
+              title="Sheets that start with an architecture already on them, and something wrong in it"
+            >
+              Labs ({labCount})
+            </button>
+          </>
+        )}
       </div>
 
       {/* Where you left off, before the catalogue. Sheets you have drawn on come back
@@ -313,8 +336,13 @@ function ProblemCard({
   touched?: string;
   onOpen: () => void;
 }) {
+  const isLab = p.kind === 'lab';
   return (
-    <button className={`plate${p.custom ? ' mine' : ''}`} onClick={onOpen} disabled={busy}>
+    <button
+      className={`plate${p.custom ? ' mine' : ''}${isLab ? ' lab' : ''}`}
+      onClick={onOpen}
+      disabled={busy}
+    >
       {best !== undefined && (
         <span
           className={`best ${best >= 80 ? 'hi' : best >= 60 ? 'mid' : 'lo'}`}
@@ -332,7 +360,14 @@ function ProblemCard({
             yours
           </span>
         )}
-        {p.title}
+        {/* A lab and a blank sheet are different exercises, and which one you are
+            about to open should not require reading the title. */}
+        {isLab && (
+          <span className="lab-tag" title="Starts with an architecture already drawn, and something wrong in it">
+            lab
+          </span>
+        )}
+        {isLab ? p.title.replace(/^Lab:\s*/, '') : p.title}
       </div>
       <div className="m">
         {p.domain}

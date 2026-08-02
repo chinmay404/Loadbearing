@@ -45,6 +45,7 @@ const summarize = (p: Problem): ProblemSummary => ({
   domain: p.domain,
   concepts: p.concepts,
   custom: p.custom,
+  kind: p.kind,
 });
 
 /** Concepts the learner is weakest on, plus a level suited to their history. */

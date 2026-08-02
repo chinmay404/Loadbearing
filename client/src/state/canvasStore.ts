@@ -161,6 +161,7 @@ interface CanvasState extends Snapshot {
   toggleLockOnSelection: () => void;
   /** Selects everything selectable. Pinned components stay out, as they should. */
   selectAll: () => void;
+  deselectAll: () => void;
 
   // flows
   addFlow: () => string;
@@ -862,15 +863,17 @@ export const useCanvas = create<CanvasState>((set, get) => ({
 
     const newNodes: Node<ArchNodeData, 'arch'>[] = blueprint.nodes.map((n) => {
       const spec = NODE_SPEC[n.type];
+      // A node inside a boundary is positioned relative to that boundary, not to the
+      // sheet — React Flow's rule, and the one the diagram renderer follows too, so
+      // an authored group looks the same in the brief as it does once placed.
+      const inside = Boolean(n.parent && idFor.has(n.parent));
       return {
         id: idFor.get(n.key)!,
         type: 'arch',
-        position: { x: originX + n.at.x, y: originY + n.at.y },
+        position: inside ? { x: n.at.x, y: n.at.y } : { x: originX + n.at.x, y: originY + n.at.y },
         selected: true,
         zIndex: n.type === 'group' ? GROUP_Z : 0,
-        ...(n.parent && idFor.has(n.parent)
-          ? { parentId: idFor.get(n.parent)!, extent: 'parent' as const }
-          : {}),
+        ...(inside ? { parentId: idFor.get(n.parent!)!, extent: 'parent' as const } : {}),
         ...(n.size ? { width: n.size.w, height: n.size.h } : {}),
         data: {
           archType: n.type,
@@ -1071,6 +1074,9 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       // A pinned component is not selectable, so all means all of the rest.
       nodes: s.nodes.map((n) => (n.selectable === false ? n : { ...n, selected: true })) as AnyNode[],
     })),
+
+  deselectAll: () =>
+    set((s) => ({ nodes: s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)) as AnyNode[] })),
 
   toggleLockOnSelection: () => {
     const chosen = get().nodes.filter((n) => n.selected);

@@ -1689,3 +1689,98 @@ table.mathwork td.r {
   color: var(--pencil);
   margin-right: 5px;
 }
+
+/* ---------------------------------------------------------------- diagram --
+ * An architecture rendered as a picture rather than a canvas. Same accent
+ * colours per component type as the sheet, so recognition transfers.
+ */
+.arch-diagram {
+  margin: 0 0 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: var(--ink-2);
+  overflow: hidden;
+}
+.arch-diagram svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: repeating-linear-gradient(
+      0deg,
+      transparent 0 23px,
+      rgba(255, 255, 255, 0.018) 23px 24px
+    ),
+    repeating-linear-gradient(90deg, transparent 0 23px, rgba(255, 255, 255, 0.018) 23px 24px);
+}
+.arch-diagram figcaption {
+  border-top: 1px solid var(--rule);
+  padding: 5px 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--graphite);
+  min-height: 26px;
+}
+.dg-box {
+  fill: #1e1c19;
+  stroke: var(--rule-2);
+  stroke-width: 1;
+}
+.dg-node {
+  cursor: default;
+}
+.dg-node.hot .dg-box {
+  stroke: var(--brass);
+}
+.dg-label {
+  fill: var(--chalk);
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 600;
+}
+.dg-group {
+  fill: rgba(176, 124, 168, 0.06);
+  stroke: var(--plum);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+.dg-group-label {
+  fill: var(--plum);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.dg-edge-label {
+  fill: var(--pencil);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  text-anchor: middle;
+}
+
+/* A lab is a different exercise from a blank sheet, so it wears plum — the same
+   colour a boundary wears on the canvas — rather than the brass that means "yours". */
+.plate.lab {
+  border-left: 2px solid var(--plum);
+  background: #1d1920;
+}
+.plate.lab:hover {
+  border-color: #4e4841;
+  border-left-color: var(--plum);
+  background: #221d26;
+}
+.plate .lab-tag,
+.chip.lab-chip {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--plum);
+  border: 1px solid #5c4a58;
+  border-radius: var(--r);
+  padding: 0 3px;
+  flex-shrink: 0;
+}
+.filter-gap {
+  width: 14px;
+}

@@ -175,13 +175,16 @@ function CanvasInner() {
    * same request cannot fire twice.
    */
   useEffect(() => {
-    // Subscribed to the store rather than driven by rendered state.
+    // Subscribed to the store rather than driven by rendered state, so the move happens
+    // outside the commit that also changes `nodes` — focusing selects, and a viewport
+    // call made in that same commit is easy to lose.
     //
-    // Moving the viewport from inside a render-driven effect did nothing at all: the
-    // request arrives in the same commit that changes `nodes` (focusing also selects),
-    // and React Flow ignored the call at that point — the identical call from outside
-    // React's cycle worked immediately. A subscription runs outside it, which is the
-    // whole reason this is not a plain effect on `focusNodeId`.
+    // An animated `setCenter` is driven by requestAnimationFrame. That matters when
+    // testing: a browser tab that is not being displayed never composites, so rAF never
+    // fires, and the viewport sits still while every log line says the call was made.
+    // The same is true of React Flow's node measurement — unmeasured nodes render
+    // `visibility: hidden` with no edges between them. Neither is a bug in this code;
+    // both need a visible window to observe.
     return useCanvas.subscribe((state, previous) => {
       const id = state.focusNodeId;
       if (!id || id === previous.focusNodeId) return;

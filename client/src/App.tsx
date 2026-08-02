@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { CanvasDoc } from '@loadbearing/shared';
 import { api, ApiError, setUnauthorizedHandler } from './lib/api';
 import { useApp, type LeftTab, type RightTab, type View } from './state/appStore';
 import { useCanvas } from './state/canvasStore';
@@ -264,6 +265,8 @@ function Workspace() {
   const setView = useApp((s) => s.setView);
 
   const loadProblem = useCanvas((s) => s.loadProblem);
+  const insertBlueprint = useCanvas((s) => s.insertBlueprint);
+  const deselectAll = useCanvas((s) => s.deselectAll);
   const toGraph = useCanvas((s) => s.toGraph);
   const toDoc = useCanvas((s) => s.toDoc);
   const setMarkup = useCanvas((s) => s.setMarkup);
@@ -280,14 +283,22 @@ function Workspace() {
     if (loadedFor.current === problem.id) return;
     loadedFor.current = problem.id;
     void (async () => {
+      let doc: CanvasDoc | null = null;
       try {
-        const { doc } = await api.loadDesign(problem.id);
-        loadProblem(problem.id, doc);
+        doc = (await api.loadDesign(problem.id)).doc;
       } catch {
-        loadProblem(problem.id, null);
+        doc = null;
+      }
+      loadProblem(problem.id, doc);
+      // A lab IS its starting architecture — an empty sheet is not the exercise. It
+      // lands only when there is nothing to lose: the moment you have drawn anything,
+      // your work is what loads and the starter stays behind the button in the brief.
+      if (problem.kind === 'lab' && problem.diagram && (doc?.nodes.length ?? 0) === 0) {
+        insertBlueprint(problem.diagram);
+        deselectAll();
       }
     })();
-  }, [problem.id, loadProblem]);
+  }, [problem.id, problem.kind, problem.diagram, loadProblem, insertBlueprint, deselectAll]);
 
   // Debounced autosave — single writer, last write wins.
   useEffect(() => {

@@ -79,11 +79,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           detail: `on this sheet · ${data.archType.replace(/_/g, ' ')}`,
           keywords: data.annotation,
           run: () => {
+            // The canvas pans to it — see the subscription in Canvas.tsx — and the
+            // inspector is opened because selecting a component and then hunting for
+            // its numbers is two steps where one will do.
             focusNode(n.id);
-            // Selecting it also puts its numbers on screen, which is most of why you
-            // went looking for it. The canvas additionally tries to pan to it — see
-            // the subscription in Canvas.tsx, which does not currently move the
-            // viewport, so this is what makes the jump useful today.
             setLeftTab('inspect');
           },
         };

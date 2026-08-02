@@ -3,8 +3,10 @@
 // Every `concepts` entry is an id from CONCEPT_CARDS in @loadbearing/shared.
 
 import type { Problem } from '@loadbearing/shared';
+import { COL, diagram, ROW } from './diagrams.js';
+import { LABS } from './labs.js';
 
-export const PROBLEM_BANK: Problem[] = [
+const DESIGN_PROBLEMS: Problem[] = [
   // ------------------------------------------------------------------ L1 ----
   {
     id: 'l1-read-heavy-product-api',
@@ -1624,11 +1626,36 @@ export const PROBLEM_BANK: Problem[] = [
         passCriteria: 'The tier settles into steady state within its budget and nothing is still shedding.',
       },
     ],
+    // Shown, not loaded: this is a design problem, so the picture is context for the
+    // brief and the sheet stays blank. The floor of 1 is the entire lesson, and it is
+    // a number you can read off the box rather than a sentence you have to parse.
+    diagram: diagram(
+      'What the campaign hits at 09:00. Everything behind one autoscaling group with a floor of one.',
+      {
+        nodes: [
+          { key: 'email', type: 'client', label: 'Campaign Email', at: { x: 0, y: 0 }, attrs: { trafficRps: 4000 }, annotation: '200k recipients, all opening within twenty seconds of the send.' },
+          { key: 'lb', type: 'load_balancer', label: 'ALB', at: { x: COL, y: 0 }, annotation: '' },
+          { key: 'asg', type: 'group', label: 'Autoscaling group · min 1, max 40', at: { x: COL * 2 - 30, y: -60 }, size: { w: 260, h: 230 }, annotation: 'Target 70% CPU, 90 seconds to be in service. Correct, and far too slow for a 20-second ramp.' },
+          { key: 'web', type: 'service', label: 'Web + Signup', at: { x: 40, y: 55 }, parent: 'asg', attrs: { replicas: 1, autoscaleMin: 1, autoscaleMax: 40, vcpu: 2, capacityRps: 120, latencyMs: 45, concurrency: 24 }, annotation: 'Serves the static landing page AND the signup POST. One instance at 09:00:00.' },
+          { key: 'db', type: 'sql_db', label: 'Postgres', at: { x: COL * 3.2, y: 0 }, attrs: { replicas: 1, vcpu: 4, latencyMs: 10, multiAz: true }, annotation: 'Signup writes. Never the bottleneck here, which is worth noticing before scaling it.' },
+        ],
+        edges: [
+          { from: 'email', to: 'lb', kind: 'sync', label: '60 → 4,000 rps' },
+          { from: 'lb', to: 'web', kind: 'sync' },
+          { from: 'web', to: 'db', kind: 'sync', label: 'signup' },
+        ],
+        flows: [
+          { name: 'landing page view', kind: 'read', steps: ['email', 'lb', 'web'], rps: 3900, description: 'Static HTML, served by compute you are paying to scale.' },
+          { name: 'signup', kind: 'write', steps: ['email', 'lb', 'web', 'db'], rps: 100, description: 'The only part that actually needs a server.' },
+        ],
+      },
+    ),
   },
   {
     id: 'l2-cache-stampede-homepage',
     title: 'The Homepage That Falls Over Every Hour',
     level: 2,
+    kind: 'lab',
     domain: 'social',
     prompt:
       "The homepage feed is computed from a query that takes 1.4 seconds and is cached with a 60-minute TTL. It serves 6,000 rps happily at a 99% hit rate. But every hour, on the hour, the entry expires and several thousand requests miss simultaneously; they all run the 1.4-second query, the database saturates, latency climbs to 12 seconds, and the site is effectively down for 30 to 90 seconds. It recovers on its own, which is why it survived three months before anyone investigated. A second version of this happens after every deploy that flushes the cache. Design the read path so an expiry is not an outage.",
@@ -1677,6 +1704,30 @@ export const PROBLEM_BANK: Problem[] = [
         passCriteria: 'The site degrades in a stated way and recovers without manual intervention.',
       },
     ],
+    diagram: diagram(
+      'The read path as it stands. One key, one TTL, and a 1.4-second query behind it.',
+      {
+        nodes: [
+          { key: 'visitor', type: 'client', label: 'Visitors', at: { x: 0, y: 0 }, attrs: { trafficRps: 6000 }, annotation: 'Everyone asks for the same homepage, which is why one key can carry 6,000 rps.' },
+          { key: 'lb', type: 'load_balancer', label: 'ALB', at: { x: COL, y: 0 }, annotation: '' },
+          { key: 'web', type: 'service', label: 'Web Tier', at: { x: COL * 2, y: 0 }, attrs: { replicas: 10, autoscaleMin: 10, autoscaleMax: 30, vcpu: 2, latencyMs: 20, concurrency: 64 }, annotation: 'Blocks on the feed call. A 1.4s recompute occupies a worker for 1.4 seconds.' },
+          { key: 'cache', type: 'cache', label: 'Feed Cache', at: { x: COL * 3, y: -ROW * 0.8 }, attrs: { cacheHitRate: 0.99, latencyMs: 2, memoryGb: 8, monthlyCost: 190 }, annotation: 'ONE key. 60-minute TTL, no jitter, no lock, no stale-while-revalidate, no early refresh.' },
+          { key: 'feed', type: 'service', label: 'Feed Builder', at: { x: COL * 3, y: ROW * 0.5 }, attrs: { replicas: 4, vcpu: 2, latencyMs: 1400, concurrency: 8 }, annotation: 'Runs the 1.4-second query on every miss. Every miss, not one of them.' },
+          { key: 'db', type: 'sql_db', label: 'Postgres', at: { x: COL * 4, y: ROW * 0.5 }, attrs: { replicas: 1, vcpu: 8, memoryGb: 32, latencyMs: 14, storageGb: 400, capacityRps: 900 }, annotation: 'Sized for 900 rps. On the hour it is offered roughly 6,000, which is 6.7x.' },
+        ],
+        edges: [
+          { from: 'visitor', to: 'lb', kind: 'sync' },
+          { from: 'lb', to: 'web', kind: 'sync' },
+          { from: 'web', to: 'cache', kind: 'sync', label: 'get homepage' },
+          { from: 'web', to: 'feed', kind: 'sync', label: 'on miss' },
+          { from: 'feed', to: 'db', kind: 'sync', label: '1.4s query' },
+        ],
+        flows: [
+          { name: 'homepage read on hit', kind: 'read', steps: ['visitor', 'lb', 'web', 'cache'], rps: 5940, description: '99% of the time. 12ms, and nobody thinks about it.' },
+          { name: 'homepage read on miss', kind: 'read', steps: ['visitor', 'lb', 'web', 'feed', 'db'], rps: 60, description: 'The other 1% — except it is not spread out, it all arrives in the same second.' },
+        ],
+      },
+    ),
   },
 
   // ------------------------------------------------------------------ L3 ----
@@ -1684,6 +1735,7 @@ export const PROBLEM_BANK: Problem[] = [
     id: 'l3-retry-storm-cascade',
     title: 'The Outage That Retries Made',
     level: 3,
+    kind: 'lab',
     domain: 'platform',
     prompt:
       "Post-mortem to design against. The pricing service slowed from 40ms to 600ms because of a bad query plan — degraded, not dead, and it would have recovered on its own. Instead the whole checkout path went down for 25 minutes. The chain: the cart service calls pricing with a 500ms timeout and 3 retries, so every slow call became four; the API gateway in front of cart has its own 2 retries; the mobile client retries on failure too. Pricing went from 800 rps of real traffic to just over 9,000 rps of attempts, which took it from slow to dead, which made every layer retry harder. Design the call path so a dependency getting slower cannot become a dependency that is gone.",
@@ -1740,6 +1792,32 @@ export const PROBLEM_BANK: Problem[] = [
         passCriteria: 'The system sheds deliberately at the edge instead of collapsing inward.',
       },
     ],
+    diagram: diagram(
+      'The call path from the post-mortem. Three layers retry, none of them knows about the other two.',
+      {
+        nodes: [
+          { key: 'app', type: 'mobile_client', label: 'Mobile App', at: { x: 0, y: 0 }, attrs: { trafficRps: 800 }, annotation: 'Retries on failure. In app-store review, so it cannot be changed for six weeks.' },
+          { key: 'gw', type: 'api_gateway', label: 'API Gateway', at: { x: COL, y: 0 }, attrs: { latencyMs: 4, timeoutMs: 5000 }, annotation: '2 retries. Owned by the platform team, who configured it sensibly in isolation.' },
+          { key: 'cart', type: 'service', label: 'Cart Service', at: { x: COL * 2, y: 0 }, attrs: { replicas: 8, vcpu: 2, latencyMs: 25, timeoutMs: 3000, concurrency: 48 }, annotation: '3 retries, 500ms timeout each. Also sensible in isolation. Together: 800 × 4 × 3.' },
+          { key: 'pricing', type: 'service', label: 'Pricing Service', at: { x: COL * 3, y: 0 }, attrs: { replicas: 6, vcpu: 4, latencyMs: 40, capacityRps: 1200, concurrency: 30 }, annotation: 'Handles 800 rps comfortably. Received 9,000 rps of attempts, which is what killed it.' },
+          { key: 'pdb', type: 'sql_db', label: 'Pricing DB', at: { x: COL * 4, y: 0 }, attrs: { replicas: 1, vcpu: 8, latencyMs: 12, multiAz: true }, annotation: 'Where the bad query plan lived. The root cause, and the least interesting part.' },
+          { key: 'orders', type: 'sql_db', label: 'Orders DB', at: { x: COL * 2, y: ROW }, attrs: { replicas: 1, vcpu: 4, latencyMs: 8, multiAz: true }, annotation: 'Perfectly healthy throughout. Checkout still failed, because pricing sits in front of it.' },
+          { key: 'obs', type: 'observability', label: 'Dashboards', at: { x: COL * 3, y: ROW * 1.5 }, annotation: 'Graphs latency per service. Nothing graphs attempts per user request, so nobody saw ×12.' },
+        ],
+        edges: [
+          { from: 'app', to: 'gw', kind: 'sync', label: 'retries' },
+          { from: 'gw', to: 'cart', kind: 'sync', label: '×2 retries' },
+          { from: 'cart', to: 'pricing', kind: 'sync', label: '×3, 500ms each' },
+          { from: 'pricing', to: 'pdb', kind: 'sync' },
+          { from: 'cart', to: 'orders', kind: 'sync' },
+          { from: 'pricing', to: 'obs', kind: 'async' },
+        ],
+        flows: [
+          { name: 'cart pricing call', kind: 'read', steps: ['app', 'gw', 'cart', 'pricing', 'pdb'], rps: 800, description: 'One price lookup, and up to twelve attempts at the bottom of it.' },
+          { name: 'checkout', kind: 'write', steps: ['app', 'gw', 'cart', 'orders'], rps: 90, description: 'Cannot complete without a price, so it inherits every retry above.' },
+        ],
+      },
+    ),
   },
   {
     id: 'l3-quota-limited-enrichment',
@@ -2120,5 +2198,13 @@ export const PROBLEM_BANK: Problem[] = [
     ],
   },
 ];
+
+/**
+ * Blank sheets and labs are the same kind of thing to everything downstream — the
+ * browser, the grader, the load engine, mastery — so they live in one list. What
+ * differs is only where you start: a design problem starts empty, a lab starts with
+ * the architecture in its `diagram` already on the canvas.
+ */
+export const PROBLEM_BANK: Problem[] = [...DESIGN_PROBLEMS, ...LABS];
 
 export const PROBLEM_BY_ID: Record<string, Problem> = Object.fromEntries(PROBLEM_BANK.map(p => [p.id, p]));

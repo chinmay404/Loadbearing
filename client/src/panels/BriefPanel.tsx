@@ -2,16 +2,20 @@ import { useMemo } from 'react';
 import { DESIGN_CHECKLIST, evaluateAllScenarios } from '@loadbearing/shared';
 import { useApp } from '../state/appStore';
 import { useCanvas } from '../state/canvasStore';
+import { ArchDiagram } from '../ui/ArchDiagram';
 
 export function BriefPanel() {
   const problem = useApp((s) => s.problem);
   const round = useApp((s) => s.round);
   const twist = useApp((s) => s.activeTwist);
   const score = useApp((s) => s.score);
+  const setNotice = useApp((s) => s.setNotice);
   const nodes = useCanvas((s) => s.nodes);
   const edges = useCanvas((s) => s.edges);
   const flows = useCanvas((s) => s.flows);
   const toGraph = useCanvas((s) => s.toGraph);
+  const insertBlueprint = useCanvas((s) => s.insertBlueprint);
+  const deselectAll = useCanvas((s) => s.deselectAll);
 
   // Live pass/fail per scenario — deterministic and free, recomputed as you draw.
   const gates = useMemo(() => {
@@ -26,11 +30,13 @@ export function BriefPanel() {
 
   if (!problem) return null;
   const passCount = [...gates.values()].filter((g) => g.pass).length;
+  const emptySheet = nodes.filter((n) => n.type === 'arch').length === 0;
 
   return (
     <div>
       <div className="row wrap" style={{ marginBottom: 8 }}>
         <span className={`lvl l${problem.level}`}>L{problem.level}</span>
+        {problem.kind === 'lab' && <span className="chip lab-chip">lab</span>}
         <span className="chip">{problem.domain}</span>
         {round > 1 && <span className="chip load">round {round}</span>}
       </div>
@@ -43,6 +49,36 @@ export function BriefPanel() {
       )}
 
       <p style={{ marginTop: 0 }}>{problem.prompt}</p>
+
+      {problem.diagram && (
+        <>
+          <ArchDiagram diagram={problem.diagram} />
+          <div className="row wrap" style={{ margin: '-4px 0 10px' }}>
+            <span className="stencil grow">
+              {problem.kind === 'lab' ? 'your starting point' : 'the system today'} · hover a box for
+              what it does
+            </span>
+            <button
+              onClick={() => {
+                insertBlueprint(problem.diagram!);
+                deselectAll();
+                setNotice(
+                  emptySheet
+                    ? 'Starting architecture placed. Everything on it is yours to change.'
+                    : 'Placed alongside what you had drawn — nothing was replaced.',
+                );
+              }}
+              title={
+                emptySheet
+                  ? 'Put this architecture on the canvas'
+                  : 'Adds another copy beside your work; it never overwrites what you have drawn'
+              }
+            >
+              {emptySheet ? 'Put it on the canvas' : 'Place another copy'}
+            </button>
+          </div>
+        </>
+      )}
 
       <div className="card">
         <h4>Must do</h4>
