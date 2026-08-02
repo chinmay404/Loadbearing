@@ -34,8 +34,6 @@ export function TokensPanel() {
       .catch(() => setEntry(null));
   }, []);
 
-  const config = mcpConfig(entry, apiOrigin());
-
   const reload = () =>
     api
       .apiTokens()
@@ -145,81 +143,218 @@ export function TokensPanel() {
         </table>
       )}
 
-      <details className="disclose" style={{ marginTop: 10 }} open>
-        <summary>Connecting a hosted chatbot — Claude connectors, ChatGPT</summary>
-        <p className="muted" style={{ fontSize: 12.5 }}>
-          This deployment serves MCP over HTTP, so a chatbot that only takes a URL can use it. In
-          Claude: <span className="mono">Settings → Connectors → Add custom connector</span>, and paste
-          the URL below as the remote MCP server.
-        </p>
-        <pre className="mono config-block">{`${remoteBase()}/api/mcp`}</pre>
-        <p className="muted" style={{ fontSize: 12.5 }}>
-          If the client lets you set a header, send{' '}
-          <span className="mono">Authorization: Bearer lb_…</span> and use that URL as it is. If it does
-          not — the Claude connector dialog offers OAuth and nothing else — put the token in the path
-          instead:
-        </p>
-        <pre className="mono config-block">{`${remoteBase()}/api/mcp/lb_…`}</pre>
-        <p className="muted" style={{ fontSize: 12.5 }}>
-          <strong>That URL is then the credential.</strong> Anything holding it can act as you, and a URL
-          gets into logs, history and screenshots in a way a header does not. Mint a token used for
-          nothing else, and revoke it the moment you are done with it.
-        </p>
-        {window.location.hostname === 'localhost' && (
-          <div className="banner warnb" style={{ marginTop: 6 }}>
-            You are looking at localhost, so that URL is only reachable from this machine. A hosted
-            chatbot needs the deployed address — open the same panel there and copy it from that page.
-          </div>
-        )}
-      </details>
-
-      <details className="disclose" style={{ marginTop: 8 }}>
-        <summary>Running it locally instead — Claude Desktop, Claude Code</summary>
-        <p className="muted" style={{ fontSize: 12.5 }}>
-          For a client that launches a process rather than calling a URL. Nothing to build — it runs
-          from source. Add this to your MCP client's config:
-        </p>
-        <pre className="mono config-block">{config}</pre>
-        <button
-          onClick={() => {
-            void navigator.clipboard
-              ?.writeText(config)
-              .then(() => setNotice('Config copied. Put your token where it says lb_….'))
-              .catch(() => setNotice('Could not reach the clipboard — select it and copy manually.'));
-          }}
-        >
-          Copy the config
-        </button>
-      </details>
+      <ConnectSteps secret={fresh?.secret ?? null} entry={entry} />
     </div>
   );
 }
 
+type Client = 'claude-connector' | 'chatgpt' | 'claude-desktop' | 'claude-code';
+
+const CLIENTS: { id: Client; label: string; hosted: boolean }[] = [
+  { id: 'claude-connector', label: 'Claude · connector', hosted: true },
+  { id: 'chatgpt', label: 'ChatGPT', hosted: true },
+  { id: 'claude-desktop', label: 'Claude Desktop', hosted: false },
+  { id: 'claude-code', label: 'Claude Code', hosted: false },
+];
+
 /**
- * The config to paste into an MCP client, with the real path filled in.
+ * Everything needed to connect one client, ready to copy.
  *
- * The server reports where its own checkout is when it is running locally, which is
- * the only place that path means anything. A snippet with `/path/to/loadbearing` in
- * it is a snippet somebody has to go and look something up for, and looking it up is
- * the step most likely to be got wrong.
+ * Written as steps with the real values already in them rather than as documentation
+ * with placeholders. A snippet containing `lb_…` and `your-deployment` is a snippet
+ * somebody has to assemble by hand, and assembling by hand is where it goes wrong —
+ * so the token appears in full while it still exists, and the address is a field you
+ * can correct once instead of a string to find and replace in four places.
  */
-function mcpConfig(entry: string | null, origin: string): string {
-  // JSON.stringify handles the Windows backslashes, which is exactly the detail a
-  // hand-assembled string gets wrong.
-  const args = JSON.stringify(['tsx', entry ?? '/path/to/loadbearing/server/src/mcp/stdio.ts']);
+function ConnectSteps({ secret, entry }: { secret: string | null; entry: string | null }) {
+  const setNotice = useApp((s) => s.setNotice);
+  const [client, setClient] = useState<Client>('claude-connector');
+  // Remembered because it is the one thing this page cannot know: a browser on
+  // localhost has no idea what the deployment is called.
+  const [host, setHost] = useState(
+    () => window.localStorage.getItem(HOST_KEY) ?? apiOrigin(),
+  );
+
+  const setAndRemember = (value: string) => {
+    setHost(value);
+    window.localStorage.setItem(HOST_KEY, value);
+  };
+
+  const base = host.replace(/\/+$/, '');
+  const token = secret ?? 'lb_YOUR_TOKEN';
+  const chosen = CLIENTS.find((c) => c.id === client)!;
+  const local = base.includes('localhost') || base.includes('127.0.0.1');
+
+  const copy = (what: string, label: string) => {
+    void navigator.clipboard
+      ?.writeText(what)
+      .then(() => setNotice(`${label} copied.`))
+      .catch(() => setNotice('Could not reach the clipboard — select it and copy manually.'));
+  };
+
+  const steps = buildSteps(client, base, token, entry);
+
+  return (
+    <div className="connect">
+      <span className="section-label">Connect a chatbot</span>
+
+      <div className="filter-row" style={{ marginBottom: 8 }}>
+        {CLIENTS.map((c) => (
+          <button key={c.id} className={client === c.id ? 'on' : ''} onClick={() => setClient(c.id)}>
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      <label className="connect-host">
+        <span className="stencil">
+          {chosen.hosted ? 'Address the chatbot should call' : 'Address the server should talk to'}
+        </span>
+        <input value={host} onChange={(e) => setAndRemember(e.target.value)} spellCheck={false} />
+      </label>
+
+      {chosen.hosted && local && (
+        <div className="banner warnb">
+          <strong>That address is only reachable from this machine.</strong> A hosted chatbot runs on
+          somebody else's servers and cannot see your localhost — put your deployed address in the field
+          above and these steps will update.
+        </div>
+      )}
+
+      {!secret && (
+        <div className="banner info">
+          Mint a token above and these steps will fill in with it. A token already minted cannot be shown
+          again, so the snippets below say <span className="mono">lb_YOUR_TOKEN</span> until you make one.
+        </div>
+      )}
+
+      <ol className="connect-steps">
+        {steps.map((step, i) => (
+          <li key={i}>
+            <p>{step.text}</p>
+            {step.code && (
+              <div className="connect-code">
+                <pre className="mono config-block">{step.code}</pre>
+                <button onClick={() => copy(step.code!, step.copyLabel ?? 'Copied')}>Copy</button>
+              </div>
+            )}
+            {step.warn && <p className="connect-warn">{step.warn}</p>}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+interface Step {
+  text: string;
+  code?: string;
+  copyLabel?: string;
+  warn?: string;
+}
+
+const TOKEN_IN_URL_WARNING =
+  'That URL is now the whole credential — anything holding it can act as you, and a URL ends up in logs, browser history and screenshots in a way a header never does. Use a token minted for this and nothing else, and revoke it when you are done.';
+
+function buildSteps(client: Client, base: string, token: string, entry: string | null): Step[] {
+  const path = `${base}/api/mcp/${token}`;
+  const plain = `${base}/api/mcp`;
+  const stdioEntry = entry ?? '/path/to/loadbearing/server/src/mcp/stdio.ts';
+
+  switch (client) {
+    case 'claude-connector':
+      return [
+        {
+          text: 'In Claude, open Settings → Connectors and choose "Add custom connector".',
+        },
+        {
+          text: 'Name it Loadbearing, and paste this as the remote MCP server URL.',
+          code: path,
+          copyLabel: 'Connector URL',
+          warn: TOKEN_IN_URL_WARNING,
+        },
+        {
+          text: 'Leave the OAuth fields empty — the token in the URL is the authentication — and press Add. The tools appear under the connector menu in a new conversation.',
+        },
+        {
+          text: 'Try it by asking: "list the labs in Loadbearing, then run the engine on the one-box storefront".',
+        },
+      ];
+
+    case 'chatgpt':
+      return [
+        {
+          text: 'ChatGPT can set request headers, so the token does not have to go in the URL. Add a connector pointing at:',
+          code: plain,
+          copyLabel: 'Server URL',
+        },
+        {
+          text: 'Give it this authorization header.',
+          code: `Authorization: Bearer ${token}`,
+          copyLabel: 'Header',
+        },
+        {
+          text: 'If the connector form has no place for a header, use this URL instead and leave auth empty.',
+          code: path,
+          copyLabel: 'URL with token',
+          warn: TOKEN_IN_URL_WARNING,
+        },
+      ];
+
+    case 'claude-desktop':
+      return [
+        {
+          text: 'Claude Desktop launches the server as a process rather than calling a URL. Open Settings → Developer → Edit Config.',
+        },
+        {
+          text: 'Paste this. The path is already filled in for this machine; nothing needs building first.',
+          code: desktopConfig(stdioEntry, base, token),
+          copyLabel: 'Config',
+        },
+        {
+          text: 'Quit Claude Desktop completely — from the tray, not just the window — and start it again.',
+        },
+        {
+          text: 'Loadbearing must be running at the address in the config, otherwise every tool will report that it cannot reach it.',
+        },
+      ];
+
+    case 'claude-code':
+      return [
+        {
+          text: 'One command, from anywhere.',
+          code: `claude mcp add loadbearing -e LOADBEARING_URL=${base} -e LOADBEARING_TOKEN=${token} -- npx tsx ${quote(stdioEntry)}`,
+          copyLabel: 'Command',
+        },
+        {
+          text: 'Check it registered with: claude mcp list',
+          code: 'claude mcp list',
+          copyLabel: 'Command',
+        },
+      ];
+  }
+}
+
+/** JSON.stringify does the Windows backslashes, which hand-assembly gets wrong. */
+function desktopConfig(entry: string, origin: string, token: string): string {
   return `{
   "mcpServers": {
     "loadbearing": {
       "command": "npx",
-      "args": ${args},
+      "args": ${JSON.stringify(['tsx', entry])},
       "env": {
         "LOADBEARING_URL": ${JSON.stringify(origin)},
-        "LOADBEARING_TOKEN": "lb_…"
+        "LOADBEARING_TOKEN": ${JSON.stringify(token)}
       }
     }
   }
 }`;
 }
+
+/** A path with a space in it is the normal case on Windows, not an edge case. */
+const quote = (path: string): string => (/\s/.test(path) ? `"${path}"` : path);
+
+const HOST_KEY = 'loadbearing.mcp.host';
 
 function ago(iso: string): string {
   const then = new Date(iso.includes('T') ? iso : `${iso.replace(' ', 'T')}Z`).getTime();
@@ -235,11 +370,3 @@ function ago(iso: string): string {
 /** Where the API is. In dev the client is on 5173 and the server on 8787. */
 const apiOrigin = (): string => window.location.origin.replace(':5173', ':8787');
 
-/**
- * The address a hosted chatbot would use.
- *
- * Deliberately not massaged: if this is localhost then the honest answer is
- * localhost, and the panel says plainly that a hosted client cannot reach it, rather
- * than printing a deployment URL this page has no way to know.
- */
-const remoteBase = (): string => apiOrigin();
