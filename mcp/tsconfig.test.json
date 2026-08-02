@@ -1,0 +1,10 @@
+{
+  "//": "Typechecking covers the tests too. Separate from the build config because server.test.ts reaches into a sibling workspace: rootDir has to widen to the repo, which is fine when nothing is emitted and fatal when something is.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".."
+  },
+  "include": ["src"],
+  "exclude": []
+}

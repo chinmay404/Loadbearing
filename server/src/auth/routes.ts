@@ -5,6 +5,7 @@
 import { Hono } from 'hono';
 import { storage } from '../storage/index.js';
 import { hashPassword, MIN_PASSWORD_LENGTH, verifyPassword } from './password.js';
+import { mintToken } from './apiToken.js';
 import { clearCookieHeader, cookieHeader, issueToken } from './session.js';
 import { requireUser, type AppEnv } from './middleware.js';
 
@@ -143,3 +144,47 @@ authRoutes.post('/auth/logout', (c) => {
 });
 
 authRoutes.get('/auth/me', requireUser, (c) => c.json({ username: c.get('username') }));
+
+// ---- API tokens ----------------------------------------------------------
+//
+// Listed, minted and revoked here rather than under settings, because they are a
+// way to be this account rather than a preference belonging to it.
+
+const TOKEN_NAME_MAX = 60;
+
+authRoutes.get('/auth/tokens', requireUser, async (c) =>
+  c.json({ tokens: await (await storage()).listApiTokens(c.get('userId')) }),
+);
+
+authRoutes.post('/auth/tokens', requireUser, async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown };
+  const name = String(body.name ?? '').trim().slice(0, TOKEN_NAME_MAX);
+  if (!name) {
+    return c.json(
+      {
+        error: {
+          code: 'bad_request',
+          message: 'Give the token a name.',
+          hint: 'Name it after the thing that will hold it — "Claude Desktop", "work laptop" — so revoking the right one later is obvious.',
+        },
+      },
+      400,
+    );
+  }
+
+  const minted = mintToken();
+  const row = await (await storage()).createApiToken(c.get('userId'), {
+    id: minted.id,
+    name,
+    hash: minted.hash,
+  });
+  // The only time the secret exists outside the caller's machine. Nothing stores it,
+  // so nothing can show it again — which is the point, and worth saying in the UI.
+  return c.json({ token: row, secret: minted.secret }, 201);
+});
+
+authRoutes.delete('/auth/tokens/:id', requireUser, async (c) => {
+  const revoked = await (await storage()).deleteApiToken(c.get('userId'), c.req.param('id'));
+  if (!revoked) return c.json({ error: { code: 'not_found', message: 'No such token' } }, 404);
+  return c.json({ ok: true });
+});

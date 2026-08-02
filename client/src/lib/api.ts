@@ -1,4 +1,5 @@
 import type {
+  ApiToken,
   Attempt,
   BlueprintLike,
   ChatTurn,
@@ -269,6 +270,19 @@ export const api = {
   updateNote: (id: string, patch: { title?: string; body?: string; position?: number }) =>
     req<Note>(`/notes/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(patch) }),
   deleteNote: (id: string) => req<{ ok: true }>(`/notes/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  /**
+   * Credentials for anything that is not this browser — the MCP server, a script, an
+   * agent elsewhere. The secret comes back exactly once, from createApiToken.
+   */
+  apiTokens: () => req<{ tokens: ApiToken[] }>('/auth/tokens'),
+  createApiToken: (name: string) =>
+    req<{ token: ApiToken; secret: string }>('/auth/tokens', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  revokeApiToken: (id: string) =>
+    req<{ ok: true }>(`/auth/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   /** The stored coaching thread for a sheet, and a way to start over. */
   loadChat: (problemId: string) => req<{ turns: ChatTurn[] }>(`/chat/${encodeURIComponent(problemId)}`),

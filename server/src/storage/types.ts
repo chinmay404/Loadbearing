@@ -64,6 +64,25 @@ export interface CanvasRow {
   updatedAt: string;
 }
 
+/**
+ * A long-lived credential for something that is not a browser.
+ *
+ * Sessions here are signed cookies with no server-side row, which is right for a
+ * browser and wrong for this: a token handed to an agent running on some other
+ * machine has to be revocable the moment you regret it, and that needs a row to
+ * delete. The secret itself is never stored — only its hash — so this table leaking
+ * does not hand anybody an account.
+ */
+export interface ApiTokenRow {
+  /** The public half, which is also the lookup key. Safe to display. */
+  id: string;
+  /** What it is for, in the owner's words: "Claude Desktop", "the laptop". */
+  name: string;
+  createdAt: string;
+  /** Empty until it is used, which is how you tell a token nothing ever picked up. */
+  lastUsedAt: string;
+}
+
 /** A written note kept beside a sheet or a whole project. */
 export interface NoteRow {
   id: string;
@@ -137,6 +156,16 @@ export interface Storage {
   listDesignActivity(userId: string, limit?: number): Promise<{ problemId: string; updatedAt: string }[]>;
 
   // ---- notes (as many as you like, per sheet or per project) ----
+  // ---- API tokens (for anything that is not a browser) ----
+  createApiToken(userId: string, token: { id: string; name: string; hash: string }): Promise<ApiTokenRow>;
+  listApiTokens(userId: string): Promise<ApiTokenRow[]>;
+  /** By its public id, for authentication. Includes the hash; nothing else should. */
+  findApiToken(id: string): Promise<{ id: string; userId: string; hash: string; lastUsedAt: string } | null>;
+  /** Records that it was used just now. Callers throttle; this always writes. */
+  touchApiToken(id: string): Promise<void>;
+  /** Returns whether anything was revoked, so a wrong id is a 404 rather than a lie. */
+  deleteApiToken(userId: string, id: string): Promise<boolean>;
+
   listNotes(userId: string, scope: NoteScope, scopeId: string): Promise<NoteRow[]>;
   /**
    * Every note this person has written, newest first, regardless of what it is

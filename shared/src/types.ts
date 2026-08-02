@@ -720,3 +720,17 @@ export interface NoteLocation {
 export interface LibraryNote extends Note {
   where: NoteLocation;
 }
+
+/**
+ * A credential for something that is not a browser, as the owner sees it.
+ *
+ * The secret is absent by construction: it exists once, in the response that created
+ * it, and is never stored in a form anything can read back.
+ */
+export interface ApiToken {
+  id: string;
+  name: string;
+  createdAt: string;
+  /** Empty until something uses it, which is how you spot one nothing ever picked up. */
+  lastUsedAt: string;
+}

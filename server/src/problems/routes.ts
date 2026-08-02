@@ -4,7 +4,7 @@ import type { Problem, ProblemSummary } from '@loadbearing/shared';
 import { storage, type Storage } from '../storage/index.js';
 import { requireUser, type AppEnv } from '../auth/middleware.js';
 import { PROBLEM_BANK } from './bank.js';
-import { validateProblem } from './validate.js';
+import { ProblemShapeError, validateProblem } from './validate.js';
 import { buildProblemGenPrompt } from '../scoring/prompt.js';
 import { completeJson } from '../llm/adapter.js';
 import { loadLlmConfig } from '../llm/settings.js';
@@ -221,6 +221,46 @@ ${focus.length ? `\nThe answer must demonstrate these concepts, so build the pro
   const stored: Problem = { ...problem, id, custom: true };
   await store.insertCustomProblem(userId, stored.id, JSON.stringify(stored));
   return c.json(stored);
+});
+
+/**
+ * Add a problem somebody else wrote.
+ *
+ * The generate and from-brief routes both end in a model call, which is the wrong
+ * shape for a caller that already HAS the problem — an agent over MCP, a script, a
+ * paste from somewhere. This takes the finished object and puts it through exactly
+ * the same validator, so a hand-written problem is held to the shape a generated one
+ * is, and a lab arrives with its architecture intact.
+ */
+problemRoutes.post('/problems', requireUser, async (c) => {
+  const raw = await c.req.json().catch(() => null);
+  const store = await storage();
+  const userId = c.get('userId');
+
+  let problem: Problem;
+  try {
+    problem = validateProblem(raw);
+  } catch (e) {
+    const issues = e instanceof ProblemShapeError ? e.problems : [(e as Error).message];
+    return c.json(
+      {
+        error: {
+          code: 'bad_request',
+          message: 'That is not a usable problem.',
+          hint: issues.join('; '),
+        },
+      },
+      400,
+    );
+  }
+
+  // Never overwrite: an id that is already taken gets a suffix rather than replacing
+  // something the person may have spent an hour on.
+  const taken = await findProblem(store, userId, problem.id);
+  const id = taken ? `${problem.id}-${Date.now().toString(36)}` : problem.id;
+  const stored: Problem = { ...problem, id, custom: true };
+  await store.insertCustomProblem(userId, stored.id, JSON.stringify(stored));
+  return c.json(stored, 201);
 });
 
 problemRoutes.delete('/problems/:id', requireUser, async (c) => {

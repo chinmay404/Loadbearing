@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { LlmProvider, SettingsView } from '@loadbearing/shared';
 import { api, ApiError } from '../lib/api';
+import { TokensPanel } from './TokensPanel';
 
 interface Preset {
   name: string;
@@ -154,6 +155,8 @@ export function SettingsPanel() {
           </button>
         </div>
       </div>
+
+      <TokensPanel />
 
       <div className="card">
         <h4>What the grader costs</h4>

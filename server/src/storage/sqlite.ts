@@ -5,6 +5,7 @@
 import type { NoteScope } from '@loadbearing/shared';
 import { getDb, type Db } from '../db.js';
 import type {
+  ApiTokenRow,
   AttemptRow,
   CanvasRow,
   MasteryRow,
@@ -88,6 +89,20 @@ interface RawNote {
   created_at: string;
   updated_at: string;
 }
+
+interface RawApiToken {
+  id: string;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+const toApiToken = (r: RawApiToken): ApiTokenRow => ({
+  id: r.id,
+  name: r.name,
+  createdAt: r.created_at,
+  lastUsedAt: r.last_used_at ?? '',
+});
 
 const toNote = (r: RawNote): NoteRow => ({
   id: r.id,
@@ -188,6 +203,16 @@ export class SqliteStorage implements Storage {
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))
       );
       CREATE INDEX IF NOT EXISTS notes_by_scope ON notes (user_id, scope, scope_id, position);
+
+      CREATE TABLE IF NOT EXISTS api_tokens (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        hash TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')),
+        last_used_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS api_tokens_by_user ON api_tokens (user_id, created_at DESC);
 
       CREATE TABLE IF NOT EXISTS chats (
         user_id TEXT NOT NULL,
@@ -506,6 +531,51 @@ export class SqliteStorage implements Storage {
   }
 
   // ---- notes ----
+
+  // ---- API tokens ----
+
+  async createApiToken(
+    userId: string,
+    token: { id: string; name: string; hash: string },
+  ): Promise<ApiTokenRow> {
+    this.db
+      .prepare('INSERT INTO api_tokens (id, user_id, name, hash) VALUES (?, ?, ?, ?)')
+      .run(token.id, userId, token.name, token.hash);
+    const row = (await this.listApiTokens(userId)).find((t) => t.id === token.id);
+    if (!row) throw new Error('Token vanished immediately after insert');
+    return row;
+  }
+
+  async listApiTokens(userId: string): Promise<ApiTokenRow[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, name, created_at, last_used_at FROM api_tokens
+         WHERE user_id = ? ORDER BY created_at DESC, id`,
+      )
+      .all(userId) as unknown as RawApiToken[];
+    return rows.map(toApiToken);
+  }
+
+  async findApiToken(
+    id: string,
+  ): Promise<{ id: string; userId: string; hash: string; lastUsedAt: string } | null> {
+    const row = this.db
+      .prepare('SELECT id, user_id, hash, last_used_at FROM api_tokens WHERE id = ?')
+      .get(id) as { id: string; user_id: string; hash: string; last_used_at: string | null } | undefined;
+    if (!row) return null;
+    return { id: row.id, userId: row.user_id, hash: row.hash, lastUsedAt: row.last_used_at ?? '' };
+  }
+
+  async touchApiToken(id: string): Promise<void> {
+    this.db
+      .prepare(`UPDATE api_tokens SET last_used_at = strftime('%Y-%m-%d %H:%M:%f','now') WHERE id = ?`)
+      .run(id);
+  }
+
+  async deleteApiToken(userId: string, id: string): Promise<boolean> {
+    const res = this.db.prepare('DELETE FROM api_tokens WHERE id = ? AND user_id = ?').run(id, userId);
+    return Number(res.changes) > 0;
+  }
 
   async listNotes(userId: string, scope: NoteScope, scopeId: string): Promise<NoteRow[]> {
     const rows = this.db
