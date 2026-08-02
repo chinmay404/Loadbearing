@@ -151,6 +151,8 @@ export const api = {
       llmConfigured: boolean;
       houseKey: boolean;
       fake: boolean;
+      /** Local only: the absolute path to the built MCP server, for the config snippet. */
+      mcpEntry?: string;
     }>('/health'),
 
   register: (body: { username: string; password: string }) =>

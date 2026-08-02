@@ -2,6 +2,9 @@
 // `api/index.ts` hands it to Vercel — both need the same routes, and neither
 // should be the one that defines them.
 
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { storage } from './storage/index.js';
@@ -114,8 +117,35 @@ app.get('/api/health', async (c) => {
     llmConfigured,
     houseKey: houseKeyPresent(),
     fake: process.env.FAKE_LLM === '1',
+    ...(mcpEntry() ? { mcpEntry: mcpEntry() } : {}),
   });
 });
+
+/**
+ * Where the built MCP server is on this machine, so the config to paste into a
+ * chatbot can be a real config rather than one with a path to fill in.
+ *
+ * Found by walking up from this module rather than from the working directory: the
+ * dev server runs with its cwd inside `server/`, which produced a confident and
+ * entirely wrong `server/mcp/dist/index.js`. Existence is checked too, so a
+ * checkout that has never run `npm run build:mcp` says nothing rather than pointing
+ * at a file that is not there.
+ *
+ * Local only. On a deployment there is no checkout to point at, and a filesystem
+ * path in a public response is a small thing to give away for no benefit.
+ */
+function mcpEntry(): string | null {
+  if (process.env.VERCEL || process.env.NODE_ENV === 'production') return null;
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let up = 0; up < 6; up += 1) {
+    const candidate = join(dir, 'mcp', 'dist', 'index.js');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
 
 /** Never let a connection string's password reach a response body. */
 function redact(message: string): string {

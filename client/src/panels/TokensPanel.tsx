@@ -24,6 +24,17 @@ export function TokensPanel() {
   const [fresh, setFresh] = useState<{ id: string; secret: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
+  const [entry, setEntry] = useState<string | null>(null);
+
+  // Where the built server is, straight from the machine running it.
+  useEffect(() => {
+    void api
+      .health()
+      .then((h) => setEntry(h.mcpEntry ?? null))
+      .catch(() => setEntry(null));
+  }, []);
+
+  const config = mcpConfig(entry, window.location.origin.replace(':5173', ':8787'));
 
   const reload = () =>
     api
@@ -141,30 +152,47 @@ export function TokensPanel() {
           the result, and add problems to your bank. Build it once with{' '}
           <span className="mono">npm run build:mcp</span>, then add this to your MCP client's config:
         </p>
-        <pre className="mono config-block">
-{`{
-  "mcpServers": {
-    "loadbearing": {
-      "command": "node",
-      "args": ["${mcpPath()}"],
-      "env": {
-        "LOADBEARING_URL": "${window.location.origin.replace(':5173', ':8787')}",
-        "LOADBEARING_TOKEN": "lb_…"
-      }
-    }
-  }
-}`}
-        </pre>
+        <pre className="mono config-block">{config}</pre>
+        <button
+          onClick={() => {
+            void navigator.clipboard
+              ?.writeText(config)
+              .then(() => setNotice('Config copied. Put your token where it says lb_….'))
+              .catch(() => setNotice('Could not reach the clipboard — select it and copy manually.'));
+          }}
+        >
+          Copy the config
+        </button>
       </details>
     </div>
   );
 }
 
 /**
- * A best guess at where the built server landed, so the config can be copied rather
- * than assembled. It is a hint: the user knows where they cloned the repo.
+ * The config to paste into an MCP client, with the real path filled in.
+ *
+ * The server reports where its own checkout is when it is running locally, which is
+ * the only place that path means anything. A snippet with `/path/to/loadbearing` in
+ * it is a snippet somebody has to go and look something up for, and looking it up is
+ * the step most likely to be got wrong.
  */
-const mcpPath = (): string => 'D:\\\\path\\\\to\\\\loadbearing\\\\mcp\\\\dist\\\\index.js';
+function mcpConfig(entry: string | null, origin: string): string {
+  // JSON.stringify handles the Windows backslashes, which is exactly the detail a
+  // hand-assembled string gets wrong.
+  const args = JSON.stringify([entry ?? '/path/to/loadbearing/mcp/dist/index.js']);
+  return `{
+  "mcpServers": {
+    "loadbearing": {
+      "command": "node",
+      "args": ${args},
+      "env": {
+        "LOADBEARING_URL": ${JSON.stringify(origin)},
+        "LOADBEARING_TOKEN": "lb_…"
+      }
+    }
+  }
+}`;
+}
 
 function ago(iso: string): string {
   const then = new Date(iso.includes('T') ? iso : `${iso.replace(' ', 'T')}Z`).getTime();
