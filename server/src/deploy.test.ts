@@ -17,8 +17,16 @@ import { describe, expect, it } from 'vitest';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const config = JSON.parse(readFileSync(join(root, 'vercel.json'), 'utf8')) as {
+  framework?: string | null;
+  buildCommand?: string;
+  outputDirectory?: string;
   rewrites: Record<string, unknown>[];
   functions: Record<string, unknown>;
+};
+
+const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+  scripts: Record<string, string>;
+  devDependencies: Record<string, string>;
 };
 
 /** Everything the platform accepts on a rewrite. Anything else fails the build. */
@@ -58,8 +66,36 @@ describe('vercel.json', () => {
     }
   });
 
+  it('says explicitly that there is no framework', () => {
+    // Left unset, Vercel guesses. CLI 58 found `hono` in the root dependencies,
+    // decided this was a Hono server app, ran the wrong workspace's build script and
+    // then failed looking for a Node entrypoint inside client/dist. It is a static
+    // site plus one function, and saying so is one line.
+    expect(config.framework, 'framework must be explicitly null, not absent').toBeNull();
+  });
+
+  it('builds the static output the output directory points at', () => {
+    expect(config.outputDirectory).toBe('client/dist');
+    // build:client is what writes client/dist. If the root build ever stops calling
+    // it, the deployment succeeds and serves nothing.
+    expect(pkg.scripts.build).toContain('build:client');
+  });
+
   it('keeps a timeout long enough for a grader call', () => {
     const fn = config.functions['api/index.ts'] as { maxDuration?: number } | undefined;
     expect(fn?.maxDuration).toBeGreaterThanOrEqual(30);
+  });
+
+  it('does not need a devDependency to build', () => {
+    // A production install is entitled to skip devDependencies, and the build script
+    // is the one thing that must work when it does. npm-run-all is a devDependency;
+    // `&&` is in every shell.
+    const chain = [config.buildCommand, pkg.scripts.build, pkg.scripts['build:shared'], pkg.scripts['build:client']]
+      .filter((step): step is string => typeof step === 'string');
+    for (const dev of Object.keys(pkg.devDependencies)) {
+      for (const step of chain) {
+        expect(step.includes(dev), `the build path runs "${dev}", which is a devDependency`).toBe(false);
+      }
+    }
   });
 });
