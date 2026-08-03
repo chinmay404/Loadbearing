@@ -4,6 +4,7 @@ import { useCanvas } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
 import { api, ApiError } from '../lib/api';
 import { IconPlay, IconStop } from '../ui/UiIcons';
+import { TimelineStrip } from './TimelineStrip';
 
 /**
  * The load instrument. The capacity model runs locally on every change, so
@@ -210,6 +211,8 @@ export function SimHud() {
           </div>
         )}
       </div>
+
+      {result?.timeline && <TimelineStrip timeline={result.timeline} />}
 
       {result && (
         <div className="verdict">

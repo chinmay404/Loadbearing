@@ -67,6 +67,19 @@ const pct = (fraction: number): string => `${Math.round(fraction * 100)}%`;
  * the problem bank's scenarios name components the way a person would ("Redis",
  * "primary"), and a gate that silently kills nothing would pass every design.
  */
+/**
+ * How long the run is healthy before anything is taken away.
+ *
+ * Outages used to start at second zero, which made the design broken before the first
+ * tick: every number was a post-failure number and the run had no shape at all. A
+ * timeline of that is a flat line, and a flat line cannot show the one thing worth
+ * seeing — the moment it went wrong, and whether it came back.
+ *
+ * It does not change what the worst moment is, since there are two minutes after the
+ * kill for the system to reach its new fixed point. It changes what you can watch.
+ */
+export const OUTAGE_AT_S = 20;
+
 export function scenarioFromConfig(config: SimConfig, graph: GraphDSL): Scenario {
   const wanted = (config.killNodeIds ?? []).map((k) => k.toLowerCase());
   const killed = graph.nodes
@@ -78,7 +91,7 @@ export function scenarioFromConfig(config: SimConfig, graph: GraphDSL): Scenario
     name: 'Capacity report',
     horizonS: REPORT_HORIZON_S,
     loadMultiplier: Math.max(0, config.rpsMultiplier ?? 1),
-    outages: killed.map((nodeId) => ({ nodeId, atS: 0 })),
+    outages: killed.map((nodeId) => ({ nodeId, atS: OUTAGE_AT_S })),
     // A third-party brownout lands on everything you call but do not run.
     latency:
       (config.thirdPartyLatencyMs ?? 0) > 0
@@ -136,6 +149,30 @@ export function report(graph: GraphDSL, engine: EngineResult): SimResult {
     monthlyCost: cost.totalUsd,
     verdict: buildVerdict(engine, flows, nodesById),
     findings: buildFindings(graph, engine, byId, nodesById),
+    timeline: {
+      horizonS: engine.ticks.length,
+      // Rounded on the way out. A tick series is the one part of this that is large
+      // enough for fifteen significant figures per number to matter, and nobody is
+      // reading a request rate to the picosecond.
+      points: engine.ticks.map((tick) => ({
+        t: tick.t,
+        offeredRps: round(tick.offeredRps),
+        completedRps: round(tick.completedRps),
+        p99Ms: round(tick.p99Ms),
+        successRate: Math.round(tick.successRate * 1000) / 1000,
+        hottestNodeId: tick.hottestNodeId,
+      })),
+      failures: engine.failures.map((f) => ({ nodeId: f.nodeId, atS: f.atS, reason: f.reason })),
+      firstFailure: engine.firstFailure
+        ? {
+            nodeId: engine.firstFailure.nodeId,
+            atS: engine.firstFailure.atS,
+            reason: engine.firstFailure.reason,
+          }
+        : null,
+      breaches: engine.sloBreaches,
+      recoveredAtS: engine.recoveredAtS,
+    },
   };
 }
 

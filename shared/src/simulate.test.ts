@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CAPACITY } from './components.js';
-import { simulate } from './simulate.js';
+import { OUTAGE_AT_S, simulate } from './simulate.js';
 import type { ArchNodeType, GraphDSL, GraphEdge, GraphNode, NodeAttrs, SimConfig } from './types.js';
 
 const node = (id: string, type: ArchNodeType, attrs: NodeAttrs = {}): GraphNode => ({
@@ -368,5 +368,80 @@ describe('cost, until it is calculated properly', () => {
 describe('the catalogue', () => {
   it('never constrains a boundary', () => {
     expect(DEFAULT_CAPACITY.group).toBe(Number.POSITIVE_INFINITY);
+  });
+});
+
+describe('the timeline', () => {
+  /** A tier that can be overwhelmed, and a database behind it. */
+  const graph = (attrs: Record<string, unknown> = {}): GraphDSL => ({
+    nodes: [
+      { id: 'c', type: 'client', label: 'Users', annotation: '', attrs: { trafficRps: 200 } },
+      { id: 'w', type: 'service', label: 'Web', annotation: '', attrs: { replicas: 2, vcpu: 2, latencyMs: 40, ...attrs } },
+      { id: 'db', type: 'sql_db', label: 'Postgres', annotation: '', attrs: { latencyMs: 10, vcpu: 8 } },
+    ],
+    edges: [
+      { id: 'e1', from: 'c', to: 'w', kind: 'sync', label: '' },
+      { id: 'e2', from: 'w', to: 'db', kind: 'sync', label: '' },
+    ],
+    stickies: [],
+    flows: [{ id: 'f1', name: 'read', kind: 'read', steps: ['c', 'w', 'db'], rps: 200, description: '' }],
+  });
+
+  const run = (config: Partial<SimConfig>) =>
+    simulate(graph(), { rpsMultiplier: 1, killNodeIds: [], thirdPartyLatencyMs: 0, ...config }).timeline!;
+
+  it('reports one point per second of the run', () => {
+    const t = run({});
+    expect(t.points).toHaveLength(t.horizonS);
+    expect(t.points[0]!.t).toBe(0);
+    expect(t.points.at(-1)!.t).toBe(t.horizonS - 1);
+  });
+
+  it('is healthy before an outage and broken after it, so the moment is visible', () => {
+    const t = run({ killNodeIds: ['Postgres'] });
+    // Killing at second zero made every number a post-failure number and the whole
+    // series a flat line — there was no before to compare the after against.
+    const before = t.points[OUTAGE_AT_S - 5]!;
+    const after = t.points[OUTAGE_AT_S + 5]!;
+    expect(before.completedRps).toBeGreaterThan(0);
+    expect(after.completedRps).toBeLessThan(before.completedRps);
+    expect(t.failures.some((f) => f.nodeId === 'db' && f.atS === OUTAGE_AT_S)).toBe(true);
+  });
+
+  it('names the first thing to break, which is not always the thing that looks broken', () => {
+    const t = run({ rpsMultiplier: 8 });
+    expect(t.firstFailure).not.toBeNull();
+    // The web tier saturates; the database behind it never sees the traffic.
+    expect(t.firstFailure!.nodeId).toBe('w');
+    expect(t.firstFailure!.reason).toContain('Web');
+  });
+
+  it('shows an autoscaling group closing the gap it opened', () => {
+    const scaling = simulate(
+      graph({ autoscaleMin: 2, autoscaleMax: 40 }),
+      { rpsMultiplier: 6, killNodeIds: [], thirdPartyLatencyMs: 0 },
+    ).timeline!;
+    const early = scaling.points[2]!;
+    const late = scaling.points.at(-1)!;
+    // Capacity arrives a minute late, and the point of a timeline is that you can see
+    // who paid for that minute.
+    expect(early.completedRps).toBeLessThan(early.offeredRps);
+    expect(late.completedRps).toBeGreaterThan(early.completedRps);
+  });
+
+  it('keeps a fixed ceiling failing all the way to the end', () => {
+    const pinned = simulate(
+      graph({ capacityRps: 50, autoscaleMax: 2 }),
+      { rpsMultiplier: 6, killNodeIds: [], thirdPartyLatencyMs: 0 },
+    ).timeline!;
+    const late = pinned.points.at(-1)!;
+    expect(late.completedRps).toBeLessThan(late.offeredRps * 0.9);
+  });
+
+  it('rounds, because nobody reads a request rate to fifteen decimal places', () => {
+    for (const p of run({ rpsMultiplier: 3 }).points) {
+      expect(p.offeredRps).toBe(Math.round(p.offeredRps * 100) / 100);
+      expect(p.successRate).toBe(Math.round(p.successRate * 1000) / 1000);
+    }
   });
 });

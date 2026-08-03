@@ -586,6 +586,48 @@ export interface SimFlowResult {
   notes: string[];
 }
 
+/** One second of a run. */
+export interface SimTimelinePoint {
+  t: number;
+  offeredRps: number;
+  completedRps: number;
+  p99Ms: number;
+  /** Completed over offered, 0..1. */
+  successRate: number;
+  /** Worst-utilised component at this instant. */
+  hottestNodeId: string | null;
+}
+
+/** Something that stopped carrying traffic, and when. */
+export interface SimFailurePoint {
+  nodeId: string;
+  atS: number;
+  reason: string;
+}
+
+/**
+ * A run as it happened, second by second.
+ *
+ * Every number in a SimResult is a snapshot of the worst moment, which answers "how
+ * bad did it get" and not "what happened" — and the second question is the one that
+ * teaches. A design that sheds for four seconds and recovers is a different design
+ * from one that sheds for ninety, and the two produce identical worst-case numbers.
+ *
+ * The engine has computed all of this since it was written; the report was simply
+ * throwing it away.
+ */
+export interface SimTimeline {
+  horizonS: number;
+  points: SimTimelinePoint[];
+  /** Upstream-most first: the first thing to break is rarely the thing that looks broken. */
+  failures: SimFailurePoint[];
+  firstFailure: SimFailurePoint | null;
+  /** Windows spent outside the SLO. */
+  breaches: { metric: 'p99' | 'successRate'; fromS: number; toS: number }[];
+  /** When it came back inside the SLO, or null if it never did. */
+  recoveredAtS: number | null;
+}
+
 export interface SimResult {
   nodes: SimNodeResult[];
   flows: SimFlowResult[];
@@ -597,6 +639,8 @@ export interface SimResult {
   monthlyCost: number;
   verdict: string;
   findings: string[];
+  /** The run over time. Absent on results stored before this existed. */
+  timeline?: SimTimeline;
 }
 
 export interface SimConfig {
