@@ -81,12 +81,17 @@ interface Sku {
     iops?: number;
   };
   pricing: PricingShape[];
-  fitsTypes: ArchNodeType[];
   region: string;
   measuredAt: string;
   confidence: 'measured' | 'documented' | 'estimate';
 }
 ```
+
+Which component types a SKU may bind to is a property of its **service**, not of
+each individual SKU — every `rds-postgres` instance class fits exactly the same
+component types. So `fitsTypes` lives on the service entry in `services.json`,
+and a SKU inherits it. Putting it on the SKU would repeat the same list across
+hundreds of near-identical records and invite them to drift apart.
 
 `id` is provider-prefixed so it is unambiguous and can be validated on load. A
 design carrying a SKU id that no longer exists in the snapshot degrades to
@@ -187,7 +192,14 @@ is designed against the richest case rather than the poorest.
 
 Phase A: pricing shapes, SKU record, binding UI, AWS compute and data services.
 Phase B: remaining AWS managed services, provider-specific compatibility rules.
-Phase C: Azure and GCP, as data.
+Phase C: Azure and GCP.
+
+Phase C is "as data" for pricing and SKUs, which flow through unchanged code.
+It is **not** purely data for compatibility: the topology rules added in Phase B
+encode AWS-specific behaviour, and Azure and GCP need their own — Cloud Run's
+concurrency model and Azure Functions' plan tiers fail differently from Lambda's.
+Each provider therefore carries its own rule set, written against its own
+documentation, sharing only the rule framework.
 
 ## Testing
 
