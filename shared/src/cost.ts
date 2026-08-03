@@ -15,7 +15,8 @@
 // invoice can override a component outright.
 
 import { familyOf, type Family } from './families.js';
-import type { GraphNode } from './types.js';
+import { inferPlacement, type Placement } from './network.js';
+import type { GraphEdge, GraphNode } from './types.js';
 
 /** Rounded, provider-neutral, and deliberately not a quote. */
 export const RATES = {
@@ -38,6 +39,24 @@ export const RATES = {
   /** Managed datastores carry an operator premium over raw compute. */
   managedDatastoreMultiplier: 1.35,
 } as const;
+
+/**
+ * Dollars per GB moved, by how far it goes.
+ *
+ * Bandwidth was the dimension this module had no concept of, which let a design
+ * stream terabytes to the public internet for nothing. On a real invoice for
+ * anything media-heavy this is routinely the biggest single line — and it is the
+ * one that punishes a chatty cross-zone design in a way no request count shows.
+ *
+ * Traffic inside a zone is free everywhere worth naming. Everything else is not.
+ */
+export const EGRESS_USD_PER_GB: Record<Placement, number> = {
+  'same-host': 0,
+  'same-az': 0,
+  'cross-az': 0.01,
+  'cross-region': 0.02,
+  internet: 0.09,
+};
 
 /** Seconds in the month this bill covers. */
 export const SECONDS_PER_MONTH = 60 * 60 * 24 * 30;
@@ -254,22 +273,79 @@ export function costOfNode(
  * follows the traffic that actually arrived, so a design that sheds half its load is
  * not billed for the half it refused.
  */
+/**
+ * What each component pays for data leaving it, by node id.
+ *
+ * Billed to the sending side, which is who a cloud actually invoices. The volume
+ * on a connection is taken from what the RECEIVING end served, divided between
+ * its inbound connections — exact whenever something has one caller, which is
+ * most things, and approximate rather than invented otherwise. Working the other
+ * way round would need the engine's normalised routing shares, and the cost model
+ * has no business re-deriving those.
+ */
+export function egressByNode(
+  edges: readonly GraphEdge[],
+  nodes: readonly GraphNode[],
+  served: Map<string, number>,
+): Map<string, { usd: number; gb: number }> {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const inboundCount = new Map<string, number>();
+  for (const e of edges) inboundCount.set(e.to, (inboundCount.get(e.to) ?? 0) + 1);
+
+  const out = new Map<string, { usd: number; gb: number }>();
+  for (const e of edges) {
+    const payloadKb = e.payloadKb;
+    if (typeof payloadKb !== 'number' || !(payloadKb > 0)) continue;
+    const from = byId.get(e.from);
+    const to = byId.get(e.to);
+    if (!from || !to) continue;
+
+    const rps = (served.get(e.to) ?? 0) / Math.max(1, inboundCount.get(e.to) ?? 1);
+    if (rps <= 0) continue;
+
+    const placement: Placement =
+      e.placement ?? inferPlacement(from.attrs?.region, to.attrs?.region);
+    const rate = EGRESS_USD_PER_GB[placement];
+    if (!(rate > 0)) continue;
+
+    const gb = (rps * SECONDS_PER_MONTH * payloadKb) / (1024 * 1024);
+    const prev = out.get(e.from) ?? { usd: 0, gb: 0 };
+    out.set(e.from, { usd: prev.usd + gb * rate, gb: prev.gb + gb });
+  }
+  return out;
+}
+
 export function costReport(
   nodes: readonly GraphNode[],
   served: Map<string, number>,
   replicas: Map<string, number>,
   /** Which pool each component runs on, for the ones that do not own their machines. */
   hostedBy?: Map<string, string>,
+  /** Connections, so data leaving a component can be billed. */
+  edges: readonly GraphEdge[] = [],
 ): CostReport {
   const byId = new Map(nodes.map((n) => [n.id, n]));
-  const lines = nodes.map((n) =>
-    costOfNode(
+  const egress = egressByNode(edges, nodes, served);
+
+  const lines = nodes.map((n) => {
+    const line = costOfNode(
       n,
       served.get(n.id) ?? 0,
       replicas.get(n.id) ?? 1,
       hostedBy ? byId.get(hostedBy.get(n.id) ?? '') : undefined,
-    ),
-  );
+    );
+    const moved = egress.get(n.id);
+    // An overridden line is somebody's real invoice, which already includes their
+    // bandwidth. Adding ours on top would double-count it.
+    if (!moved || moved.usd <= 0 || line.overridden) return line;
+    return {
+      ...line,
+      usageUsd: round(line.usageUsd + moved.usd),
+      totalUsd: round(line.totalUsd + moved.usd),
+      basis: `${line.basis}, plus ${round(moved.gb)}GB/month leaving it`,
+    };
+  });
+
   return {
     lines,
     fixedUsd: round(lines.reduce((sum, l) => sum + l.fixedUsd, 0)),

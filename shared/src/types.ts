@@ -295,6 +295,15 @@ export interface GraphEdge {
    * absorbing writes only once somebody says which connection is which.
    */
   carries?: 'read' | 'write' | 'both';
+  /**
+   * Kilobytes moved per request across this connection.
+   *
+   * The dimension the cost model had no concept of. Bandwidth leaving a zone, a
+   * region or your network is frequently the largest line on a real invoice for
+   * anything media- or file-heavy, and until this existed a design could serve
+   * terabytes for free.
+   */
+  payloadKb?: number;
 }
 
 export type FlowKind = 'read' | 'write' | 'async' | 'admin';

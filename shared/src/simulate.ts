@@ -211,6 +211,7 @@ export function report(graph: GraphDSL, engine: EngineResult): SimResult {
     new Map(engine.final.map((h) => [h.nodeId, h.servedRps])),
     new Map(engine.final.map((h) => [h.nodeId, h.replicas])),
     new Map(Object.entries(engine.hostedBy)),
+    graph.edges,
   );
 
   return {

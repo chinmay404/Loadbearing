@@ -6,8 +6,8 @@
 // one thing, check the money moved in the right direction and by the right amount".
 
 import { describe, expect, it } from 'vitest';
-import { costOfNode, costReport, RATES, SECONDS_PER_MONTH } from './cost.js';
-import type { ArchNodeType, GraphNode, NodeAttrs } from './types.js';
+import { costOfNode, costReport, egressByNode, RATES, SECONDS_PER_MONTH } from './cost.js';
+import type { ArchNodeType, GraphEdge, GraphNode, NodeAttrs } from './types.js';
 
 const node = (id: string, type: ArchNodeType, attrs: NodeAttrs = {}): GraphNode => ({
   id,
@@ -146,5 +146,78 @@ describe('the whole bill', () => {
   it('gives every line a reason a person can argue with', () => {
     const report = costReport(nodes, new Map(), new Map());
     for (const line of report.lines) expect(line.basis.length).toBeGreaterThan(10);
+  });
+});
+
+describe('data leaving costs money', () => {
+  const node = (id: string, type: ArchNodeType, attrs: NodeAttrs = {}): GraphNode => ({
+    id,
+    type,
+    label: id,
+    annotation: '',
+    attrs,
+  });
+  const edge = (from: string, to: string, extra: Partial<GraphEdge> = {}): GraphEdge => ({
+    id: `${from}->${to}`,
+    from,
+    to,
+    kind: 'sync',
+    label: '',
+    ...extra,
+  });
+
+  // 100 rps of 1MB responses is about 247 TB a month.
+  const nodes = [node('cdn', 'cdn'), node('client', 'client')];
+  const served = new Map([['client', 100], ['cdn', 100]]);
+  const replicas = new Map([['cdn', 1], ['client', 1]]);
+
+  const egressOn = (extra: Partial<GraphEdge>) =>
+    egressByNode([edge('cdn', 'client', { payloadKb: 1024, ...extra })], nodes, served);
+
+  it('is free inside one zone', () => {
+    expect(egressOn({ placement: 'same-az' }).get('cdn')).toBeUndefined();
+  });
+
+  it('is charged to the sender at the internet rate', () => {
+    const moved = egressOn({ placement: 'internet' }).get('cdn')!;
+    // 100 rps x 1024KB x 2,592,000s / 1024^2 = 253,125 GB, at $0.09 = $22,781.25.
+    expect(moved.gb).toBeCloseTo(253_125, 0);
+    expect(moved.usd).toBeCloseTo(22_781.25, 0);
+  });
+
+  it('costs less across zones than across the internet', () => {
+    expect(egressOn({ placement: 'cross-az' }).get('cdn')!.usd).toBeLessThan(
+      egressOn({ placement: 'internet' }).get('cdn')!.usd,
+    );
+  });
+
+  it('counts nothing when no payload size is stated', () => {
+    expect(
+      egressByNode([edge('cdn', 'client', { placement: 'internet' })], nodes, served).size,
+    ).toBe(0);
+  });
+
+  it('lands on the bill and says how much moved', () => {
+    const report = costReport(
+      nodes,
+      served,
+      replicas,
+      undefined,
+      [edge('cdn', 'client', { payloadKb: 1024, placement: 'internet' })],
+    );
+    const cdn = report.lines.find((l) => l.nodeId === 'cdn')!;
+    expect(cdn.usageUsd).toBeGreaterThan(20_000);
+    expect(cdn.basis).toContain('leaving it');
+  });
+
+  it('does not add egress on top of a stated invoice', () => {
+    const report = costReport(
+      [node('cdn', 'cdn', { monthlyCost: 500 }), node('client', 'client')],
+      served,
+      replicas,
+      undefined,
+      [edge('cdn', 'client', { payloadKb: 1024, placement: 'internet' })],
+    );
+    expect(report.lines.find((l) => l.nodeId === 'cdn')!.totalUsd).toBe(500);
   });
 });
