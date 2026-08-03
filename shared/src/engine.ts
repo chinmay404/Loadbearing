@@ -40,6 +40,7 @@ import {
   TAIL_MULTIPLE_IDLE,
 } from './queueing.js';
 import { inferPlacement, rttMs } from './network.js';
+import { admit, shareOut, slotsNeeded } from './pools.js';
 import type {
   ArchNodeType,
   GraphDSL,
@@ -709,6 +710,16 @@ interface NodeRuntime {
   /** Own service time plus everything synchronously waited on, ms. */
   occupancyMs: number;
   /**
+   * Capacity before this round's constraints, so it can be rebuilt from scratch
+   * each time round the relaxation loop.
+   *
+   * Every constraint below narrows capacity with `Math.min`, and arrivals start at
+   * zero and grow as flow propagates through the rounds. Without a reset, round
+   * zero — where nothing has arrived anywhere yet — clamps a pool-limited
+   * component to zero capacity and the `min` never lets it back up.
+   */
+  baseCapacity: number;
+  /**
    * The scenario's capacity override for this tick — a hot partition at 0.1, say.
    * Carried on the runtime because capacity is re-derived from occupancy inside
    * the relaxation loop, and a re-derivation that forgot this silently undid
@@ -937,6 +948,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         perReplica,
         replicas,
         capacity: down && !isTransparentWhenDown(node.type) ? 0 : capacity,
+        baseCapacity: down && !isTransparentWhenDown(node.type) ? 0 : capacity,
         absorb: down ? 0 : absorb,
         down,
         bypassed: down && isTransparentWhenDown(node.type),
@@ -987,6 +999,9 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
       for (const r of runtime.values()) {
         r.arriving = 0;
         r.hostLimited = false;
+        // Constraints below only ever narrow capacity, and arrivals grow as flow
+        // propagates through the rounds — so it has to start each round unclamped.
+        r.capacity = r.baseCapacity;
       }
       firstAttempts = 0;
       retriedAttempts = 0;
@@ -1099,21 +1114,35 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         const supply = hostSlots(host, scaledReplicas.get(hostId));
         if (!Number.isFinite(supply) || supply <= 0) continue;
 
-        let demand = 0;
-        for (const id of memberIds) {
-          const r = runtime.get(id);
-          if (r) demand += r.arriving * (r.serviceMs / 1000);
-        }
-        if (demand <= supply + EPSILON) continue;
-
-        // Everyone is squeezed by the same factor: the pool does not choose favourites.
-        const factor = supply / demand;
-        for (const id of memberIds) {
-          const r = runtime.get(id);
-          if (!r) continue;
-          r.capacity = Math.min(r.capacity, r.arriving * factor);
+        const members = memberIds
+          .map((id) => runtime.get(id))
+          .filter((r): r is NodeRuntime => r !== undefined);
+        // Occupancy, not bare service time: a stage waiting on something else is
+        // still holding the pool's machine while it waits.
+        const demands = members.map((r) =>
+          slotsNeeded({ arrivingRps: r.arriving, occupancyMs: r.occupancyMs }),
+        );
+        const granted = shareOut(demands, supply);
+        members.forEach((r, i) => {
+          if (granted[i]! >= demands[i]! - EPSILON) return;
+          r.capacity = Math.min(r.capacity, r.arriving * (granted[i]! / demands[i]!));
           r.hostLimited = true;
-        }
+        });
+      }
+
+      // A connection ceiling is a second, independent limit. A store can be nowhere
+      // near its request capacity and still refuse callers because it has no
+      // connection left to give them — which is how a database that looks healthy on
+      // every dashboard stops serving. Fifty replicas holding twenty connections
+      // each against a hundred-connection Postgres is the canonical case, and it was
+      // invisible until occupancy existed to measure the holding time.
+      for (const node of prep.nodes) {
+        const r = runtime.get(node.id)!;
+        const ceiling = r.node.attrs?.maxConnections ?? r.node.attrs?.poolSize;
+        if (typeof ceiling !== 'number' || ceiling <= 0 || r.down) continue;
+        const needed = slotsNeeded({ arrivingRps: r.arriving, occupancyMs: r.occupancyMs });
+        const { admittedRps } = admit(r.arriving, needed, ceiling);
+        r.capacity = Math.min(r.capacity, admittedRps);
       }
 
       // Serve what arrived, shed the rest, and remember how badly each failed so
@@ -1415,6 +1444,15 @@ function reasonFor(r: NodeRuntime): string {
   if (r.down && !r.bypassed) return `${r.node.label} is offline, and nothing else serves its traffic.`;
   if (r.hostLimited) {
     return `${r.node.label} shares a pool that has run out of room — the components beside it are using the machines.`;
+  }
+  // Before blaming throughput: a store can be almost idle by request count and
+  // still be turning callers away because it has no connection left to give.
+  const ceiling = r.node.attrs?.maxConnections ?? r.node.attrs?.poolSize;
+  if (typeof ceiling === 'number' && ceiling > 0) {
+    const needed = slotsNeeded({ arrivingRps: r.arriving, occupancyMs: r.occupancyMs });
+    if (needed > ceiling) {
+      return `${r.node.label} has ${ceiling} connections and its callers need ${Math.ceil(needed)} — they are queueing for a connection, not for the data.`;
+    }
   }
   if (r.arriving > r.shedLimit) return `${r.node.label} is shedding above its ${Math.round(r.shedLimit)} rps limit.`;
   if (r.latencyMs > num(r.node.attrs?.timeoutMs, DEFAULT_TIMEOUT_MS[r.family])) {

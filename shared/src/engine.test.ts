@@ -956,3 +956,37 @@ describe('the wire shows up in the reported latency', () => {
     expect(far - near).toBeGreaterThan(60);
   });
 });
+
+describe('connection pools run out', () => {
+  const withCeiling = (maxConnections?: number) =>
+    graph(
+      [
+        node('web', 'client', { trafficRps: 500 }),
+        node('api', 'service', { capacityRps: 100_000, latencyMs: 1 }),
+        node('db', 'sql_db', {
+          latencyMs: 50,
+          capacityRps: 100_000,
+          ...(maxConnections ? { maxConnections } : {}),
+        }),
+      ],
+      [edge('web', 'api'), edge('api', 'db')],
+    );
+
+  it('a store refuses what its connection limit cannot hold', () => {
+    // 500 rps each holding a connection for 50ms needs 25 connections. The store
+    // accepts 10, so 60% of the traffic never gets one — despite the store being
+    // at half a percent of its request capacity.
+    const db = hop(runEngine(withCeiling(10), scenario()), 'db');
+    expect(db.servedRps).toBeCloseTo(200, -1);
+    expect(db.droppedRps).toBeGreaterThan(250);
+  });
+
+  it('leaves a store alone when nobody stated a limit', () => {
+    expect(hop(runEngine(withCeiling(), scenario()), 'db').droppedRps).toBe(0);
+  });
+
+  it('says the connections ran out, not that the store was too slow', () => {
+    const result = runEngine(withCeiling(10), scenario());
+    expect(result.firstFailure?.reason ?? '').toContain('connection');
+  });
+});

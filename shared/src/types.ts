@@ -152,6 +152,17 @@ export interface NodeAttrs {
   /** Spread across availability zones / regions — survives a zone loss. */
   multiAz?: boolean;
   /**
+   * Connections a pooler or proxy holds open. Above this, callers queue for a
+   * connection rather than for the data.
+   */
+  poolSize?: number;
+  /**
+   * Connections this datastore accepts before refusing. Postgres defaults to 100,
+   * which fifty serverless replicas will exhaust without ever approaching a
+   * request limit — the most common way a healthy-looking database stops serving.
+   */
+  maxConnections?: number;
+  /**
    * Where this runs, e.g. 'us-east-1'. When two connected components name
    * different regions, the measured distance between them is charged to the
    * caller — in latency, and in the worker time it spends waiting on the wire.

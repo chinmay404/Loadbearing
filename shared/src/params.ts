@@ -136,6 +136,26 @@ const TIMEOUT: ParamSpec = {
   min: 1,
 };
 
+const POOL_SIZE: ParamSpec = {
+  key: 'poolSize',
+  label: 'Connections held open',
+  hint: 'The pool in front of the store. Callers needing more than this queue for a connection, not for the data.',
+  kind: 'number',
+  group: 'behaviour',
+  min: 1,
+  step: 1,
+};
+
+const MAX_CONNECTIONS: ParamSpec = {
+  key: 'maxConnections',
+  label: 'Connections it accepts',
+  hint: 'What the store itself allows. Fifty replicas holding twenty each exhaust a hundred without ever hitting a request limit.',
+  kind: 'number',
+  group: 'behaviour',
+  min: 1,
+  step: 1,
+};
+
 const MULTI_AZ: ParamSpec = {
   key: 'multiAz',
   label: 'Spread across zones',
@@ -202,7 +222,7 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
     },
   ],
 
-  routing: [CAPACITY, SERVICE_TIME, REPLICAS, COST_OVERRIDE],
+  routing: [CAPACITY, SERVICE_TIME, REPLICAS, POOL_SIZE, COST_OVERRIDE],
 
   compute: [
     ELASTIC,
@@ -254,6 +274,7 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
     SERVICE_TIME,
     CAPACITY,
     REPLICAS,
+    MAX_CONNECTIONS,
     MULTI_AZ,
     COST_OVERRIDE,
   ],
