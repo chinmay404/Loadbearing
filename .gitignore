@@ -1,5 +1,9 @@
 node_modules/
 dist/
-data/
+# Anchored: this is the local SQLite database, not every directory called `data`.
+# Unanchored, it also swallowed shared/src/data — the vendored price snapshots the
+# build imports — so the deployment failed to resolve them while every local build
+# passed, because locally the files are simply there.
+/data/
 .env
 *.local
