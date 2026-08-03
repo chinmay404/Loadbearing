@@ -14,11 +14,11 @@
 
 import {
   runEngine,
-  TAIL_MULTIPLE_IDLE,
   type EngineResult,
   type HopState,
   type Scenario,
 } from './engine.js';
+import { TAIL_MULTIPLE_IDLE, responseMultiple, waitP99Ms } from './queueing.js';
 import { costReport } from './cost.js';
 import { familyOf } from './families.js';
 import { CACHE_TYPES, DATASTORE_TYPES, DEFAULT_LATENCY, QUEUE_TYPES, STATEFUL_TYPES } from './components.js';
@@ -301,7 +301,16 @@ function flowResults(
       if (survival < 1 && brokenAt === undefined && hop.droppedRps > EPSILON) brokenAt = stepId;
       carried *= survival;
       p50 += hop.latencyMs;
-      p99 += hop.latencyMs * (TAIL_MULTIPLE_IDLE + 2 * Math.min(1, hop.utilization));
+      // Service-time spread (an openly-labelled estimate) plus the true M/M/c
+      // queueing percentile (a closed form), rather than one invented factor
+      // standing in for both.
+      //
+      // `hop.latencyMs` is already service time times the response multiple, so
+      // the bare service time is recovered by dividing that multiple back out —
+      // the tail estimate belongs to the service time itself, not to the queue
+      // wait sitting on top of it.
+      const serviceMs = hop.latencyMs / responseMultiple(hop.utilization, hop.servers);
+      p99 += serviceMs * TAIL_MULTIPLE_IDLE + waitP99Ms(hop.utilization, hop.servers, serviceMs);
     }
 
     return {

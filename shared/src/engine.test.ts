@@ -787,3 +787,41 @@ describe('the engine itself', () => {
     expect(result.sinkIds).toEqual(['primary']);
   });
 });
+
+describe('queueing depends on how many channels a thing has', () => {
+  // concurrency 1 makes each replica a single server, so the arithmetic below is
+  // hand-checkable and ties directly to the queueing unit tests. Real components
+  // hold many requests at once, which is exactly why this change is broad.
+  const busy = (replicas: number) => {
+    const perReplica = 10; // one in flight, 100ms each
+    const g = graph(
+      [
+        node('web', 'client', { trafficRps: perReplica * replicas * 0.8 }),
+        node('api', 'service', { concurrency: 1, latencyMs: 100, replicas }),
+      ],
+      [edge('web', 'api')],
+    );
+    return hop(runEngine(g, scenario()), 'api');
+  };
+
+  it('a single channel at 80% queues exactly like M/M/1', () => {
+    // 100ms x 1/(1-0.8) = 500ms, which is what the old formula gave.
+    expect(busy(1).latencyMs).toBeCloseTo(500, 0);
+    expect(busy(1).servers).toBe(1);
+  });
+
+  it('ten channels at the same 80% barely queue at all', () => {
+    // responseMultiple(0.8, 10) = 1.2046, so 120.5ms rather than 500ms.
+    expect(busy(10).latencyMs).toBeCloseTo(120.5, 0);
+    expect(busy(10).servers).toBe(10);
+  });
+
+  it('counts concurrency, not replicas: one box with many workers is many channels', () => {
+    // 8 vCPU x 8 in flight = 64 channels on a single replica.
+    const g = graph(
+      [node('web', 'client', { trafficRps: 1 }), node('api', 'service', { vcpu: 8 })],
+      [edge('web', 'api')],
+    );
+    expect(hop(runEngine(g, scenario()), 'api').servers).toBe(64);
+  });
+});

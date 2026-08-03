@@ -33,6 +33,12 @@ import {
   canSubstitute,
 } from './components.js';
 import { distributionOf, familyOf, PASSIVE_FAMILIES, type Family } from './families.js';
+import {
+  MAX_WAIT_MULTIPLE,
+  responseMultiple,
+  waitP99Ms,
+  TAIL_MULTIPLE_IDLE,
+} from './queueing.js';
 import type {
   ArchNodeType,
   GraphDSL,
@@ -151,6 +157,13 @@ export interface HopState {
   hostLimited: boolean;
   /** Runs on a provider's capacity, so it has no utilisation to report. */
   elastic: boolean;
+  /**
+   * Parallel service channels: concurrency x replicas x shards. What queueing is
+   * computed against, and not the same as the replica count — one replica of a
+   * 64-worker service is a 64-channel queue, which is why it barely queues at all
+   * until it is nearly full.
+   */
+  servers: number;
 }
 
 export interface TickState {
@@ -264,8 +277,6 @@ export const DEFAULT_QUEUE_DEPTH = 100_000;
 /** Utilisation at which a component is warned about. */
 
 export const HOT_UTILIZATION = 0.9;
-/** Queue wait is clamped here: past this the number stops meaning anything. */
-const MAX_WAIT_MULTIPLE = 20;
 /** Rounds of relaxation per tick. Factors only shrink, so this converges fast. */
 const RELAX_ROUNDS = 8;
 /** Headroom on top of the worst congestion the model will report. */
@@ -277,16 +288,11 @@ const TIMEOUT_HEADROOM = 1.1;
  */
 export const CONCURRENT_REQUESTS_PER_VCPU = 8;
 /**
- * How much worse the slowest 1% is than the average, on a component with nothing
- * queueing at all.
- *
- * Not 1. A tail exists before any load does — the service time itself is a
- * distribution, and garbage collection, scheduling and network jitter all land in
- * the same place. An engine that derived p99 from queueing alone reported a p99 a
- * few percent above p50 for an idle design, which is the kind of number that makes
- * a reader stop believing the tool.
+ * Queueing lives in `queueing.ts` now, but these two are re-exported because
+ * `simulate.ts` and the tests have always imported them from here, and the shape
+ * of the module boundary is not worth a breaking rename.
  */
-export const TAIL_MULTIPLE_IDLE = 2.5;
+export { TAIL_MULTIPLE_IDLE, MAX_WAIT_MULTIPLE } from './queueing.js';
 /** Ceiling on enumerated paths, so a dense graph cannot explode the report. */
 const MAX_PATHS = 60;
 const MAX_PATH_DEPTH = 24;
@@ -383,6 +389,20 @@ function perReplicaCapacity(node: GraphNode, serviceMs: number): number {
  * requests per second typed straight in can be anything, whereas a size has to be paid
  * for. The two are the same statement, which is why the cost model reads the same field.
  */
+/**
+ * Parallel service channels.
+ *
+ * Capacity is `channels / serviceMs`, so the channel count and the capacity are
+ * the same statement — which is exactly why queueing must be computed from this
+ * rather than from the replica count. Ten replicas of a 64-worker service is 640
+ * channels, and a queue with 640 servers behaves nothing like a queue with ten.
+ */
+function serversOf(node: GraphNode, replicas: number): number {
+  const concurrency = num(node.attrs?.concurrency, concurrencyFor(node));
+  const shards = Math.max(1, Math.floor(num(node.attrs?.shards, 1)));
+  return Math.max(1, Math.round(concurrency * replicas * shards));
+}
+
 function concurrencyFor(node: GraphNode): number {
   const vcpu = node.attrs?.vcpu;
   if (typeof vcpu === 'number' && vcpu > 0) {
@@ -424,13 +444,6 @@ function absorbOf(node: GraphNode): number {
 function defaultTimeoutFor(node: GraphNode, family: Family): number {
   const patient = serviceMsOf(node) * MAX_WAIT_MULTIPLE * TIMEOUT_HEADROOM;
   return Math.max(DEFAULT_TIMEOUT_MS[family], patient);
-}
-
-/** Queue wait as utilisation approaches one. M/M/1 in shape, clamped. */
-function waitMultiple(utilization: number): number {
-  if (!(utilization < 1)) return MAX_WAIT_MULTIPLE;
-  const u = Math.min(Math.max(utilization, 0), 0.98);
-  return Math.min(1 / (1 - u), MAX_WAIT_MULTIPLE);
 }
 
 /**
@@ -683,6 +696,8 @@ interface NodeRuntime {
   failFraction: number;
   /** Constrained by the pool it shares rather than by anything of its own. */
   hostLimited: boolean;
+  /** Parallel service channels, for queueing. */
+  servers: number;
 }
 
 /**
@@ -818,6 +833,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         backlog: backlog.get(node.id) ?? 0,
         failFraction: 0,
         hostLimited: false,
+        servers: serversOf(node, replicas),
       });
     }
 
@@ -989,7 +1005,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
     // reported every ingest pipeline as broken at its own declared load.
     for (const node of prep.nodes) {
       const r = runtime.get(node.id)!;
-      r.latencyMs = r.bypassed ? 0 : r.serviceMs * waitMultiple(r.utilization);
+      r.latencyMs = r.bypassed ? 0 : r.serviceMs * responseMultiple(r.utilization, r.servers);
       if (!prep.waited.has(node.id)) continue;
       const timeout = num(r.node.attrs?.timeoutMs, defaultTimeoutFor(r.node, r.family));
       if (r.latencyMs > timeout && r.served > 0) {
@@ -1106,10 +1122,12 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         weight *= r.arriving > EPSILON ? clamp01(r.served / r.arriving) : 1;
         if (waiting) {
           latency += r.latencyMs;
-          // The tail is where a saturated hop shows up: a queue at 95% has a p99 far
-          // above its average, and the path inherits it. Utilisation adds to a tail
-          // that is already there at rest.
-          tail += r.latencyMs * (TAIL_MULTIPLE_IDLE + 2 * Math.min(1, r.utilization));
+          // Two separable things, and they used to be one invented factor. The
+          // service time has a spread of its own even at rest — GC, scheduling,
+          // jitter — which is the estimate; and a busy hop makes people wait for a
+          // channel, which is a real M/M/c percentile.
+          tail +=
+            r.serviceMs * TAIL_MULTIPLE_IDLE + waitP99Ms(r.utilization, r.servers, r.serviceMs);
         }
         const next = path.nodeIds[i + 1];
         if (next === undefined) break;
@@ -1154,6 +1172,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         down: r.down,
         hostLimited: r.hostLimited,
         elastic: r.node.attrs?.elastic === true,
+        servers: r.servers,
       };
     });
 
@@ -1183,9 +1202,20 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
       hottestNodeId: hottest?.nodeId ?? null,
     });
 
-    // "Worst" is the second with the most traffic on the floor, ties going to the
-    // slower one — that is the moment worth showing.
-    const score = (1 - successRate) * 1_000_000 + p99;
+    // "Worst" is the second with the most traffic on the floor; ties go to the most
+    // stressed, and only then to the slowest.
+    //
+    // Utilisation is in here deliberately. This score used to be loss and p99 alone,
+    // which worked only because p99 was computed as a factor rising with utilisation
+    // — so it doubled as a stress proxy by accident. A real M/M/c tail is flat across
+    // the whole healthy range, as it should be, and that silently made every tick
+    // score identically: the first second always won, and a run whose interesting
+    // moment is an outage at t=20 reported the calm before it.
+    const stress = states.reduce(
+      (max, s) => (Number.isFinite(s.capacityRps) && s.utilization > max ? s.utilization : max),
+      0,
+    );
+    const score = (1 - successRate) * 1_000_000 + stress * 1_000 + p99;
     if (!worstTick || score > worstTick.score) worstTick = { score, states };
     finalStates = states;
   }

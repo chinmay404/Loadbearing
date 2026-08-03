@@ -167,7 +167,10 @@ describe('evaluateScenario — the problem p99 budget', () => {
   it('is applied at baseline load (rpsMultiplier <= 1) when no structured pass exists', () => {
     const fail = evaluateScenario(straightLine(), scenario(), { problemP99Ms: 100 });
     expect(fail.pass).toBe(false);
-    expect(fail.metrics.worstP99Ms).toBeCloseTo(135.74, 1);
+    // 2 + 40 + 8 ms of service time, each times the 2.5x idle tail, and nothing
+    // for queueing: at 3-5% utilisation across 24 to 80 channels nobody waits.
+    // Was 135.74 when the tail carried a `2u` term that inflated it at any load.
+    expect(fail.metrics.worstP99Ms).toBeCloseTo(125, 1);
     expect(fail.reasons.some((r) => r.includes('gate: at most 100ms'))).toBe(true);
 
     const ok = evaluateScenario(straightLine(), scenario(), { problemP99Ms: 200 });

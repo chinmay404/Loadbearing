@@ -9,8 +9,8 @@
         "name": "job processed",
         "offeredRps": 0,
         "completedRps": 0,
-        "p50Ms": 105.85,
-        "p99Ms": 274.26,
+        "p50Ms": 101,
+        "p99Ms": 252.5,
         "broken": false
       }
     ],
@@ -24,13 +24,13 @@
       {
         "nodeId": "db",
         "utilization": 0.033,
-        "latencyMs": 8.28,
+        "latencyMs": 8,
         "capacityRps": 3000
       },
       {
         "nodeId": "dlq",
         "utilization": 0.005,
-        "latencyMs": 3.02,
+        "latencyMs": 3,
         "capacityRps": 20000
       },
       {
@@ -42,19 +42,19 @@
       {
         "nodeId": "q",
         "utilization": 0.005,
-        "latencyMs": 3.02,
+        "latencyMs": 3,
         "capacityRps": 20000
       },
       {
         "nodeId": "sched",
         "utilization": 0.1,
-        "latencyMs": 5.56,
+        "latencyMs": 5,
         "capacityRps": 1000
       },
       {
         "nodeId": "worker",
         "utilization": 0.083,
-        "latencyMs": 54.55,
+        "latencyMs": 50,
         "capacityRps": 1200
       }
     ]
@@ -69,8 +69,8 @@
         "name": "cached read",
         "offeredRps": 2000,
         "completedRps": 1500,
-        "p50Ms": 827.14,
-        "p99Ms": 3670.14,
+        "p50Ms": 826,
+        "p99Ms": 965,
         "broken": false
       }
     ],
@@ -84,13 +84,13 @@
       {
         "nodeId": "cache",
         "utilization": 0.019,
-        "latencyMs": 1.02,
+        "latencyMs": 1,
         "capacityRps": 80000
       },
       {
         "nodeId": "cdn",
         "utilization": 0.01,
-        "latencyMs": 15.15,
+        "latencyMs": 15,
         "capacityRps": 200000
       },
       {
@@ -102,19 +102,19 @@
       {
         "nodeId": "db",
         "utilization": 0.1,
-        "latencyMs": 8.89,
+        "latencyMs": 8,
         "capacityRps": 3000
       },
       {
         "nodeId": "lb",
         "utilization": 0.04,
-        "latencyMs": 2.08,
+        "latencyMs": 2,
         "capacityRps": 50000
       },
       {
         "nodeId": "replica",
         "utilization": 0.5,
-        "latencyMs": 16,
+        "latencyMs": 8,
         "capacityRps": 3000
       }
     ]
@@ -129,8 +129,8 @@
         "name": "document extracted to schema",
         "offeredRps": 3,
         "completedRps": 3,
-        "p50Ms": 8584.13,
-        "p99Ms": 29860.63,
+        "p50Ms": 4414.96,
+        "p99Ms": 11855.45,
         "broken": false
       }
     ],
@@ -138,25 +138,25 @@
       {
         "nodeId": "db",
         "utilization": 0.001,
-        "latencyMs": 8.01,
+        "latencyMs": 8,
         "capacityRps": 3000
       },
       {
         "nodeId": "evals",
         "utilization": 0.006,
-        "latencyMs": 201.21,
+        "latencyMs": 200,
         "capacityRps": 500
       },
       {
         "nodeId": "extract",
         "utilization": 0.2,
-        "latencyMs": 2250,
+        "latencyMs": 1800,
         "capacityRps": 15
       },
       {
         "nodeId": "parse",
         "utilization": 0.6,
-        "latencyMs": 6250,
+        "latencyMs": 2530.96,
         "capacityRps": 5
       },
       {
@@ -168,7 +168,7 @@
       {
         "nodeId": "redact",
         "utilization": 0.002,
-        "latencyMs": 25.05,
+        "latencyMs": 25,
         "capacityRps": 1500
       },
       {
@@ -180,13 +180,13 @@
       {
         "nodeId": "src",
         "utilization": 0.002,
-        "latencyMs": 40.06,
+        "latencyMs": 40,
         "capacityRps": 2000
       },
       {
         "nodeId": "validate",
         "utilization": 0.002,
-        "latencyMs": 8.01,
+        "latencyMs": 8,
         "capacityRps": 2000
       }
     ]
@@ -201,8 +201,8 @@
         "name": "idempotent write",
         "offeredRps": 200,
         "completedRps": 200,
-        "p50Ms": 80.29,
-        "p99Ms": 255.31,
+        "p50Ms": 53,
+        "p99Ms": 132.5,
         "broken": false
       }
     ],
@@ -210,13 +210,13 @@
       {
         "nodeId": "bus",
         "utilization": 0.008,
-        "latencyMs": 4.03,
+        "latencyMs": 4,
         "capacityRps": 25000
       },
       {
         "nodeId": "cdc",
         "utilization": 0.04,
-        "latencyMs": 52.08,
+        "latencyMs": 50,
         "capacityRps": 5000
       },
       {
@@ -228,13 +228,13 @@
       {
         "nodeId": "db",
         "utilization": 0.067,
-        "latencyMs": 8.57,
+        "latencyMs": 8,
         "capacityRps": 3000
       },
       {
         "nodeId": "gw",
         "utilization": 0.01,
-        "latencyMs": 5.05,
+        "latencyMs": 5,
         "capacityRps": 20000
       },
       {
@@ -246,7 +246,7 @@
       {
         "nodeId": "svc",
         "utilization": 0.4,
-        "latencyMs": 66.67,
+        "latencyMs": 40,
         "capacityRps": 500
       }
     ]
@@ -261,8 +261,8 @@
         "name": "offline write reaches the server",
         "offeredRps": 100,
         "completedRps": 100,
-        "p50Ms": 90.32,
-        "p99Ms": 266.43,
+        "p50Ms": 70,
+        "p99Ms": 175,
         "broken": false
       }
     ],
@@ -276,25 +276,25 @@
       {
         "nodeId": "db",
         "utilization": 0.033,
-        "latencyMs": 8.28,
+        "latencyMs": 8,
         "capacityRps": 3000
       },
       {
         "nodeId": "idem",
         "utilization": 0.005,
-        "latencyMs": 3.02,
+        "latencyMs": 3,
         "capacityRps": 20000
       },
       {
         "nodeId": "local",
         "utilization": 0.02,
-        "latencyMs": 2.04,
+        "latencyMs": 2,
         "capacityRps": 5000
       },
       {
         "nodeId": "sync",
         "utilization": 0.25,
-        "latencyMs": 80,
+        "latencyMs": 60,
         "capacityRps": 400
       }
     ]
@@ -309,8 +309,8 @@
         "name": "document indexed",
         "offeredRps": 5,
         "completedRps": 5,
-        "p50Ms": 3510.99,
-        "p99Ms": 10453.51,
+        "p50Ms": 2673,
+        "p99Ms": 6682.5,
         "broken": false
       }
     ],
@@ -318,7 +318,7 @@
       {
         "nodeId": "chunk",
         "utilization": 0.01,
-        "latencyMs": 20.2,
+        "latencyMs": 20,
         "capacityRps": 500
       },
       {
@@ -330,19 +330,19 @@
       {
         "nodeId": "embed",
         "utilization": 0.05,
-        "latencyMs": 84.21,
+        "latencyMs": 80,
         "capacityRps": 100
       },
       {
         "nodeId": "meta",
         "utilization": 0.002,
-        "latencyMs": 8.01,
+        "latencyMs": 8,
         "capacityRps": 3000
       },
       {
         "nodeId": "parse",
         "utilization": 0.25,
-        "latencyMs": 3333.33,
+        "latencyMs": 2500,
         "capacityRps": 20
       },
       {
@@ -354,13 +354,13 @@
       {
         "nodeId": "src",
         "utilization": 0.003,
-        "latencyMs": 40.1,
+        "latencyMs": 40,
         "capacityRps": 2000
       },
       {
         "nodeId": "vdb",
         "utilization": 0.005,
-        "latencyMs": 30.15,
+        "latencyMs": 30,
         "capacityRps": 1000
       }
     ]
@@ -375,8 +375,8 @@
         "name": "question answered from documents",
         "offeredRps": 30,
         "completedRps": 20,
-        "p50Ms": 24650.51,
-        "p99Ms": 109837.28,
+        "p50Ms": 24545.01,
+        "p99Ms": 28362.51,
         "broken": false
       }
     ],
@@ -396,25 +396,25 @@
       {
         "nodeId": "embed",
         "utilization": 0.3,
-        "latencyMs": 114.29,
+        "latencyMs": 80.05,
         "capacityRps": 100
       },
       {
         "nodeId": "guard-in",
         "utilization": 0.15,
-        "latencyMs": 176.47,
+        "latencyMs": 150,
         "capacityRps": 200
       },
       {
         "nodeId": "guard-out",
         "utilization": 0.1,
-        "latencyMs": 166.67,
+        "latencyMs": 150,
         "capacityRps": 200
       },
       {
         "nodeId": "gw",
         "utilization": 0.002,
-        "latencyMs": 5.01,
+        "latencyMs": 5,
         "capacityRps": 20000
       },
       {
@@ -432,19 +432,19 @@
       {
         "nodeId": "rerank",
         "utilization": 0.3,
-        "latencyMs": 171.43,
+        "latencyMs": 120.01,
         "capacityRps": 100
       },
       {
         "nodeId": "retriever",
         "utilization": 0.1,
-        "latencyMs": 100,
+        "latencyMs": 90,
         "capacityRps": 300
       },
       {
         "nodeId": "vdb",
         "utilization": 0.03,
-        "latencyMs": 30.93,
+        "latencyMs": 30,
         "capacityRps": 1000
       }
     ]
@@ -459,16 +459,16 @@
         "name": "request on the migrated path",
         "offeredRps": 240,
         "completedRps": 240,
-        "p50Ms": 63.64,
-        "p99Ms": 174.38,
+        "p50Ms": 56,
+        "p99Ms": 140,
         "broken": false
       },
       {
         "name": "request still on the legacy path",
         "offeredRps": 240,
         "completedRps": 160,
-        "p50Ms": 8016.47,
-        "p99Ms": 36042.11,
+        "p50Ms": 8016,
+        "p99Ms": 9040,
         "broken": false
       }
     ],
@@ -482,7 +482,7 @@
       {
         "nodeId": "facade",
         "utilization": 0.03,
-        "latencyMs": 8.25,
+        "latencyMs": 8,
         "capacityRps": 8000
       },
       {
@@ -500,13 +500,13 @@
       {
         "nodeId": "legacydb",
         "utilization": 0.027,
-        "latencyMs": 8.22,
+        "latencyMs": 8,
         "capacityRps": 3000
       },
       {
         "nodeId": "newdb",
         "utilization": 0.04,
-        "latencyMs": 8.33,
+        "latencyMs": 8,
         "capacityRps": 3000
       },
       {
@@ -524,7 +524,7 @@
       {
         "nodeId": "svc",
         "utilization": 0.15,
-        "latencyMs": 47.06,
+        "latencyMs": 40,
         "capacityRps": 800
       }
     ]
@@ -539,8 +539,8 @@
         "name": "agent completes a task",
         "offeredRps": 5,
         "completedRps": 5,
-        "p50Ms": 6322.33,
-        "p99Ms": 18620.48,
+        "p50Ms": 4915,
+        "p99Ms": 12287.5,
         "broken": false
       }
     ],
@@ -548,7 +548,7 @@
       {
         "nodeId": "agent",
         "utilization": 0.25,
-        "latencyMs": 5333.33,
+        "latencyMs": 4000,
         "capacityRps": 20
       },
       {
@@ -566,7 +566,7 @@
       {
         "nodeId": "guard",
         "utilization": 0.025,
-        "latencyMs": 153.85,
+        "latencyMs": 150,
         "capacityRps": 200
       },
       {
@@ -578,25 +578,25 @@
       {
         "nodeId": "mcp",
         "utilization": 0.025,
-        "latencyMs": 123.08,
+        "latencyMs": 120,
         "capacityRps": 200
       },
       {
         "nodeId": "mem",
         "utilization": 0.002,
-        "latencyMs": 15.03,
+        "latencyMs": 15,
         "capacityRps": 3000
       },
       {
         "nodeId": "sandbox",
         "utilization": 0.1,
-        "latencyMs": 666.67,
+        "latencyMs": 600,
         "capacityRps": 50
       },
       {
         "nodeId": "svc",
         "utilization": 0.01,
-        "latencyMs": 40.4,
+        "latencyMs": 40,
         "capacityRps": 500
       }
     ]
