@@ -10,6 +10,7 @@ import { FlowPanel } from './panels/FlowPanel';
 import { InspectorPanel } from './panels/InspectorPanel';
 import { FeedbackPanel } from './panels/FeedbackPanel';
 import { AskPanel } from './panels/AskPanel';
+import { AttackPanel } from './panels/AttackPanel';
 import { HistoryPanel } from './panels/HistoryPanel';
 import { ProblemBrowser } from './panels/ProblemBrowser';
 import { Dashboard } from './panels/Dashboard';
@@ -250,6 +251,7 @@ const LEFT_TABS: { id: LeftTab; label: string }[] = [
 const RIGHT_TABS: { id: RightTab; label: string }[] = [
   { id: 'feedback', label: 'Review' },
   { id: 'ask', label: 'Ask' },
+  { id: 'attack', label: 'Attack' },
   { id: 'history', label: 'History' },
 ];
 
@@ -396,6 +398,7 @@ function Workspace() {
             <ErrorBoundary area={rightTab === 'feedback' ? 'review' : rightTab}>
               {rightTab === 'feedback' && <FeedbackPanel />}
               {rightTab === 'ask' && <AskPanel />}
+              {rightTab === 'attack' && <AttackPanel />}
               {rightTab === 'history' && <HistoryPanel />}
             </ErrorBoundary>
           </div>

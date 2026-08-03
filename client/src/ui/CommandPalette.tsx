@@ -120,6 +120,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       tab('brief', 'the brief'),
       rightTab('feedback', 'the review'),
       rightTab('ask', 'the coach'),
+      rightTab('attack', 'the attack panel'),
       rightTab('history', 'history'),
       { id: 'act:undo', kind: 'action', label: 'Undo', detail: 'Ctrl+Z', run: undo },
       { id: 'act:redo', kind: 'action', label: 'Redo', detail: 'Ctrl+Y', run: redo },

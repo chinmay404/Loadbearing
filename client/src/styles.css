@@ -2126,3 +2126,14 @@ button.chaos-slow.on {
   border-color: #6b4a1e;
   background: #241c11;
 }
+
+/* An attack the coach devised, with what it predicted next to what happened. */
+.card.attack dl {
+  margin: 7px 0 6px;
+}
+.card.attack .chip {
+  cursor: default;
+}
+.card.attack button.chip {
+  cursor: pointer;
+}

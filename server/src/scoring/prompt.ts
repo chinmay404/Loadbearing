@@ -514,3 +514,85 @@ ${concepts.join(', ')}
 Make the weakness concepts unavoidable: the problem should be unsolvable without reasoning about them.`;
   return { system, user };
 }
+
+/**
+ * Ask the coach to attack the drawing.
+ *
+ * The prompt's whole job is to keep the model inside what the engine can actually
+ * do. A scenario it cannot express is worse than no scenario, because it runs,
+ * reports a pass, and the learner believes their design survived something it was
+ * never subjected to — which is the exact bug three of the bank's own hand-written
+ * gates had until a test caught them.
+ *
+ * So the levers are enumerated with their real semantics, and the model is told to
+ * name components using the labels on the sheet, which are given to it.
+ */
+export function buildAttackPrompt(
+  problem: Problem,
+  graph: GraphDSL,
+  existing: string[],
+): { system: string; user: string } {
+  const labels = graph.nodes.map((n) => n.label);
+
+  const system = `You devise load and failure scenarios against a drawn architecture, the way a
+sceptical staff engineer would before a launch. You are not marking the design and not
+suggesting changes to it — you are choosing what to DO to it.
+
+A scenario is only worth anything if it discriminates. Aim at what THIS design would
+plausibly fail, not at generic chaos: the component with one instance, the cache
+everything reads through, the queue nobody drains, the third party on the synchronous
+path, the thing every flow crosses. A scenario every design survives teaches nothing,
+and so does one no design could survive.
+
+You have exactly these levers. Nothing else exists; anything you invent is silently
+ignored, which is worse than useless because the run will report a pass.
+
+  rpsMultiplier      multiply every source's traffic. 1 means baseline.
+  killNodes          components taken offline 20s in. Name them EXACTLY as labelled.
+  degrade            components made worse without dying, 20s in:
+                       { "node": "<label>", "latencyMultiple": <n> }   n times its own service time
+                       { "node": "<label>", "addMs": <ms> }            absolute milliseconds added
+                       { "node": "<label>", "capacityMultiple": <0..1> } a hot partition or a stall
+                       { "node": "<label>", "hitRate": <0..1> }        a cache losing its hits
+  thirdPartyLatencyMs  slows everything you call but do not run. Use degrade for
+                       anything on the sheet that this team operates.
+
+Two things to get right or the scenario is void. Every name in killNodes and degrade
+must be one of the labels listed below, spelled the same way — a name that matches
+nothing kills nothing and passes everything. And a brownout is usually more revealing
+than a kill: a dead dependency fails fast, a slow one holds a caller's worker until it
+gives up, and most designs are only prepared for the first.
+
+Reply with ONLY a JSON object:
+{
+  "attacks": [
+    {
+      "id": "<kebab-case>",
+      "name": "<short, concrete, no jargon>",
+      "description": "<1-2 sentences: what is happening and why it is plausible HERE>",
+      "hypothesis": "<what you expect to break, naming the component>",
+      "rpsMultiplier": <number>,
+      "killNodes": ["<exact label>"],
+      "degrade": [{ "node": "<exact label>", "latencyMultiple": <n> }],
+      "thirdPartyLatencyMs": <number>,
+      "passCriteria": "<one sentence: what must still hold for this to be survived>"
+    }
+  ]
+}
+Omit any lever a scenario does not use rather than setting it to zero.`;
+
+  const user = `${renderProblem(problem)}
+
+${renderGraph(graph)}
+
+Components you may name, exactly as spelled:
+${labels.map((l) => `  ${l}`).join('\n')}
+
+${
+  existing.length > 0
+    ? `Scenarios this sheet already runs — do not repeat them, go after something else:\n${existing.map((e) => `  ${e}`).join('\n')}\n`
+    : ''
+}
+Give 3 or 4 scenarios. Order them by how likely they are to find something, worst first.`;
+  return { system, user };
+}

@@ -122,6 +122,31 @@ export interface ProjectDetail {
   canvases: CanvasMeta[];
 }
 
+export interface AttackRun {
+  attack: {
+    id: string;
+    name: string;
+    description: string;
+    /** What it expected to break, stated before the run so it can be wrong. */
+    hypothesis: string;
+    rpsMultiplier: number;
+    killNodes: string[];
+    degrade: { node: string; latencyMultiple?: number; addMs?: number; capacityMultiple?: number; hitRate?: number }[];
+    thirdPartyLatencyMs: number;
+    passCriteria: string;
+    /** Components it named that are not on the sheet. */
+    unresolved: string[];
+  };
+  config: SimConfig;
+  outcome: {
+    droppedPct: number;
+    worstP99Ms: number;
+    brokenFlows: string[];
+    firstToBreak: string | null;
+    verdict: string;
+  };
+}
+
 export interface PlaybookEntryView {
   id: string;
   title: string;
@@ -240,6 +265,15 @@ export const api = {
     ),
   primerSection: (slug: string) =>
     req<{ slug: string; title: string; markdown: string }>(`/primer/${encodeURIComponent(slug)}`),
+
+  /**
+   * Have the coach devise attacks against the drawing, and run each one.
+   *
+   * The outcomes come from the same deterministic engine the gates use, so what
+   * arrives is what happened rather than what a model thinks would happen.
+   */
+  attacks: (body: { problemId: string; graph: GraphDSL }) =>
+    req<{ attacks: AttackRun[] }>('/attacks', { method: 'POST', body: JSON.stringify(body) }),
 
   playbook: () => req<PlaybookEntryView[]>('/playbook'),
   relevantPlaybook: (body: { problemId?: string; graph?: GraphDSL; text?: string; limit?: number }) =>

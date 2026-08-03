@@ -23,7 +23,13 @@ import { cachedCompleteJson } from '../llm/cache.js';
 import { loadLlmConfig } from '../llm/settings.js';
 import { referenceBriefFor } from '../reference/inject.js';
 import { findProblem } from '../problems/routes.js';
-import { buildCritiquePrompt, buildScoringPrompt, buildSocraticPrompt } from './prompt.js';
+import {
+  buildAttackPrompt,
+  buildCritiquePrompt,
+  buildScoringPrompt,
+  buildSocraticPrompt,
+} from './prompt.js';
+import { validateAttacks } from './attacks.js';
 import { sanitizeGraph, validateCritique, validateScore, validateSocratic } from './validate.js';
 
 export const scoringRoutes = new Hono<AppEnv>();
@@ -323,4 +329,102 @@ scoringRoutes.post('/simulate', async (c) => {
     thirdPartyLatencyMs: Math.max(0, Number(body.config?.thirdPartyLatencyMs ?? 0)) || 0,
   };
   return c.json(simulate(graph, config));
+});
+
+/**
+ * Have the coach attack the drawing, then actually run what it devised.
+ *
+ * The generation is the cheap half. The valuable half is that every attack is run
+ * through the same deterministic engine the gates use, so what comes back is not a
+ * model's opinion about what would happen — it is what happened, next to the
+ * hypothesis it stated beforehand. A model that guesses wrong is visibly wrong.
+ */
+scoringRoutes.post('/attacks', requireUser, async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { problemId?: string; graph?: unknown };
+  const store = await storage();
+  const userId = c.get('userId');
+  const problem = await findProblem(store, userId, String(body.problemId ?? ''));
+  if (!problem) return c.json({ error: { code: 'not_found', message: 'Unknown problem id' } }, 404);
+
+  const graph = sanitizeGraph(body.graph);
+  if (graph.nodes.length === 0) {
+    return c.json(
+      {
+        error: {
+          code: 'bad_request',
+          message: 'Draw something first.',
+          hint: 'An attack needs an architecture to aim at. Place the components and connect them, then declare at least one flow.',
+        },
+      },
+      400,
+    );
+  }
+  if (graph.flows.length === 0) {
+    return c.json(
+      {
+        error: {
+          code: 'bad_request',
+          message: 'Declare a flow first.',
+          hint: 'Without a flow there is no traffic to disrupt, so every attack would report a pass. Name the path a request takes in the Flows tab.',
+        },
+      },
+      400,
+    );
+  }
+
+  const { system, user } = buildAttackPrompt(
+    problem,
+    graph,
+    problem.scenarios.map((s) => `${s.name}: ${s.description}`),
+  );
+  const { value: raw } = await cachedCompleteJson<unknown>(
+    await loadLlmConfig(store, userId),
+    system,
+    user,
+    { maxTokens: 3000, temperature: 0.7 },
+  );
+
+  const attacks = validateAttacks(raw, graph);
+  if (attacks.length === 0) {
+    return c.json(
+      {
+        error: {
+          code: 'llm_bad_json',
+          message: 'The coach did not produce a scenario this engine can run.',
+          hint: 'Every attack it proposed named a component that is not on the sheet, or asked for something the engine cannot do. Try again — and if it keeps happening, the labels on the drawing may be unusual enough to confuse it.',
+        },
+      },
+      502,
+    );
+  }
+
+  // Run them. This is the part that makes the answer a fact rather than a claim.
+  const results = attacks.map((attack) => {
+    const config: SimConfig = {
+      rpsMultiplier: attack.rpsMultiplier,
+      killNodeIds: attack.killNodes,
+      thirdPartyLatencyMs: attack.thirdPartyLatencyMs,
+      ...(attack.degrade.length > 0 ? { degradations: attack.degrade } : {}),
+    };
+    const sim = simulate(graph, config);
+    const offered = sim.flows.reduce((sum, f) => sum + f.offeredRps, 0);
+    const completed = sim.flows.reduce((sum, f) => sum + f.completedRps, 0);
+    return {
+      attack,
+      config,
+      outcome: {
+        droppedPct: offered > 0 ? Math.round(((offered - completed) / offered) * 1000) / 10 : 0,
+        worstP99Ms: Math.round(Math.max(0, ...sim.flows.map((f) => f.p99Ms))),
+        brokenFlows: sim.flows.filter((f) => f.broken).map((f) => f.name),
+        // The component the engine says broke first, which is the claim the
+        // hypothesis can be checked against.
+        firstToBreak: sim.timeline?.firstFailure?.nodeId ?? null,
+        verdict: sim.verdict,
+      },
+    };
+  });
+
+  // Worst first: the attack that found the most is the one worth reading.
+  results.sort((a, b) => b.outcome.droppedPct - a.outcome.droppedPct);
+  return c.json({ attacks: results });
 });
