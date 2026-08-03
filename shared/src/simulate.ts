@@ -19,6 +19,7 @@ import {
   type Scenario,
 } from './engine.js';
 import { TAIL_MULTIPLE_IDLE, responseMultiple, waitP99Ms } from './queueing.js';
+import { inferPlacement, rttMs } from './network.js';
 import { costReport } from './cost.js';
 import { familyOf } from './families.js';
 import { CACHE_TYPES, DATASTORE_TYPES, DEFAULT_LATENCY, QUEUE_TYPES, STATEFUL_TYPES } from './components.js';
@@ -200,7 +201,7 @@ export function report(graph: GraphDSL, engine: EngineResult): SimResult {
     replicasSettled: settled.get(h.nodeId) ?? h.replicas,
   }));
 
-  const flows = flowResults(graph, engine, byId);
+  const flows = flowResults(graph, engine, byId, nodesById);
 
   // Cost follows the traffic that actually arrived and the replicas it settled at, so a
   // design that sheds half its load is not billed for the half it refused, and one that
@@ -263,6 +264,7 @@ function flowResults(
   graph: GraphDSL,
   engine: EngineResult,
   byId: Map<string, HopState>,
+  nodesById: Map<string, GraphNode>,
 ): SimFlowResult[] {
   const named = graph.flows ?? [];
   const journeys: { id: string; name: string; steps: string[]; kind?: Flow['kind'] }[] =
@@ -286,12 +288,29 @@ function flowResults(
     let brokenAt: string | undefined;
     const notes: string[] = [];
 
+    let previousId: string | undefined;
     for (const stepId of journey.steps) {
       const hop = byId.get(stepId);
       if (!hop) {
         notes.push(`${stepId} is named in this flow but not in the drawing.`);
         continue;
       }
+      // The hop between two steps costs what the distance between them costs. A
+      // flow is a list of components, so the connection joining each pair has to
+      // be looked up to know how far apart they are.
+      if (previousId !== undefined) {
+        const from = nodesById.get(previousId);
+        const to = nodesById.get(stepId);
+        const link = graph.edges.find((e) => e.from === previousId && e.to === stepId);
+        const wire = rttMs(
+          link?.placement ?? inferPlacement(from?.attrs?.region, to?.attrs?.region),
+          from?.attrs?.region,
+          to?.attrs?.region,
+        );
+        p50 += wire;
+        p99 += wire;
+      }
+      previousId = stepId;
       if (hop.bypassed) {
         notes.push(
           `${label(graph, stepId)} is offline but transparent — its traffic passed straight through.`,

@@ -1280,6 +1280,19 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         const link = (prep.out.get(r.node.id) ?? []).find((e) => e.to === next);
         if (!link) continue;
         // Past a hand-off the caller has already been answered.
+        // Occupancy already charged this hop against the caller's capacity. This
+        // is the other half of the same fact: the milliseconds a reader sees.
+        if (waiting) {
+          const fromRegion = r.node.attrs?.region;
+          const toRegion = runtime.get(next)?.node.attrs?.region;
+          const wire = rttMs(
+            link.placement ?? inferPlacement(fromRegion, toRegion),
+            fromRegion,
+            toRegion,
+          );
+          latency += wire;
+          tail += wire;
+        }
         if (link.kind === 'async') waiting = false;
         const siblings = prep.out.get(r.node.id) ?? [];
         weight *=

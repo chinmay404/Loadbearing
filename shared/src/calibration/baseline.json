@@ -9,8 +9,8 @@
         "name": "job processed",
         "offeredRps": 0,
         "completedRps": 0,
-        "p50Ms": 101,
-        "p99Ms": 252.5,
+        "p50Ms": 102.5,
+        "p99Ms": 254,
         "broken": false
       }
     ],
@@ -69,8 +69,8 @@
         "name": "cached read",
         "offeredRps": 2000,
         "completedRps": 1025.64,
-        "p50Ms": 826,
-        "p99Ms": 965,
+        "p50Ms": 828.5,
+        "p99Ms": 967.5,
         "broken": false
       }
     ],
@@ -129,8 +129,8 @@
         "name": "document extracted to schema",
         "offeredRps": 3,
         "completedRps": 2.88,
-        "p50Ms": 51884,
-        "p99Ms": 60960,
+        "p50Ms": 51887,
+        "p99Ms": 60963,
         "broken": false
       }
     ],
@@ -201,8 +201,8 @@
         "name": "idempotent write",
         "offeredRps": 200,
         "completedRps": 40.08,
-        "p50Ms": 813,
-        "p99Ms": 932.5,
+        "p50Ms": 814.5,
+        "p99Ms": 934,
         "broken": false
       }
     ],
@@ -261,8 +261,8 @@
         "name": "offline write reaches the server",
         "offeredRps": 100,
         "completedRps": 100,
-        "p50Ms": 70,
-        "p99Ms": 175,
+        "p50Ms": 71.5,
+        "p99Ms": 176.5,
         "broken": false
       }
     ],
@@ -309,8 +309,8 @@
         "name": "document indexed",
         "offeredRps": 5,
         "completedRps": 5,
-        "p50Ms": 2673,
-        "p99Ms": 6682.5,
+        "p50Ms": 2675.5,
+        "p99Ms": 6685,
         "broken": false
       }
     ],
@@ -375,8 +375,8 @@
         "name": "question answered from documents",
         "offeredRps": 30,
         "completedRps": 20.34,
-        "p50Ms": 6978.01,
-        "p99Ms": 10306.23,
+        "p50Ms": 6981.51,
+        "p99Ms": 10309.73,
         "broken": false
       }
     ],
@@ -459,16 +459,16 @@
         "name": "request on the migrated path",
         "offeredRps": 240,
         "completedRps": 240,
-        "p50Ms": 56,
-        "p99Ms": 140,
+        "p50Ms": 57.5,
+        "p99Ms": 141.5,
         "broken": false
       },
       {
         "name": "request still on the legacy path",
         "offeredRps": 240,
         "completedRps": 156.68,
-        "p50Ms": 8016,
-        "p99Ms": 9040,
+        "p50Ms": 8017.5,
+        "p99Ms": 9041.5,
         "broken": false
       }
     ],
@@ -539,8 +539,8 @@
         "name": "agent completes a task",
         "offeredRps": 5,
         "completedRps": 5,
-        "p50Ms": 4915,
-        "p99Ms": 12287.5,
+        "p50Ms": 4918,
+        "p99Ms": 12290.5,
         "broken": false
       }
     ],

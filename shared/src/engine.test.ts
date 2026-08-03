@@ -932,3 +932,27 @@ describe('a caller pays for what it waits on', () => {
     expect(lastTwo[0]!.p99Ms).toBeCloseTo(lastTwo[1]!.p99Ms, 6);
   });
 });
+
+describe('the wire shows up in the reported latency', () => {
+  const twoHop = (placement?: 'same-az' | 'cross-region') =>
+    graph(
+      [
+        node('web', 'client', { trafficRps: 1 }),
+        node('api', 'service', { latencyMs: 10, capacityRps: 100_000 }),
+        node('db', 'sql_db', { latencyMs: 10, capacityRps: 100_000 }),
+      ],
+      [edge('web', 'api'), edge('api', 'db', placement ? { placement } : {})],
+    );
+
+  it('adds almost nothing within a zone', () => {
+    const p50 = last(runEngine(twoHop('same-az'), scenario()).ticks).p50Ms;
+    expect(p50).toBeGreaterThan(20);
+    expect(p50).toBeLessThan(22);
+  });
+
+  it('adds the real distance across regions', () => {
+    const near = last(runEngine(twoHop('same-az'), scenario()).ticks).p50Ms;
+    const far = last(runEngine(twoHop('cross-region'), scenario()).ticks).p50Ms;
+    expect(far - near).toBeGreaterThan(60);
+  });
+});
