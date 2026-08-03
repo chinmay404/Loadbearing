@@ -14,8 +14,6 @@
 // connection ceiling do to your design" is the lesson, and locking the fields
 // would remove the freeform sizing the teaching problems depend on.
 
-import awsPrices from './data/aws-prices.json' with { type: 'json' };
-import azurePrices from './data/azure-prices.json' with { type: 'json' };
 import type { PricingShape } from './pricing.js';
 import type { ArchNodeType, NodeAttrs } from './types.js';
 
@@ -58,14 +56,13 @@ export const SERVICE_FITS: Record<string, readonly ArchNodeType[]> = {
   'virtual-machines': ['service', 'monolith', 'vm', 'worker', 'custom'],
 };
 
-const RAW: readonly { skus: Record<string, unknown> }[] = [
-  awsPrices as unknown as { skus: Record<string, unknown> },
-  azurePrices as unknown as { skus: Record<string, unknown> },
-];
+interface Snapshot {
+  skus: Record<string, unknown>;
+}
 
-function load(): Map<string, Sku> {
+function build(files: readonly Snapshot[]): Map<string, Sku> {
   const out = new Map<string, Sku>();
-  for (const file of RAW) {
+  for (const file of files) {
     for (const value of Object.values(file.skus)) {
       const sku = value as Sku;
       // A snapshot entry with no price is not an offering anyone can choose.
@@ -76,11 +73,55 @@ function load(): Map<string, Sku> {
   return out;
 }
 
-/** Every SKU the committed snapshots know about, by id. */
-export const SKUS: ReadonlyMap<string, Sku> = load();
+let cache: Map<string, Sku> | null = null;
+let inFlight: Promise<ReadonlyMap<string, Sku>> | null = null;
+
+/**
+ * The snapshots, fetched on first use.
+ *
+ * Deliberately lazy. Together the price files are the better part of a megabyte
+ * of JSON, and importing them statically put every byte in the initial bundle —
+ * paid for on first paint by every learner, including the overwhelming majority
+ * who never pick a provider at all. A dynamic import lets the bundler split them
+ * into chunks that arrive when somebody opens the picker.
+ *
+ * Concurrent callers share one in-flight promise, so opening the picker twice
+ * before it resolves does not fetch twice.
+ */
+export async function loadSkus(): Promise<ReadonlyMap<string, Sku>> {
+  if (cache) return cache;
+  if (inFlight) return inFlight;
+  inFlight = (async () => {
+    const [aws, azure] = await Promise.all([
+      import('./data/aws-prices.json', { with: { type: 'json' } }),
+      import('./data/azure-prices.json', { with: { type: 'json' } }),
+    ]);
+    cache = build([aws.default as Snapshot, azure.default as Snapshot]);
+    inFlight = null;
+    return cache;
+  })();
+  return inFlight;
+}
+
+/**
+ * What is loaded right now, which is nothing until somebody has awaited
+ * `loadSkus()`.
+ *
+ * Empty rather than throwing, because every caller is a UI asking "is this
+ * component bound to something real" and the honest answer before the snapshots
+ * arrive is "nothing I know of yet". A component that renders a SKU name needs to
+ * await the load and re-render; one that merely asks in passing gets a clean no.
+ */
+export const skusNow = (): ReadonlyMap<string, Sku> => cache ?? new Map();
+
+/** Test seam: forget what was loaded. */
+export function resetSkus(): void {
+  cache = null;
+  inFlight = null;
+}
 
 export const skuById = (id: string | undefined): Sku | undefined =>
-  id === undefined ? undefined : SKUS.get(id);
+  id === undefined ? undefined : skusNow().get(id);
 
 /** Can this offering stand for this component? */
 export function fits(sku: Sku, type: ArchNodeType): boolean {
@@ -98,7 +139,7 @@ export function choicesFor(
   provider: Provider,
   region?: string,
 ): Sku[] {
-  return [...SKUS.values()]
+  return [...skusNow().values()]
     .filter(
       (sku) =>
         sku.provider === provider &&

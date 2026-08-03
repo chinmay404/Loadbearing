@@ -3,7 +3,7 @@
 // neutral design must see none of this, and a bound one must be able to trace
 // every number back.
 
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import {
   attrsFromSku,
   bindSku,
@@ -12,7 +12,9 @@ import {
   fits,
   SERVICE_FITS,
   skuById,
-  SKUS,
+  loadSkus,
+  resetSkus,
+  skusNow,
 } from './skus.js';
 import { costOfShape } from './pricing.js';
 import { ARCH_NODE_TYPES } from './types.js';
@@ -20,15 +22,20 @@ import { ARCH_NODE_TYPES } from './types.js';
 const RDS = 'aws:rds-postgres:db.r6g.2xlarge:us-east-1';
 const SMALL = 'aws:rds-postgres:db.t3.medium:us-east-1';
 
+// The snapshots are loaded on demand so they stay out of the initial bundle.
+beforeAll(async () => {
+  await loadSkus();
+});
+
 describe('the snapshots load', () => {
   it('has SKUs from both providers', () => {
-    const providers = new Set([...SKUS.values()].map((s) => s.provider));
+    const providers = new Set([...skusNow().values()].map((s) => s.provider));
     expect(providers.has('aws')).toBe(true);
     expect(providers.has('azure')).toBe(true);
   });
 
   it('gives every SKU a price, a region and a date', () => {
-    for (const sku of SKUS.values()) {
+    for (const sku of skusNow().values()) {
       expect(sku.pricing.length, sku.id).toBeGreaterThan(0);
       expect(sku.region, sku.id).toBeTruthy();
       expect(sku.measuredAt, sku.id).toMatch(/^\d{4}-\d{2}$/);
@@ -131,5 +138,23 @@ describe('what a bound instance costs', () => {
     expect(costOfShape(skuById(RDS)!.pricing[0]!, { hours: 720 })).toBeGreaterThan(
       costOfShape(skuById(SMALL)!.pricing[0]!, { hours: 720 }),
     );
+  });
+});
+
+describe('laziness', () => {
+  it('serves nothing before the snapshots are asked for, without throwing', () => {
+    resetSkus();
+    expect(skusNow().size).toBe(0);
+    expect(skuById(RDS)).toBeUndefined();
+    expect(choicesFor('sql_db', 'aws')).toEqual([]);
+    expect(driftFrom({ sku: RDS, memoryGb: 1 })).toEqual([]);
+  });
+
+  it('fetches once however many callers ask at the same time', async () => {
+    resetSkus();
+    const [a, b, c] = await Promise.all([loadSkus(), loadSkus(), loadSkus()]);
+    expect(a).toBe(b);
+    expect(b).toBe(c);
+    expect(a.size).toBeGreaterThan(100);
   });
 });
