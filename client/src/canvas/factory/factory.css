@@ -9,6 +9,17 @@
   overflow: hidden;
   background: var(--ink);
   perspective: none; /* orthographic on purpose — see projection.ts */
+  /*
+   * Wedged deliberately between two React Flow layers, and there is no integer
+   * left between them: `.react-flow__renderer` is also 4, and `.react-flow__panel`
+   * — the zoom controls and the minimap — is 5. So this ties with the renderer and
+   * wins on DOM order (it is a later sibling of <ReactFlow> in Canvas.tsx) while
+   * staying under the panels, which have to remain clickable while tilted.
+   *
+   * Do not raise this to "be safe": anything above 5 hides the minimap and the
+   * zoom controls, and the app's own instruments sit at 6 and 7.
+   */
+  z-index: 4;
 }
 
 .fx-scene {
@@ -408,19 +419,23 @@
 
 /* ------------------------------------------------------------------- tilt -- */
 
+/* Top-LEFT, not top-centre: `.toolbar` already owns `top:10px; left:50%` at
+   z-index 7 with an opaque fill, so anything centred here is invisible behind it
+   no matter how it is styled. Matching the toolbar's own treatment otherwise, so
+   the two read as the same family of instrument. */
 .fx-tilt {
   position: absolute;
   top: 10px;
-  left: 50%;
-  translate: -50% 0;
-  z-index: 6;
+  left: 12px;
+  z-index: 7;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  background: var(--ink-2);
+  padding: 5px 10px;
+  background: rgb(18 17 16 / 0.94);
   border: 1px solid var(--rule);
-  border-radius: 2px;
+  border-radius: var(--r);
+  backdrop-filter: blur(6px);
 }
 
 .fx-tilt-label {
