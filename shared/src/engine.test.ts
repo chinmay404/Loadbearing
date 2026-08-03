@@ -1119,3 +1119,75 @@ describe('a cache cannot beat its own coverage', () => {
     expect(rate).toBeCloseTo(0.316, 2);
   });
 });
+
+describe('one request can become many calls', () => {
+  // An ingest path: documents in, chunks out, one embedding per chunk.
+  const ingest = (chunksPerDoc: number) =>
+    graph(
+      [
+        node('src', 'doc_source', { trafficRps: 10 }),
+        node('chunk', 'chunker', { capacityRps: 100_000, latencyMs: 20 }),
+        node('embed', 'embedding_svc', { capacityRps: 100_000, latencyMs: 80 }),
+      ],
+      [edge('src', 'chunk'), edge('chunk', 'embed', { share: chunksPerDoc })],
+    );
+
+  it('still means "a fraction of requests" below one', () => {
+    // Unchanged reading: one document in ten needs the call.
+    expect(hop(runEngine(ingest(0.1), scenario()), 'embed').arrivingRps).toBeCloseTo(1, 0);
+  });
+
+  it('is one call each when nobody says otherwise', () => {
+    const g = graph(
+      [
+        node('src', 'doc_source', { trafficRps: 10 }),
+        node('chunk', 'chunker', { capacityRps: 100_000 }),
+        node('embed', 'embedding_svc', { capacityRps: 100_000 }),
+      ],
+      [edge('src', 'chunk'), edge('chunk', 'embed')],
+    );
+    expect(hop(runEngine(g, scenario()), 'embed').arrivingRps).toBeCloseTo(10, 0);
+  });
+
+  it('multiplies the downstream rate when a document becomes many chunks', () => {
+    // 10 docs/sec at 80 chunks each is 800 embeddings/sec, not 10. This was
+    // impossible to express while the share was clamped at one.
+    expect(hop(runEngine(ingest(80), scenario()), 'embed').arrivingRps).toBeCloseTo(800, 0);
+  });
+
+  it('charges the caller for every call it waits on', () => {
+    // 20ms of its own plus 80 embeddings at ~80ms each is 6.4 seconds of held
+    // worker — except the chunker gives up at its own 2s timeout first, which is
+    // the honest answer and the real failure: eighty synchronous calls per
+    // document do not make the step slow, they make it time out.
+    expect(hop(runEngine(ingest(80), scenario()), 'chunk').occupancyMs).toBe(2000);
+
+    // Say explicitly that it is patient and the full cost appears.
+    const patient = graph(
+      [
+        node('src', 'doc_source', { trafficRps: 10 }),
+        node('chunk', 'chunker', { capacityRps: 100_000, latencyMs: 20, timeoutMs: 60_000 }),
+        node('embed', 'embedding_svc', { capacityRps: 100_000, latencyMs: 80 }),
+      ],
+      [edge('src', 'chunk'), edge('chunk', 'embed', { share: 80 })],
+    );
+    expect(hop(runEngine(patient, scenario()), 'chunk').occupancyMs).toBeGreaterThan(6000);
+  });
+
+  it('compounds the failure risk across a wide fan-out', () => {
+    // Each embed call is reliable; needing 80 of them is not. A saturated
+    // embedder that loses a slice of its calls loses most of the DOCUMENTS.
+    const g = graph(
+      [
+        node('src', 'doc_source', { trafficRps: 10 }),
+        node('chunk', 'chunker', { capacityRps: 100_000, latencyMs: 1 }),
+        // Enough for 600 of the 800 calls, so ~75% of calls survive.
+        node('embed', 'embedding_svc', { capacityRps: 600, latencyMs: 1 }),
+      ],
+      [edge('src', 'chunk'), edge('chunk', 'embed', { share: 80 })],
+    );
+    const lastTick = last(runEngine(g, scenario()).ticks);
+    // 0.75^80 is effectively zero: almost no document gets all its chunks embedded.
+    expect(lastTick.successRate).toBeLessThan(0.01);
+  });
+});

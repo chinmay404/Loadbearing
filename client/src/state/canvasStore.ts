@@ -23,6 +23,7 @@ import type {
   SimConfig,
   SimResult,
   SuggestedAddition,
+  EdgeSimAttrs,
 } from '@loadbearing/shared';
 import { NODE_SPEC } from '../canvas/nodeCatalog';
 
@@ -113,6 +114,7 @@ interface CanvasState extends Snapshot {
   updateStickyText: (id: string, text: string) => void;
   updateNodeAttrs: (id: string, patch: NodeAttrs) => void;
   setEdgeKind: (id: string, kind: EdgeKind) => void;
+  setEdgeAttrs: (id: string, patch: EdgeSimAttrs) => void;
   setEdgeLabel: (id: string, label: string) => void;
   /** How the line is drawn — routing only, never anything the grader reads. */
   setEdgeShape: (id: string, shape: NonNullable<EdgeGeometry['shape']>) => void;
@@ -619,6 +621,27 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   setEdgeKind: (id, kind) =>
     set((s) => ({
       edges: s.edges.map((e) => (e.id === id ? { ...e, ...edgeStyle(kind) } : e)),
+      dirty: true,
+    })),
+
+  /**
+   * The knobs on a connection the simulator reads.
+   *
+   * Setting one to undefined REMOVES it rather than storing it, so an emptied box
+   * means "use the default" instead of pinning a zero — which for a share would
+   * silently stop all traffic down that connection.
+   */
+  setEdgeAttrs: (id, patch) =>
+    set((s) => ({
+      edges: s.edges.map((e) => {
+        if (e.id !== id) return e;
+        const data = { ...(e.data ?? {}) } as Record<string, unknown>;
+        for (const [key, value] of Object.entries(patch)) {
+          if (value === undefined) delete data[key];
+          else data[key] = value;
+        }
+        return { ...e, data };
+      }),
       dirty: true,
     })),
 
@@ -1411,12 +1434,18 @@ export const useCanvas = create<CanvasState>((set, get) => ({
         })),
       edges: s.edges.map((e) => {
         const geometry = (e.data ?? {}) as EdgeGeometry;
+        const sim = (e.data ?? {}) as EdgeSimAttrs;
         return {
           id: e.id,
           from: e.source,
           to: e.target,
           kind: ((e.data as { kind?: EdgeKind } | undefined)?.kind ?? 'sync') as EdgeKind,
           label: typeof e.label === 'string' ? e.label : '',
+          ...(sim.share !== undefined ? { share: sim.share } : {}),
+          ...(sim.retries !== undefined ? { retries: sim.retries } : {}),
+          ...(sim.carries !== undefined ? { carries: sim.carries } : {}),
+          ...(sim.placement !== undefined ? { placement: sim.placement } : {}),
+          ...(sim.payloadKb !== undefined ? { payloadKb: sim.payloadKb } : {}),
           ...(geometry.shape ? { shape: geometry.shape } : {}),
           ...(geometry.points && geometry.points.length > 0 ? { points: geometry.points } : {}),
         };

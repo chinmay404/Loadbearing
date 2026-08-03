@@ -15,6 +15,7 @@ import {
   skuById,
   type ArchNodeType,
   type CatalogValue,
+  type EdgeSimAttrs,
   type NodeAttrs,
   type Sku,
 } from '@loadbearing/shared';
@@ -183,6 +184,102 @@ function coveredByAnySnapshot(type: ArchNodeType): boolean {
 }
 
 /**
+ * What a connection does to the traffic crossing it.
+ *
+ * These have existed in the model for a while and have been unreachable: there was
+ * no way to state a fan-out, a retry policy, a distance or a payload size from the
+ * UI, so five mechanisms the engine implements could only be exercised from a
+ * blueprint or a test. A knob nobody can turn is a knob that does not exist.
+ */
+function EdgeParams({
+  edge,
+  onChange,
+}: {
+  edge: { id: string; data?: unknown };
+  onChange: (id: string, patch: EdgeSimAttrs) => void;
+}) {
+  const attrs = (edge.data ?? {}) as EdgeSimAttrs;
+  const setNumber = (key: keyof EdgeSimAttrs) => (raw: string) =>
+    onChange(edge.id, { [key]: raw === '' ? undefined : Number(raw) } as EdgeSimAttrs);
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <span className="stencil">What crosses it</span>
+
+      <div title="Below 1 it is the fraction of requests that make this call. Above 1 it is how many calls each request makes — one document becoming eighty chunks is 80.">
+        <label style={{ textTransform: 'none' }}>Calls per request</label>
+        <input
+          type="number"
+          step={0.1}
+          min={0}
+          placeholder="1 — once per request"
+          value={attrs.share ?? ''}
+          onChange={(e) => setNumber('share')(e.target.value)}
+        />
+      </div>
+
+      <div title="Retries the caller makes when this call fails. This is the mechanism behind a retry storm, so it is off unless you ask for it.">
+        <label style={{ textTransform: 'none' }}>Retries on failure</label>
+        <input
+          type="number"
+          step={1}
+          min={0}
+          placeholder="0 — no retries"
+          value={attrs.retries ?? ''}
+          onChange={(e) => setNumber('retries')(e.target.value)}
+        />
+      </div>
+
+      <div title="How far apart the two ends are. Distance costs latency AND holds the caller's worker while it waits.">
+        <label style={{ textTransform: 'none' }}>Distance</label>
+        <select
+          value={attrs.placement ?? ''}
+          onChange={(e) =>
+            onChange(edge.id, {
+              placement: (e.target.value || undefined) as EdgeSimAttrs['placement'],
+            })
+          }
+        >
+          <option value="">same zone (default)</option>
+          <option value="same-host">same host</option>
+          <option value="cross-az">across zones</option>
+          <option value="cross-region">across regions</option>
+          <option value="internet">over the internet</option>
+        </select>
+      </div>
+
+      <div title="Reads and writes only split apart on a router that has one of each. Elsewhere this is a note.">
+        <label style={{ textTransform: 'none' }}>Carries</label>
+        <select
+          value={attrs.carries ?? ''}
+          onChange={(e) =>
+            onChange(edge.id, {
+              carries: (e.target.value || undefined) as EdgeSimAttrs['carries'],
+            })
+          }
+        >
+          <option value="">reads and writes</option>
+          <option value="read">reads only</option>
+          <option value="write">writes only</option>
+        </select>
+      </div>
+
+      <div title="Kilobytes per request. Data leaving a component is billed by how far it goes, and inside a zone it is free.">
+        <label style={{ textTransform: 'none' }}>Payload (KB)</label>
+        <input
+          type="number"
+          step={1}
+          min={0}
+          placeholder="not counted"
+          value={attrs.payloadKb ?? ''}
+          onChange={(e) => setNumber('payloadKb')(e.target.value)}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
  * Every knob a component has, and only the ones it has.
  *
  * The list comes from the component's family rather than from a per-type field array,
@@ -266,6 +363,7 @@ export function InspectorPanel() {
   const updateNodeAttrs = useCanvas((s) => s.updateNodeAttrs);
   const updateNodeData = useCanvas((s) => s.updateNodeData);
   const setEdgeLabel = useCanvas((s) => s.setEdgeLabel);
+  const setEdgeAttrs = useCanvas((s) => s.setEdgeAttrs);
   const killIds = useCanvas((s) => s.simConfig.killNodeIds);
   const degradations = useCanvas((s) => s.simConfig.degradations);
   // Filtered outside the selector: a fresh array from a selector re-renders forever.
@@ -300,6 +398,7 @@ export function InspectorPanel() {
           <p className="faint" style={{ fontSize: 11, marginTop: 6 }}>
             Change its type with the toolbar buttons while it is selected.
           </p>
+          <EdgeParams edge={selectedEdge} onChange={setEdgeAttrs} />
         </div>
       )}
 

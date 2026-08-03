@@ -885,3 +885,16 @@ export interface ApiToken {
   /** Empty until something uses it, which is how you spot one nothing ever picked up. */
   lastUsedAt: string;
 }
+
+/**
+ * The knobs on a connection the simulator reads, as distinct from how the line is
+ * drawn. Kept together so the canvas can store them in one place and hand them
+ * straight to the engine.
+ */
+export interface EdgeSimAttrs {
+  share?: number;
+  retries?: number;
+  carries?: 'read' | 'write' | 'both';
+  placement?: Placement;
+  payloadKb?: number;
+}

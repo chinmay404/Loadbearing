@@ -381,6 +381,22 @@ function readFractionOf(graph: GraphDSL): number {
   return total > 0 ? read / total : 0.5;
 }
 
+/**
+ * How many times a caller crosses this connection for one request of its own.
+ *
+ * Below one it reads as a FRACTION: "one request in ten needs this call". Above
+ * one it reads as a COUNT: one document becomes eighty chunks, so the embedder
+ * downstream sees eighty calls per document.
+ *
+ * That second reading did not exist until now — the value was clamped at one
+ * everywhere it was used, so an ingest pipeline reported ten embeddings a second
+ * where the real answer was eight hundred. Every fan-out design in the tool was
+ * understated by one to two orders of magnitude, in the direction that looks
+ * safe. Worse, `fanout` is a concept the grader scores, so a design could be
+ * marked on write amplification the engine was structurally unable to model.
+ */
+const callsPerRequest = (e: GraphEdge): number => Math.max(0, num(e.share, 1));
+
 /** Replication carries data between stores; it is not a request path. */
 const carriesRequests = (e: GraphEdge): boolean => e.kind !== 'replication';
 
@@ -952,7 +968,7 @@ function computeOccupancy(prep: Prepared, runtime: Map<string, NodeRuntime>): vo
       } else {
         // A service calls every dependency it has, so it waits for all of them —
         // each weighted by how often that call is actually made.
-        downstream = outs.reduce((sum, e) => sum + Math.min(1, num(e.share, 1)) * costOf(e), 0);
+        downstream = outs.reduce((sum, e) => sum + callsPerRequest(e) * costOf(e), 0);
       }
     }
     visiting.delete(nodeId);
@@ -1159,7 +1175,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
           const fraction =
             mode === 'distribute' && !isSideCall(e)
               ? shares[i]! / shareTotal
-              : Math.min(1, shares[i]!);
+              : shares[i]!;
           const attempts = forwarded * fraction;
           const multiplier = retryMultiplier(target.failFraction, num(e.retries, DEFAULT_RETRIES));
           target.arriving += attempts * multiplier;
@@ -1346,11 +1362,20 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
             0,
           );
         } else {
-          // Every call must come back. A call made for one request in ten only
-          // threatens that one request.
+          // Every call must come back, and the two readings of the share need
+          // different arithmetic here.
+          //
+          // Below one it is the fraction of requests that make the call at all, so
+          // only that fraction is exposed to the failure. Above one it is a COUNT
+          // of calls, and all of them have to succeed — which compounds: eighty
+          // embed calls at 99% each leave a 45% chance the document survives. That
+          // compounding is the real reason a wide fan-out is fragile, and it was
+          // invisible while the count was clamped to one.
           below = outs.reduce((product, e) => {
-            const rate = Math.min(1, num(e.share, 1));
-            return product * (1 - rate + rate * succeedsAt(e.to, visiting));
+            const calls = callsPerRequest(e);
+            const p = succeedsAt(e.to, visiting);
+            const all = calls <= 1 ? 1 - calls + calls * p : p ** calls;
+            return product * all;
           }, 1);
         }
       }
@@ -1415,7 +1440,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         weight *=
           distributionOf(r.node.type) === 'distribute'
             ? num(link.share, defaultRouteShare(link, siblings, prep.readFraction))
-            : Math.min(1, num(link.share, 1));
+            : callsPerRequest(link);
       }
 
       p50Weighted += latency * weight;
