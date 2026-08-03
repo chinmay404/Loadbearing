@@ -83,6 +83,18 @@ interface CanvasState extends Snapshot {
    * failure — and cleared by the canvas once it has arrived.
    */
   focusNodeId: string | null;
+  /**
+   * Camera elevation for the canvas, 0–30.
+   *
+   * 0 is the flat floor plan the app has always drawn; 30 is the isometric plant.
+   * One continuum rather than two modes, because both render the same graph and
+   * the same simulator numbers — a switch between two screens would be two things
+   * to keep in sync and would eventually disagree.
+   *
+   * Not part of a Snapshot: how you are looking at the drawing is not an edit, so
+   * tilting must never land on the undo stack or mark the sheet dirty.
+   */
+  viewTilt: number;
   past: Snapshot[];
   future: Snapshot[];
   dirty: boolean;
@@ -194,6 +206,7 @@ interface CanvasState extends Snapshot {
   toggleKillNode: (id: string) => void;
   /** Make one component ten times slower, mid-run. Toggles. */
   toggleSlowNode: (id: string) => void;
+  setViewTilt: (deg: number) => void;
 
   // history
   undo: () => void;
@@ -417,6 +430,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   aiAccepted: [],
   viewportCenter: { x: 300, y: 200 },
   focusNodeId: null,
+  viewTilt: 0,
   past: [],
   future: [],
   dirty: false,
@@ -1330,6 +1344,8 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   setSimResult: (simResult, source = 'local') => set({ simResult, simSource: source }),
   setSimConfig: (patch) => set((s) => ({ simConfig: { ...s.simConfig, ...patch } })),
   setSimRunning: (simRunning) => set({ simRunning }),
+
+  setViewTilt: (deg) => set({ viewTilt: Math.max(0, Math.min(30, deg)) }),
 
   /**
    * Slow one component down without killing it.

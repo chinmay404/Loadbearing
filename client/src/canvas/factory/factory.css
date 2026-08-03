@@ -1,0 +1,504 @@
+/* The plant. CSS 3D only — three divs make a box, one transform tilts the floor.
+ *
+ * Every animation here is a readout of a number the engine computed. Nothing
+ * moves decoratively, and a still plant means a still system. */
+
+.fx-wrap {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--ink);
+  perspective: none; /* orthographic on purpose — see projection.ts */
+}
+
+.fx-scene {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform-origin: 0 0;
+  transition: transform 600ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.fx-floor {
+  position: absolute;
+  transform-origin: 0 0;
+  background-image:
+    repeating-linear-gradient(90deg, #3a352f 0 1px, transparent 1px 74px),
+    repeating-linear-gradient(0deg, #3a352f 0 1px, transparent 1px 74px);
+  -webkit-mask-image: radial-gradient(ellipse 62% 62% at 50% 50%, #000 58%, transparent 100%);
+  mask-image: radial-gradient(ellipse 62% 62% at 50% 50%, #000 58%, transparent 100%);
+}
+
+/* -------------------------------------------------------------------- bays -- */
+
+/* A boundary is a bay marked out on the floor — hatched paint, not a wall, so it
+   groups without hiding what stands inside it. */
+.fx-bay {
+  position: absolute;
+  box-sizing: border-box;
+  transform: translateZ(0.5px);
+  transform-origin: 0 0;
+  border: 1px dashed var(--rule-2);
+  background: repeating-linear-gradient(
+    45deg,
+    rgb(207 163 73 / 0.045) 0 8px,
+    transparent 8px 18px
+  );
+}
+
+.fx-bay-label {
+  position: absolute;
+  left: 8px;
+  top: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--pencil);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- stations -- */
+
+.fx-station {
+  position: absolute;
+  transform-style: preserve-3d;
+  transform-origin: 0 0;
+  cursor: pointer;
+  transition: opacity 240ms linear;
+}
+
+.fx-station:focus-visible {
+  outline: none;
+}
+
+.fx-station:focus-visible .fx-top {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+.fx-face {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  overflow: hidden;
+  transition:
+    height 240ms cubic-bezier(0.45, 0.05, 0.55, 0.95),
+    width 240ms cubic-bezier(0.45, 0.05, 0.55, 0.95);
+}
+
+.fx-band {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  transition:
+    height 240ms cubic-bezier(0.45, 0.05, 0.55, 0.95),
+    background 240ms linear;
+}
+
+.fx-band-x {
+  height: 100%;
+  width: auto;
+  transition:
+    width 240ms cubic-bezier(0.45, 0.05, 0.55, 0.95),
+    background 240ms linear;
+}
+
+.fx-top {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--rule);
+  transform-origin: 0 0;
+  transition:
+    transform 240ms cubic-bezier(0.45, 0.05, 0.55, 0.95),
+    border-color 240ms linear;
+}
+
+.fx-stripe {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 7px;
+}
+
+.fx-flatbar {
+  position: absolute;
+  left: 7px;
+  right: 7px;
+  bottom: 13px;
+  height: 4px;
+  background: var(--brass-dim);
+  transition: opacity 400ms linear;
+}
+
+.fx-toplabel {
+  position: absolute;
+  left: 8px;
+  top: 7px;
+  font-size: 12px;
+  color: var(--chalk);
+  transition: opacity 400ms linear;
+}
+
+/* 0.4px, 8Hz. Any more amplitude and a straining machine reads as a broken toy. */
+@keyframes fx-jitter {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  25% {
+    translate: 0.4px -0.4px;
+  }
+  50% {
+    translate: -0.4px 0.3px;
+  }
+  75% {
+    translate: 0.3px 0.4px;
+  }
+}
+
+.fx-jitter {
+  animation: fx-jitter 0.125s steps(2, end) infinite;
+}
+
+/* ------------------------------------------------------------------ belts -- */
+
+.fx-belt {
+  position: absolute;
+  transform-origin: 0 50%;
+  transform-style: preserve-3d;
+  background: var(--rule-2);
+  background-image: repeating-linear-gradient(90deg, rgb(0 0 0 / 0.28) 0 1px, transparent 1px 7px);
+}
+
+.fx-belt-async {
+  background-image:
+    repeating-linear-gradient(90deg, rgb(0 0 0 / 0.28) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(90deg, var(--rule-2) 0 14px, transparent 14px 24px);
+}
+
+/* A replication edge is a data copy, not a request path — so it runs under the
+   floor as a recessed channel and can never be mistaken for traffic. */
+.fx-belt-repl {
+  background: #1e1c1a;
+  opacity: 0.55;
+}
+
+.fx-plate,
+.fx-drop {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 10px;
+  height: 9px;
+  margin-top: -4.5px;
+  border-radius: 1px;
+  transform-origin: 0 0;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  opacity: 0.75;
+}
+
+@keyframes fx-ride {
+  from {
+    translate: 0 0 1px;
+  }
+  to {
+    translate: var(--fx-len) 0 1px;
+  }
+}
+
+/* Past the knee, items compress into the last stretch before the station: a
+   visible backlog at the infeed, which is what the queueing term looks like. */
+@keyframes fx-ride-jam {
+  from {
+    translate: 0 0 1px;
+  }
+  to {
+    translate: var(--fx-len) 0 1px;
+  }
+}
+
+.fx-plate[style*='fx-ride-jam'] {
+  animation-timing-function: cubic-bezier(0.05, 0.72, 0.1, 1);
+}
+
+.fx-drop {
+  background: var(--fail);
+  opacity: 1;
+  animation-name: fx-drop;
+}
+
+/* Leaves the belt and lands beside it: Z falls to the floor while it slides off
+   sideways. Dropped requests as litter on the factory floor. */
+@keyframes fx-drop {
+  0% {
+    translate: 0 0 1px;
+    opacity: 1;
+  }
+  54% {
+    translate: calc(var(--fx-len) * 0.62) 0 1px;
+    opacity: 1;
+  }
+  76% {
+    translate: calc(var(--fx-len) * 0.8) 11px -3px;
+    opacity: 0.9;
+    rotate: 16deg;
+  }
+  100% {
+    translate: calc(var(--fx-len) * 0.86) 34px -6px;
+    opacity: 0;
+    rotate: 34deg;
+  }
+}
+
+/* -------------------------------------------------------------------- WIP -- */
+
+.fx-pile {
+  position: absolute;
+  transform-style: preserve-3d;
+  transform-origin: 0 0;
+}
+
+.fx-wip {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  transform-style: preserve-3d;
+  transform-origin: 0 0;
+}
+
+.fx-wip-top {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  transform-origin: 0 0;
+}
+
+.fx-wip-face {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 10px;
+  transform: translateY(10px) rotateX(90deg);
+  transform-origin: 0 0;
+}
+
+/* -------------------------------------------------------------- billboards -- */
+
+.fx-bb {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform-origin: 0 0;
+  pointer-events: none;
+  transition:
+    transform 600ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 400ms linear;
+}
+
+.fx-bb-inner {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  white-space: nowrap;
+  text-align: center;
+}
+
+.fx-bb-name {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.fx-bb-meta {
+  font-size: 11px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
+.fx-bb-note {
+  max-width: 210px;
+  margin: 3px auto 0;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--graphite);
+  white-space: normal;
+  text-wrap: pretty;
+}
+
+.fx-bb-note-empty {
+  color: var(--pencil);
+  font-style: italic;
+}
+
+.fx-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  line-height: 15px;
+  color: var(--pencil);
+  border: 1px solid var(--rule-2);
+  border-radius: 2px;
+  vertical-align: 1px;
+}
+
+.fx-badge-ghost {
+  color: var(--brass);
+  border-color: var(--brass-dim);
+}
+
+.fx-badge-mark {
+  color: var(--load);
+  border-color: #5a3f1c;
+}
+
+/* ------------------------------------------------------------------ fence -- */
+
+.fx-fence {
+  position: absolute;
+  height: 13px;
+  background: var(--rule-2);
+  opacity: 0.7;
+}
+
+.fx-fence-gate {
+  background: var(--rule-2);
+}
+
+/* No component establishes who the caller is, so the perimeter is drawn as a
+   dashed line with nothing standing in it. */
+.fx-fence-open {
+  background: repeating-linear-gradient(90deg, var(--rule-2) 0 9px, transparent 9px 19px);
+  opacity: 0.5;
+}
+
+/* ------------------------------------------------------------------ empty -- */
+
+.fx-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  text-align: center;
+}
+
+.fx-empty-title {
+  font-family: var(--display);
+  font-size: 15px;
+  color: var(--chalk);
+}
+
+.fx-empty-sub {
+  font-size: 12.5px;
+  color: var(--pencil);
+}
+
+/* ------------------------------------------------------------------- tilt -- */
+
+.fx-tilt {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  translate: -50% 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--ink-2);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+}
+
+.fx-tilt-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--pencil);
+}
+
+.fx-tilt-track {
+  position: relative;
+  width: 66px;
+  height: 18px;
+}
+
+.fx-tilt-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 8px;
+  height: 1px;
+  background: var(--rule);
+}
+
+.fx-tilt-stop {
+  position: absolute;
+  top: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid var(--rule-2);
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.fx-tilt-stop[data-on='true'] {
+  border-color: transparent;
+}
+
+.fx-tilt-thumb {
+  position: absolute;
+  top: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brass);
+  pointer-events: none;
+  transition: left 300ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.fx-tilt-end {
+  font-size: 11px;
+  color: var(--pencil);
+}
+
+.fx-tilt-end[data-on='true'] {
+  color: var(--brass);
+}
+
+/* ------------------------------------------------------- reduced motion ---- */
+
+/* Nothing that conveys state may be motion-only: with animation off the bands,
+   the numbers and the piles still say everything the movement was saying. */
+@media (prefers-reduced-motion: reduce) {
+  .fx-plate,
+  .fx-drop,
+  .fx-jitter {
+    animation: none !important;
+  }
+  .fx-scene,
+  .fx-bb,
+  .fx-face,
+  .fx-top,
+  .fx-band {
+    transition: none !important;
+  }
+  .fx-drop {
+    opacity: 0.55;
+  }
+}

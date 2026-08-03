@@ -31,6 +31,8 @@ import { AiBar } from './AiBar';
 import { EdgeTools } from './EdgeTools';
 import { NodeTools } from './NodeTools';
 import { PinBar } from './PinBar';
+import { FactoryView } from './factory/FactoryView';
+import { TiltControl } from './factory/TiltControl';
 import { useCanvas } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
 
@@ -104,6 +106,7 @@ function CanvasInner() {
   const redo = useCanvas((s) => s.redo);
   const tool = useCanvas((s) => s.tool);
   const setTool = useCanvas((s) => s.setTool);
+  const tilt = useCanvas((s) => s.viewTilt);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -365,6 +368,16 @@ function CanvasInner() {
       </ReactFlow>
       <FlowParticles />
       <PenLayer />
+      {/*
+        The plant sits over the flat graph rather than replacing it, and only above
+        tilt 0. Everything else on this screen — the toolbar, the load instrument,
+        the inspector's own triggers, the AI bar — stays mounted and keeps working,
+        because tilting the floor is a change of camera and not a change of app. A
+        station click routes through `focusNode`, which selects, so the Inspector
+        shows the same annotation, knobs and arithmetic it always did.
+      */}
+      {tilt > 0 && <FactoryView />}
+      <TiltControl />
       <CanvasToolbar />
       <TitleBlock />
       <SimHud />
