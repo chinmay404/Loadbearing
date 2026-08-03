@@ -60,30 +60,30 @@
     ]
   },
   "cache-aside-read": {
-    "verdict": "At 2000 rps it loses 49% of requests. It gives way at API first.",
+    "verdict": "Holds 2000 rps with nothing dropped. API is closest to its limit at 84%.",
     "bottleneckNodeId": "api",
-    "totalDroppedRps": 974.36,
-    "monthlyCost": 6739.6,
+    "totalDroppedRps": 0,
+    "monthlyCost": 6891.6,
     "flows": [
       {
         "name": "cached read",
         "offeredRps": 2000,
-        "completedRps": 1025.64,
-        "p50Ms": 828.5,
-        "p99Ms": 967.5,
+        "completedRps": 2000,
+        "p50Ms": 68.54,
+        "p99Ms": 169.06,
         "broken": false
       }
     ],
     "nodes": [
       {
         "nodeId": "api",
-        "utilization": 1.95,
-        "latencyMs": 800,
-        "capacityRps": 1025.64
+        "utilization": 0.836,
+        "latencyMs": 40.04,
+        "capacityRps": 2391.41
       },
       {
         "nodeId": "cache",
-        "utilization": 0.013,
+        "utilization": 0.025,
         "latencyMs": 1,
         "capacityRps": 80000
       },
@@ -101,7 +101,7 @@
       },
       {
         "nodeId": "db",
-        "utilization": 0.068,
+        "utilization": 0.133,
         "latencyMs": 8,
         "capacityRps": 3000
       },
@@ -113,31 +113,31 @@
       },
       {
         "nodeId": "replica",
-        "utilization": 0.342,
-        "latencyMs": 8,
+        "utilization": 0.667,
+        "latencyMs": 8.04,
         "capacityRps": 3000
       }
     ]
   },
   "doc-extraction": {
-    "verdict": "Holds 3 rps with nothing dropped. Human Review is closest to its limit at 288%.",
+    "verdict": "Holds 3 rps with nothing dropped. Human Review is closest to its limit at 75%.",
     "bottleneckNodeId": "review",
-    "totalDroppedRps": 1.88,
-    "monthlyCost": 535.79,
+    "totalDroppedRps": 0,
+    "monthlyCost": 687.91,
     "flows": [
       {
         "name": "document extracted to schema",
         "offeredRps": 3,
-        "completedRps": 2.88,
-        "p50Ms": 51887,
-        "p99Ms": 60963,
+        "completedRps": 3,
+        "p50Ms": 4387.46,
+        "p99Ms": 10963,
         "broken": false
       }
     ],
     "nodes": [
       {
         "nodeId": "db",
-        "utilization": 0.001,
+        "utilization": 0.002,
         "latencyMs": 8,
         "capacityRps": 3000
       },
@@ -149,15 +149,15 @@
       },
       {
         "nodeId": "extract",
-        "utilization": 0.194,
+        "utilization": 0.202,
         "latencyMs": 1800,
         "capacityRps": 14.86
       },
       {
         "nodeId": "parse",
-        "utilization": 1,
-        "latencyMs": 50000,
-        "capacityRps": 2.88
+        "utilization": 0.521,
+        "latencyMs": 2500.46,
+        "capacityRps": 5.76
       },
       {
         "nodeId": "q",
@@ -167,15 +167,15 @@
       },
       {
         "nodeId": "redact",
-        "utilization": 0.141,
+        "utilization": 0.147,
         "latencyMs": 25,
         "capacityRps": 20.35
       },
       {
         "nodeId": "review",
-        "utilization": 2.879,
-        "latencyMs": 1200000,
-        "capacityRps": 1
+        "utilization": 0.75,
+        "latencyMs": 60000.01,
+        "capacityRps": 4
       },
       {
         "nodeId": "src",
@@ -192,17 +192,17 @@
     ]
   },
   "idempotent-write": {
-    "verdict": "At 200 rps it loses 80% of requests. It gives way at Write Service first.",
-    "bottleneckNodeId": "svc",
-    "totalDroppedRps": 159.92,
-    "monthlyCost": 564.99,
+    "verdict": "At 200 rps it loses 25% of requests. It gives way at Payment Provider first.",
+    "bottleneckNodeId": "pay",
+    "totalDroppedRps": 50,
+    "monthlyCost": 775.65,
     "flows": [
       {
         "name": "idempotent write",
         "offeredRps": 200,
-        "completedRps": 40.08,
-        "p50Ms": 814.5,
-        "p99Ms": 934,
+        "completedRps": 200,
+        "p50Ms": 54.56,
+        "p99Ms": 136.29,
         "broken": false
       }
     ],
@@ -215,7 +215,7 @@
       },
       {
         "nodeId": "cdc",
-        "utilization": 0.008,
+        "utilization": 0.012,
         "latencyMs": 50,
         "capacityRps": 5000
       },
@@ -227,7 +227,7 @@
       },
       {
         "nodeId": "db",
-        "utilization": 0.013,
+        "utilization": 0.067,
         "latencyMs": 8,
         "capacityRps": 3000
       },
@@ -239,15 +239,15 @@
       },
       {
         "nodeId": "pay",
-        "utilization": 0.267,
-        "latencyMs": 450,
+        "utilization": 1.333,
+        "latencyMs": 9000,
         "capacityRps": 150
       },
       {
         "nodeId": "svc",
-        "utilization": 4.99,
-        "latencyMs": 800,
-        "capacityRps": 40.08
+        "utilization": 0.832,
+        "latencyMs": 40.06,
+        "capacityRps": 240.48
       }
     ]
   },
@@ -366,24 +366,24 @@
     ]
   },
   "rag-query": {
-    "verdict": "At 30 rps it loses 32% of requests. It gives way at Input Guardrail first.",
-    "bottleneckNodeId": "guard-in",
-    "totalDroppedRps": 8.27,
-    "monthlyCost": 907.06,
+    "verdict": "Holds 30 rps with nothing dropped. Answer Model is closest to its limit at 84%.",
+    "bottleneckNodeId": "llm",
+    "totalDroppedRps": 0,
+    "monthlyCost": 4361.46,
     "flows": [
       {
         "name": "question answered from documents",
         "offeredRps": 30,
-        "completedRps": 20.34,
-        "p50Ms": 6981.51,
-        "p99Ms": 10309.73,
+        "completedRps": 30,
+        "p50Ms": 1777.69,
+        "p99Ms": 4830.94,
         "broken": false
       }
     ],
     "nodes": [
       {
         "nodeId": "cache",
-        "utilization": 0,
+        "utilization": 0.001,
         "latencyMs": 2,
         "capacityRps": 50000
       },
@@ -395,19 +395,19 @@
       },
       {
         "nodeId": "embed",
-        "utilization": 0.091,
-        "latencyMs": 80,
+        "utilization": 0.3,
+        "latencyMs": 80.05,
         "capacityRps": 100
       },
       {
         "nodeId": "guard-in",
-        "utilization": 1.324,
-        "latencyMs": 3000,
-        "capacityRps": 22.66
+        "utilization": 0.331,
+        "latencyMs": 150,
+        "capacityRps": 90.62
       },
       {
         "nodeId": "guard-out",
-        "utilization": 0.041,
+        "utilization": 0.15,
         "latencyMs": 150,
         "capacityRps": 200
       },
@@ -419,33 +419,33 @@
       },
       {
         "nodeId": "llm",
-        "utilization": 0.459,
-        "latencyMs": 1200.05,
-        "capacityRps": 17.77
+        "utilization": 0.844,
+        "latencyMs": 1229.18,
+        "capacityRps": 35.54
       },
       {
         "nodeId": "obs",
         "utilization": 0,
         "latencyMs": 2,
-        "capacityRps": 8.16
+        "capacityRps": 30
       },
       {
         "nodeId": "rerank",
-        "utilization": 1.114,
-        "latencyMs": 2400,
-        "capacityRps": 8.16
+        "utilization": 0.537,
+        "latencyMs": 120,
+        "capacityRps": 55.86
       },
       {
         "nodeId": "retriever",
-        "utilization": 0.973,
-        "latencyMs": 192.96,
-        "capacityRps": 23.06
+        "utilization": 0.651,
+        "latencyMs": 90.01,
+        "capacityRps": 46.11
       },
       {
         "nodeId": "vdb",
-        "utilization": 0.303,
+        "utilization": 0.5,
         "latencyMs": 30,
-        "capacityRps": 30
+        "capacityRps": 60
       }
     ]
   },

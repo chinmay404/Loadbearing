@@ -125,6 +125,7 @@ export const BLUEPRINTS: Blueprint[] = [
         type: 'guardrail',
         label: 'Input Guardrail',
         annotation: 'Retrieved text and user text are data, never instructions. Screens both before the model sees them.',
+        attrs: { replicas: 4 },
         at: { x: COL * 2, y: 0 },
       },
       {
@@ -139,6 +140,7 @@ export const BLUEPRINTS: Blueprint[] = [
         type: 'retriever',
         label: 'Retriever',
         annotation: 'Lexical and vector search together, then rerank to a handful. Decides what the model is allowed to know.',
+        attrs: { replicas: 2 },
         at: { x: COL * 3, y: 0 },
       },
       {
@@ -153,6 +155,7 @@ export const BLUEPRINTS: Blueprint[] = [
         type: 'vector_db',
         label: 'Vector Index',
         annotation: 'Nearest neighbours over chunk embeddings. Recall is a tuning knob, not a given.',
+        attrs: { replicas: 2 },
         at: { x: COL * 4, y: ROW },
       },
       {
@@ -160,6 +163,7 @@ export const BLUEPRINTS: Blueprint[] = [
         type: 'reranker',
         label: 'Reranker',
         annotation: 'Cross-encoder over the candidates. Cheapest large win in retrieval quality.',
+        attrs: { replicas: 7, monthlyCost: 400 },
         at: { x: COL * 4, y: 0 },
       },
       {
@@ -168,7 +172,7 @@ export const BLUEPRINTS: Blueprint[] = [
         label: 'Answer Model',
         annotation: 'Answers ONLY from the passages given, cites them, and refuses when they do not cover the question.',
         at: { x: COL * 5, y: 0 },
-        attrs: { monthlyCost: 400 },
+        attrs: { replicas: 2, monthlyCost: 400 },
       },
       {
         key: 'guard-out',
@@ -328,6 +332,7 @@ export const BLUEPRINTS: Blueprint[] = [
         type: 'doc_parser',
         label: 'Parser / OCR',
         annotation: 'Layout matters: a table read as prose loses the row/column relationship the fields depend on.',
+        attrs: { replicas: 2 },
         at: { x: COL * 2, y: 0 },
       },
       {
@@ -356,6 +361,7 @@ export const BLUEPRINTS: Blueprint[] = [
         type: 'human_review',
         label: 'Human Review',
         annotation: 'Low confidence and hard failures land here. Off the synchronous path — a reviewer takes minutes, not milliseconds.',
+        attrs: { replicas: 4 },
         at: { x: COL * 5, y: ROW * 1.4 },
       },
       {
@@ -507,8 +513,8 @@ export const BLUEPRINTS: Blueprint[] = [
         type: 'service',
         label: 'API',
         annotation: 'Cache-aside: look up, miss, load, populate with a jittered TTL.',
+        attrs: { replicas: 7 },
         at: { x: COL * 3, y: 0 },
-        attrs: { replicas: 3 },
       },
       {
         key: 'cache',
@@ -565,6 +571,7 @@ export const BLUEPRINTS: Blueprint[] = [
         type: 'service',
         label: 'Write Service',
         annotation: 'Stores the key with the result in the SAME transaction as the effect. A retry becomes a lookup.',
+        attrs: { replicas: 6 },
         at: { x: COL * 2, y: 0 },
       },
       {
