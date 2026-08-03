@@ -990,3 +990,93 @@ describe('connection pools run out', () => {
     expect(result.firstFailure?.reason ?? '').toContain('connection');
   });
 });
+
+describe('reads and writes go different ways', () => {
+  // A primary and a replica behind one balancer, with a workload that is 80% reads.
+  const split = (annotate: boolean) => {
+    const g = graph(
+      [
+        node('web', 'client', { trafficRps: 1000 }),
+        node('lb', 'load_balancer'),
+        node('primary', 'sql_db', { capacityRps: 100_000 }),
+        node('replica', 'read_replica', { capacityRps: 100_000 }),
+      ],
+      [
+        edge('web', 'lb'),
+        edge('lb', 'primary', annotate ? { carries: 'write' } : {}),
+        edge('lb', 'replica', annotate ? { carries: 'read' } : {}),
+      ],
+    );
+    g.flows = [
+      { id: 'r', name: 'reads', kind: 'read', steps: ['web', 'lb', 'replica'], rps: 800, description: '' },
+      { id: 'w', name: 'writes', kind: 'write', steps: ['web', 'lb', 'primary'], rps: 200, description: '' },
+    ];
+    return runEngine(g, scenario());
+  };
+
+  it('splits evenly when nobody says which connection is which', () => {
+    const r = split(false);
+    expect(hop(r, 'primary').arrivingRps).toBeCloseTo(500, 0);
+    expect(hop(r, 'replica').arrivingRps).toBeCloseTo(500, 0);
+  });
+
+  it('sends the reads to the replica and the writes to the primary', () => {
+    // 80% reads declared, so the replica takes 800 and the primary 200 — rather
+    // than the replica absorbing half the writes, which it cannot serve.
+    const r = split(true);
+    expect(hop(r, 'replica').arrivingRps).toBeCloseTo(800, 0);
+    expect(hop(r, 'primary').arrivingRps).toBeCloseTo(200, 0);
+  });
+
+  it('leaves a router alone when every connection carries the same kind', () => {
+    // No mix means no split to make, so this must behave exactly as before.
+    const g = graph(
+      [
+        node('web', 'client', { trafficRps: 1000 }),
+        node('lb', 'load_balancer'),
+        node('a', 'read_replica', { capacityRps: 100_000 }),
+        node('b', 'read_replica', { capacityRps: 100_000 }),
+      ],
+      [edge('web', 'lb'), edge('lb', 'a', { carries: 'read' }), edge('lb', 'b', { carries: 'read' })],
+    );
+    const r = runEngine(g, scenario());
+    expect(hop(r, 'a').arrivingRps).toBeCloseTo(500, 0);
+    expect(hop(r, 'b').arrivingRps).toBeCloseTo(500, 0);
+  });
+
+  it('falls back to an even split when no flow states a kind', () => {
+    const g = graph(
+      [
+        node('web', 'client', { trafficRps: 1000 }),
+        node('lb', 'load_balancer'),
+        node('primary', 'sql_db', { capacityRps: 100_000 }),
+        node('replica', 'read_replica', { capacityRps: 100_000 }),
+      ],
+      [
+        edge('web', 'lb'),
+        edge('lb', 'primary', { carries: 'write' }),
+        edge('lb', 'replica', { carries: 'read' }),
+      ],
+    );
+    const r = runEngine(g, scenario());
+    expect(hop(r, 'replica').arrivingRps).toBeCloseTo(500, 0);
+  });
+
+  it('still honours an explicit share over any inference', () => {
+    const g = graph(
+      [
+        node('web', 'client', { trafficRps: 1000 }),
+        node('lb', 'load_balancer'),
+        node('primary', 'sql_db', { capacityRps: 100_000 }),
+        node('replica', 'read_replica', { capacityRps: 100_000 }),
+      ],
+      [
+        edge('web', 'lb'),
+        edge('lb', 'primary', { carries: 'write', share: 0.9 }),
+        edge('lb', 'replica', { carries: 'read', share: 0.1 }),
+      ],
+    );
+    const r = runEngine(g, scenario());
+    expect(hop(r, 'primary').arrivingRps).toBeCloseTo(900, 0);
+  });
+});

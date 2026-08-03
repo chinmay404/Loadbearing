@@ -279,6 +279,16 @@ export interface GraphEdge {
    * drawing that says nothing behaves as it always did.
    */
   placement?: Placement;
+  /**
+   * Whether this connection carries reads, writes, or both.
+   *
+   * Only meaningful on a router with a mix: a load balancer with one connection
+   * marked `write` to a primary and one marked `read` to a replica splits by the
+   * read/write ratio of the declared flows, rather than evenly. Without the mix
+   * — or without the annotation — routing is unchanged, so a replica stops
+   * absorbing writes only once somebody says which connection is which.
+   */
+  carries?: 'read' | 'write' | 'both';
 }
 
 export type FlowKind = 'read' | 'write' | 'async' | 'admin';

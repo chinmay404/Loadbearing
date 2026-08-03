@@ -656,6 +656,39 @@ export function checkTopology(graph: GraphDSL): TopologyFinding[] {
     );
   }
 
+  // Rule 5b — a write and a read of the same data, where the read goes to a follower.
+  //
+  // This is a correctness finding, not a capacity one, which is why it lives here
+  // rather than in the engine. The simulator will happily report that both paths
+  // are fast and neither drops anything — and the user still sees their own write
+  // missing, because replication has not caught up. No amount of throughput fixes
+  // it, so nothing in the capacity report can surface it.
+  for (const flow of flows) {
+    if (flow.kind !== 'read') continue;
+    const replicaStep = (flow.steps ?? []).find(
+      (id) => byId.get(id)?.type === 'read_replica',
+    );
+    if (!replicaStep) continue;
+    // Only interesting when something in this design actually writes.
+    const writesSomewhere = flows.some((f) => f.kind === 'write');
+    if (!writesSomewhere) continue;
+    const replica = byId.get(replicaStep)!;
+    warnings.push(
+      finding(
+        'warning',
+        'read-after-write-on-replica',
+        `The flow '${flow.name}' reads from ${replica.label}, a follower, while this design also writes. ` +
+          `A user who reads straight after their own write can be served a copy that has not caught up yet, ` +
+          `and sees their change vanish — every number in the capacity report will look healthy while it happens.`,
+        `Route the read-after-write case to the primary, or give the client its own write through until ` +
+          `replication has caught up. Reads that tolerate staleness can stay on the follower — say which is which.`,
+        [replica.id],
+        [],
+        'consistency-models',
+      ),
+    );
+  }
+
   // Rule 6 — a model a user can reach with nothing reading the prompt first.
   for (const model of nodes) {
     if (!MODEL_TYPES.has(model.type)) continue;

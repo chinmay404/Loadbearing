@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { CONCEPTS } from './concepts.js';
 import { checkConnection, checkTopology } from './compatibility.js';
 import type { TopologyFinding } from './compatibility.js';
 import type { ArchNodeType, Flow, GraphDSL, GraphEdge, GraphNode, NodeAttrs } from './types.js';
@@ -854,3 +855,56 @@ function deepFreeze<T>(value: T): T {
   }
   return value;
 }
+
+describe('read-after-write against a follower', () => {
+  const withReplica = (readSteps: string[], writeFlow: boolean): GraphDSL => ({
+    nodes: [
+      { id: 'client', type: 'client', label: 'Client', annotation: '' },
+      { id: 'api', type: 'service', label: 'API', annotation: 'Serves both paths.' },
+      { id: 'primary', type: 'sql_db', label: 'Primary', annotation: 'System of record.' },
+      { id: 'replica', type: 'read_replica', label: 'Replica', annotation: 'Follows the primary.' },
+    ],
+    edges: [
+      { id: 'e1', from: 'client', to: 'api', kind: 'sync', label: '' },
+      { id: 'e2', from: 'api', to: 'primary', kind: 'sync', label: '' },
+      { id: 'e3', from: 'api', to: 'replica', kind: 'sync', label: '' },
+      { id: 'e4', from: 'primary', to: 'replica', kind: 'replication', label: '' },
+    ],
+    stickies: [],
+    flows: [
+      { id: 'r', name: 'profile read', kind: 'read', steps: readSteps, rps: 800, description: '' },
+      ...(writeFlow
+        ? [{ id: 'w', name: 'profile write', kind: 'write' as const, steps: ['client', 'api', 'primary'], rps: 200, description: '' }]
+        : []),
+    ],
+  });
+
+  const ruleIds = (g: GraphDSL) => checkTopology(g).map((f) => f.rule);
+
+  it('warns when a read flow goes to a replica and the design also writes', () => {
+    expect(ruleIds(withReplica(['client', 'api', 'replica'], true))).toContain(
+      'read-after-write-on-replica',
+    );
+  });
+
+  it('stays quiet when nothing in the design writes', () => {
+    // A read-only reporting design against a follower is exactly right.
+    expect(ruleIds(withReplica(['client', 'api', 'replica'], false))).not.toContain(
+      'read-after-write-on-replica',
+    );
+  });
+
+  it('stays quiet when the read goes to the primary', () => {
+    expect(ruleIds(withReplica(['client', 'api', 'primary'], true))).not.toContain(
+      'read-after-write-on-replica',
+    );
+  });
+
+  it('cites a concept that actually exists', () => {
+    const f = checkTopology(withReplica(['client', 'api', 'replica'], true)).find(
+      (x) => x.rule === 'read-after-write-on-replica',
+    );
+    expect(f?.concept).toBe('consistency-models');
+    expect(CONCEPTS).toContain(f!.concept!);
+  });
+});

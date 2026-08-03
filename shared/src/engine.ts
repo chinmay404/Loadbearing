@@ -332,6 +332,55 @@ const activeAt = (t: number, atS = 0, forS?: number): boolean =>
 const num = (v: number | undefined, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback;
 
+/**
+ * What share of a router's traffic each outbound connection carries, when nobody
+ * typed a share in.
+ *
+ * Even split, unless the connections declare a read/write mix. A load balancer in
+ * front of a primary and a replica is not sending half the writes to the replica —
+ * it is sending the reads one way and the writes the other, and the ratio between
+ * them is a property of the workload, not of the drawing.
+ *
+ * Deliberately inert unless BOTH kinds are present. A router whose connections all
+ * say `read` has no split to make, so it behaves exactly as it did before anyone
+ * annotated it.
+ */
+function defaultRouteShare(
+  edge: GraphEdge,
+  siblings: readonly GraphEdge[],
+  readFraction: number,
+): number {
+  const even = 1 / Math.max(1, siblings.length);
+  const kindOf = (e: GraphEdge) => e.carries ?? 'both';
+  const reads = siblings.filter((e) => kindOf(e) === 'read').length;
+  const writes = siblings.filter((e) => kindOf(e) === 'write').length;
+  if (reads === 0 || writes === 0) return even;
+
+  const kind = kindOf(edge);
+  if (kind === 'read') return readFraction / reads;
+  if (kind === 'write') return (1 - readFraction) / writes;
+  return even;
+}
+
+/**
+ * How much of the declared traffic is reads.
+ *
+ * Taken from the flows the author actually wrote down, because they are the only
+ * statement of the workload's shape that exists. With nothing declared it is an
+ * even split, and the run says so in its assumptions rather than quietly picking.
+ */
+function readFractionOf(graph: GraphDSL): number {
+  let read = 0;
+  let write = 0;
+  for (const flow of graph.flows ?? []) {
+    const rps = num(flow.rps, 0);
+    if (flow.kind === 'read') read += rps;
+    else if (flow.kind === 'write') write += rps;
+  }
+  const total = read + write;
+  return total > 0 ? read / total : 0.5;
+}
+
 /** Replication carries data between stores; it is not a request path. */
 const carriesRequests = (e: GraphEdge): boolean => e.kind !== 'replication';
 
@@ -501,6 +550,8 @@ interface Prepared {
   cycleNodeIds: string[];
   paths: PathReport[];
   pathsOmitted: number;
+  /** Share of declared traffic that is reads, for routers that split by kind. */
+  readFraction: number;
 }
 
 /**
@@ -649,6 +700,7 @@ function prepare(graph: GraphDSL): Prepared {
     cycleNodeIds: [...cycles].sort(),
     paths,
     pathsOmitted: omitted,
+    readFraction: readFractionOf(graph),
   };
 }
 
@@ -860,7 +912,7 @@ function computeOccupancy(prep: Prepared, runtime: Map<string, NodeRuntime>): vo
           (e) => familyOf(runtime.get(e.to)!.node.type) !== 'control',
         );
         const across = routable.length > 0 ? routable : outs;
-        const weights = across.map((e) => num(e.share, 1 / across.length));
+        const weights = across.map((e) => num(e.share, defaultRouteShare(e, across, prep.readFraction)));
         const total = weights.reduce((a, b) => a + b, 0) || 1;
         downstream = across.reduce(
           (sum, e, i) => sum + (weights[i]! / total) * costOf(e),
@@ -1031,7 +1083,12 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
           mode === 'distribute' && routable.length > 0 && !routable.includes(e);
 
         const shares = outs.map((e) =>
-          num(e.share, mode === 'distribute' && !isSideCall(e) ? 1 / splitAcross : 1),
+          num(
+            e.share,
+            mode === 'distribute' && !isSideCall(e)
+              ? defaultRouteShare(e, routable.length > 0 ? routable : outs, prep.readFraction)
+              : 1,
+          ),
         );
         const shareTotal = routable.reduce((sum, e) => sum + shares[outs.indexOf(e)]!, 0) || 1;
 
@@ -1251,7 +1308,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
             (e) => familyOf(runtime.get(e.to)?.node.type ?? 'custom') !== 'control',
           );
           const across = routable.length > 0 ? routable : outs;
-          const weights = across.map((e) => num(e.share, 1 / across.length));
+          const weights = across.map((e) => num(e.share, defaultRouteShare(e, across, prep.readFraction)));
           const total = weights.reduce((a, b) => a + b, 0) || 1;
           below = across.reduce(
             (sum, e, i) => sum + (weights[i]! / total) * succeedsAt(e.to, visiting),
@@ -1326,7 +1383,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         const siblings = prep.out.get(r.node.id) ?? [];
         weight *=
           distributionOf(r.node.type) === 'distribute'
-            ? num(link.share, 1 / Math.max(1, siblings.length))
+            ? num(link.share, defaultRouteShare(link, siblings, prep.readFraction))
             : Math.min(1, num(link.share, 1));
       }
 
