@@ -7,6 +7,7 @@ import {
   GROUP_ORDER,
   latencyOf,
   paramsFor,
+  placeholderFor,
   bindSku,
   choicesFor,
   loadSkus,
@@ -242,7 +243,7 @@ function Params({
                     step={spec.step ?? (spec.kind === 'fraction' ? 0.05 : 1)}
                     min={spec.min}
                     max={spec.max}
-                    placeholder="default"
+                    placeholder={placeholderFor(type, spec.key, attrs)}
                     value={value === undefined ? '' : Number(value)}
                     onChange={(e) =>
                       onChange(node, {

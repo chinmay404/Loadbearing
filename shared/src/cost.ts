@@ -58,6 +58,9 @@ export const EGRESS_USD_PER_GB: Record<Placement, number> = {
   internet: 0.09,
 };
 
+/** Data a datastore holds when nobody has said, GB. */
+export const DEFAULT_STORAGE_GB = 100;
+
 /** Seconds in the month this bill covers. */
 export const SECONDS_PER_MONTH = 60 * 60 * 24 * 30;
 
@@ -87,7 +90,7 @@ const num = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback;
 
 /** Sizing defaults, so a component nobody has sized still costs something sane. */
-const DEFAULT_VCPU: Record<Family, number> = {
+export const DEFAULT_VCPU: Record<Family, number> = {
   origin: 0,
   routing: 0,
   compute: 2,
@@ -100,7 +103,7 @@ const DEFAULT_VCPU: Record<Family, number> = {
   boundary: 0,
 };
 
-const DEFAULT_MEMORY_GB: Record<Family, number> = {
+export const DEFAULT_MEMORY_GB: Record<Family, number> = {
   origin: 0,
   routing: 0,
   compute: 4,
@@ -191,7 +194,7 @@ export function costOfNode(
     case 'datastore': {
       const vcpu = num(node.attrs?.vcpu, DEFAULT_VCPU.datastore);
       const memory = num(node.attrs?.memoryGb, DEFAULT_MEMORY_GB.datastore);
-      const storage = num(node.attrs?.storageGb, 100);
+      const storage = num(node.attrs?.storageGb, DEFAULT_STORAGE_GB);
       const instances = copies * Math.max(1, num(node.attrs?.shards, 1));
       const perInstance =
         (vcpu * RATES.vcpuMonth + memory * RATES.memoryGbMonth) * RATES.managedDatastoreMultiplier;

@@ -4,6 +4,7 @@ export * from './concepts.js';
 // compatibility.ts, and nothing outside this package needs them. Anything that does
 // imports it by path.
 export * from './families.js';
+export * from './defaults.js';
 export * from './pricing.js';
 export * from './skus.js';
 export * from './catalog.js';

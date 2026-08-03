@@ -461,7 +461,7 @@ function serversOf(node: GraphNode, replicas: number): number {
   return Math.max(1, Math.round(concurrency * replicas * shards));
 }
 
-function concurrencyFor(node: GraphNode): number {
+export function concurrencyFor(node: GraphNode): number {
   const vcpu = node.attrs?.vcpu;
   if (typeof vcpu === 'number' && vcpu > 0) {
     return Math.max(1, vcpu * CONCURRENT_REQUESTS_PER_VCPU);
