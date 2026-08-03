@@ -4,6 +4,7 @@
 
 import type { BlueprintLike } from './blueprints.js';
 import type { CostReport } from './cost.js';
+import type { Placement } from './network.js';
 
 export const ARCH_NODE_TYPES = [
   'client',
@@ -150,6 +151,12 @@ export interface NodeAttrs {
   queueDepthMax?: number;
   /** Spread across availability zones / regions — survives a zone loss. */
   multiAz?: boolean;
+  /**
+   * Where this runs, e.g. 'us-east-1'. When two connected components name
+   * different regions, the measured distance between them is charged to the
+   * caller — in latency, and in the worker time it spends waiting on the wire.
+   */
+  region?: string;
   /** Monthly cost estimate in USD, used for the cost dimension and the budget check. */
   monthlyCost?: number;
 
@@ -254,6 +261,13 @@ export interface GraphEdge {
    * struggles more. Zero switches the amplification off.
    */
   retries?: number;
+  /**
+   * How far apart the two ends are. Distance is not free: it adds to the caller's
+   * latency AND holds the caller's worker for longer, which is where a
+   * synchronous cross-region call actually hurts. Defaults to same-az, so a
+   * drawing that says nothing behaves as it always did.
+   */
+  placement?: Placement;
 }
 
 export type FlowKind = 'read' | 'write' | 'async' | 'admin';

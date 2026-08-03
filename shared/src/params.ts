@@ -19,8 +19,21 @@ export type ParamKind = 'number' | 'toggle' | 'fraction';
 /** Where a parameter sits in the inspector, so a long list reads as a short one. */
 export type ParamGroup = 'traffic' | 'size' | 'scaling' | 'behaviour' | 'resilience' | 'money';
 
+/**
+ * The attributes a parameter control can actually edit.
+ *
+ * Every `ParamKind` is a number, a fraction or a toggle, so a `ParamSpec` can only
+ * ever point at an attribute holding a number or a boolean. Saying so in the type
+ * means a string-valued attribute — `region`, say — cannot be given a spec by
+ * accident, and the inspector's field component keeps its narrow value type
+ * without a cast at the call site.
+ */
+export type ParamKey = {
+  [K in keyof NodeAttrs]-?: NonNullable<NodeAttrs[K]> extends number | boolean ? K : never;
+}[keyof NodeAttrs];
+
 export interface ParamSpec {
-  key: keyof NodeAttrs;
+  key: ParamKey;
   label: string;
   /** One line on what it means, and what changes when you move it. */
   hint: string;
