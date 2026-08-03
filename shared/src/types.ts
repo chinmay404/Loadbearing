@@ -152,6 +152,12 @@ export interface NodeAttrs {
   /** Spread across availability zones / regions — survives a zone loss. */
   multiAz?: boolean;
   /**
+   * GB of distinct data actually being asked for. Stated alongside the cache's
+   * memory, it decides what hit rate is achievable — a cache holding a tenth of
+   * the working set cannot deliver the 95% somebody typed in.
+   */
+  workingSetGb?: number;
+  /**
    * Connections a pooler or proxy holds open. Above this, callers queue for a
    * connection rather than for the data.
    */

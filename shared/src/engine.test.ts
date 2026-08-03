@@ -1080,3 +1080,42 @@ describe('reads and writes go different ways', () => {
     expect(hop(r, 'primary').arrivingRps).toBeCloseTo(900, 0);
   });
 });
+
+describe('a cache cannot beat its own coverage', () => {
+  const storeLoad = (attrs: NodeAttrs) =>
+    hop(
+      runEngine(
+        graph(
+          [
+            node('web', 'client', { trafficRps: 1000 }),
+            node('cache', 'cache', attrs),
+            node('db', 'sql_db', { capacityRps: 100_000 }),
+          ],
+          [edge('web', 'cache'), edge('cache', 'db')],
+        ),
+        scenario(),
+      ),
+      'db',
+    ).arrivingRps;
+
+  it('honours the stated rate when no working set is given', () => {
+    // Unchanged behaviour: 95% absorbed, 50 rps reaches the store.
+    expect(storeLoad({ cacheHitRate: 0.95, memoryGb: 1 })).toBeCloseTo(50, 0);
+  });
+
+  it('caps an optimistic rate at what the memory can actually cover', () => {
+    // 1GB of a 100GB working set is 1% coverage, so sqrt(0.01) = 10% achievable,
+    // not the 95% claimed. 900 rps lands on the store instead of 50.
+    expect(storeLoad({ cacheHitRate: 0.95, memoryGb: 1, workingSetGb: 100 })).toBeCloseTo(900, 0);
+  });
+
+  it('leaves a well-sized cache alone', () => {
+    expect(storeLoad({ cacheHitRate: 0.95, memoryGb: 100, workingSetGb: 100 })).toBeCloseTo(50, 0);
+  });
+
+  it('still buys something from a small cache, because hot keys repeat', () => {
+    // 10% coverage is not a 10% hit rate: sqrt(0.1) is about 32%.
+    const rate = 1 - storeLoad({ memoryGb: 10, workingSetGb: 100 }) / 1000;
+    expect(rate).toBeCloseTo(0.316, 2);
+  });
+});

@@ -291,6 +291,16 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
       step: 0.25,
     },
     {
+      key: 'workingSetGb',
+      label: 'Working set',
+      hint: 'GB of distinct data actually being asked for. With the cache size, this caps the hit rate you can really get.',
+      kind: 'number',
+      group: 'size',
+      unit: 'GB',
+      min: 0,
+      step: 0.25,
+    },
+    {
       key: 'cacheHitRate',
       label: 'Hit rate',
       hint: 'Share of reads answered without touching what is behind it. The store behind sees the rest — and all of it if this dies.',

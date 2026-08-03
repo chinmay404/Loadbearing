@@ -481,10 +481,41 @@ function replicasOf(node: GraphNode): number {
   return typeof floor === 'number' && floor > 0 ? Math.max(Math.floor(floor), stated) : stated;
 }
 
+/**
+ * How much a cache can plausibly absorb, given how big it is.
+ *
+ * `memoryGb` was collected on every cache and read by nothing, while the field's
+ * own hint promised "too small and the hit rate you assumed never materialises".
+ * It now means something — but only once somebody states the working set, because
+ * a hit rate is a claim about the ratio between the two and one number alone
+ * cannot make it.
+ *
+ * The square root is a modelled heuristic, not a measurement, and is labelled as
+ * one wherever it is shown. It encodes that hot keys are hit disproportionately:
+ * covering a tenth of the working set still buys roughly a 32% hit rate, which is
+ * the shape of every real Zipf-ish access pattern even though the exponent is a
+ * judgement call.
+ */
+export const CACHE_COVERAGE_EXPONENT = 0.5;
+
+function achievableHitRate(node: GraphNode): number {
+  const memory = node.attrs?.memoryGb;
+  const workingSet = node.attrs?.workingSetGb;
+  if (typeof memory !== 'number' || typeof workingSet !== 'number') return 1;
+  if (!(memory > 0) || !(workingSet > 0)) return 1;
+  return clamp01((Math.min(1, memory / workingSet)) ** CACHE_COVERAGE_EXPONENT);
+}
+
 function absorbOf(node: GraphNode): number {
-  const explicit = node.attrs?.cacheHitRate;
-  if (typeof explicit === 'number') return clamp01(explicit);
-  return CACHE_TYPES.has(node.type) ? DEFAULT_CACHE_HIT_RATE : 0;
+  const stated = node.attrs?.cacheHitRate;
+  const wanted =
+    typeof stated === 'number'
+      ? clamp01(stated)
+      : CACHE_TYPES.has(node.type)
+        ? DEFAULT_CACHE_HIT_RATE
+        : 0;
+  // A cache cannot beat its own coverage, however optimistic the number typed in.
+  return Math.min(wanted, achievableHitRate(node));
 }
 
 /**
