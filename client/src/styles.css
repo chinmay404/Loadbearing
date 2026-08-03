@@ -2137,3 +2137,91 @@ button.chaos-slow.on {
 .card.attack button.chip {
   cursor: pointer;
 }
+
+/* ---------------------------------------------------------- under strain ---
+ *
+ * A number turning red is something you read. A box that is visibly struggling
+ * is something you notice, and load testing is the one moment in this tool where
+ * the design stops being a diagram and starts being a thing under pressure.
+ *
+ * Intensity rides on --stress, which the node sets from how far past its limit it
+ * actually is: at 105% it trembles, at 200% it is coming apart. So the animation
+ * carries information rather than just being decoration.
+ */
+
+@keyframes lb-strain {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  15% { transform: translate(calc(var(--amp) * -1), calc(var(--amp) * 0.4)) rotate(calc(var(--tilt) * -1)); }
+  30% { transform: translate(var(--amp), calc(var(--amp) * -0.3)) rotate(var(--tilt)); }
+  45% { transform: translate(calc(var(--amp) * -0.6), calc(var(--amp) * -0.5)) rotate(calc(var(--tilt) * -0.6)); }
+  60% { transform: translate(calc(var(--amp) * 0.8), var(--amp)) rotate(calc(var(--tilt) * 0.8)); }
+  80% { transform: translate(calc(var(--amp) * -0.3), calc(var(--amp) * 0.2)) rotate(0deg); }
+}
+
+@keyframes lb-glow {
+  0%, 100% { box-shadow: 0 0 0 1px var(--fail), 0 0 6px rgba(214, 69, 65, 0.35); }
+  50% { box-shadow: 0 0 0 2px var(--fail), 0 0 22px rgba(214, 69, 65, 0.75); }
+}
+
+/* Hot but holding: breathing, not thrashing. Something is about to give. */
+.arch-node.state-hot {
+  border-color: var(--load);
+  animation: lb-glow 2.4s ease-in-out infinite;
+}
+
+/* Over the line. Shakes harder and glows faster the further past it goes. */
+.arch-node.state-saturated {
+  --amp: calc(0.6px + var(--stress, 0) * 2.4px);
+  --tilt: calc(0.15deg + var(--stress, 0) * 0.85deg);
+  border-color: var(--fail);
+  animation:
+    lb-strain calc(260ms - var(--stress, 0) * 140ms) linear infinite,
+    lb-glow calc(1100ms - var(--stress, 0) * 600ms) ease-in-out infinite;
+}
+
+/* Heat building up inside the box, strongest where it is worst. */
+.arch-node.state-saturated::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(
+    ellipse at 50% 120%,
+    rgba(214, 69, 65, calc(0.10 + var(--stress, 0) * 0.28)),
+    transparent 70%
+  );
+}
+
+/* Dead: scorched and knocked askew. Stops moving, because it has stopped. */
+.arch-node.state-down {
+  opacity: 0.4;
+  filter: grayscale(0.85);
+  border-style: dashed;
+  transform: rotate(-0.6deg);
+  animation: none;
+}
+.arch-node.state-down::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(ellipse at 50% 60%, rgba(0, 0, 0, 0.45), transparent 75%);
+}
+
+/*
+ * Motion is the whole mechanism here, so when it is unwelcome the information has
+ * to survive without it: a solid heavy border and a fixed heat wash say the same
+ * thing standing still.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .arch-node.state-hot,
+  .arch-node.state-saturated {
+    animation: none;
+  }
+  .arch-node.state-saturated {
+    border-width: 2px;
+    box-shadow: 0 0 0 2px var(--fail), 0 0 14px rgba(214, 69, 65, 0.6);
+  }
+}

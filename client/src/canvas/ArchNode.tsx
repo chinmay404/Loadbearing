@@ -89,8 +89,23 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
     .filter(Boolean)
     .join(' ');
 
+  // How badly it is over its limit, 0 at the line and 1 by twice it. Drives how
+  // hard the box shakes, so a component at 105% trembles and one at 300% is
+  // visibly coming apart. A percentage is a number you read; this is a thing you
+  // notice from across the room, which is the point of it.
+  const overload = Number.isFinite(sim?.utilization)
+    ? Math.min(1, Math.max(0, (sim!.utilization - 1) / 1))
+    : 0;
+
   return (
-    <div className={cls} style={{ ['--node-color' as string]: spec.color, position: 'relative' }}>
+    <div
+      className={cls}
+      style={{
+        ['--node-color' as string]: spec.color,
+        ['--stress' as string]: String(Math.round(overload * 100) / 100),
+        position: 'relative',
+      }}
+    >
       {data.locked && <LockBadge onUnlock={() => unlockNode(id)} />}
       <Handle type="target" position={Position.Left} />
       <Handle type="target" position={Position.Top} id="t" />
