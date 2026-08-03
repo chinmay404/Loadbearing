@@ -81,6 +81,20 @@ export const WORK_BUFFER_TYPES: ReadonlySet<ArchNodeType> = new Set([
 
 export const CACHE_TYPES: ReadonlySet<ArchNodeType> = new Set(['cache', 'prompt_cache']);
 
+/** Stores that hand out a bounded number of connections rather than accepting any caller. */
+export const POOLED_STORE_TYPES: ReadonlySet<ArchNodeType> = new Set([
+  'sql_db',
+  'read_replica',
+  'ledger_db',
+  'sharded_cluster',
+]);
+
+/** Anything whose job is to share a bounded set of connections between many callers. */
+export const POOLER_TYPES: ReadonlySet<ArchNodeType> = new Set([
+  'connection_pooler',
+  'db_proxy',
+]);
+
 /** Things that run your code — the plausible "from" side of a write. */
 export const COMPUTE_TYPES: ReadonlySet<ArchNodeType> = new Set([
   'service',
@@ -687,6 +701,60 @@ export function checkTopology(graph: GraphDSL): TopologyFinding[] {
         'consistency-models',
       ),
     );
+  }
+
+  // Rule 5c — serverless compute holding connections open against a bounded pool.
+  //
+  // The single most common way a database that looks healthy on every dashboard
+  // stops serving. Each invocation opens its own connection, concurrency
+  // multiplies them, and the instance's ceiling is reached while its CPU and its
+  // request rate are both unremarkable.
+  //
+  // With a SKU bound on the database this states the arithmetic rather than the
+  // principle, because then the ceiling is a documented number rather than a
+  // guess — and a rule that can say "1,000 against 450" is worth ten that say
+  // "consider connection pooling".
+  for (const fn of nodes) {
+    if (fn.type !== 'serverless_fn' && fn.type !== 'edge_function') continue;
+    for (const store of nodes) {
+      if (!POOLED_STORE_TYPES.has(store.type)) continue;
+      if (!edges.some((e) => e.from === fn.id && e.to === store.id && e.kind !== 'replication')) {
+        continue;
+      }
+      // A pooler or proxy anywhere between them is the fix, so its presence ends it.
+      if (
+        nodes.some(
+          (p) =>
+            POOLER_TYPES.has(p.type) &&
+            edges.some((e) => e.from === fn.id && e.to === p.id) &&
+            edges.some((e) => e.from === p.id && e.to === store.id),
+        )
+      ) {
+        continue;
+      }
+
+      const ceiling = store.attrs?.maxConnections;
+      const demand = fn.attrs?.autoscaleMax ?? fn.attrs?.replicas;
+      const arithmetic =
+        typeof ceiling === 'number' && typeof demand === 'number'
+          ? ` At ${demand} concurrent executions that is ${demand} connections against the ${ceiling} ${store.label} accepts.`
+          : '';
+
+      warnings.push(
+        finding(
+          'warning',
+          'serverless-direct-to-pooled-store',
+          `${fn.label} opens its own connection to ${store.label} on every invocation, and nothing pools them.` +
+            `${arithmetic} A connection ceiling is reached long before a request limit is, so this fails while ` +
+            `every dashboard still looks calm.`,
+          `Put a connection pooler or proxy between them — RDS Proxy, PgBouncer, or the equivalent — so the ` +
+            `functions share a bounded set of connections instead of each holding one.`,
+          [fn.id, store.id],
+          [],
+          'capacity-estimation',
+        ),
+      );
+    }
   }
 
   // Rule 6 — a model a user can reach with nothing reading the prompt first.

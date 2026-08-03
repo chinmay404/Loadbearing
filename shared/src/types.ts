@@ -158,6 +158,13 @@ export interface NodeAttrs {
    */
   workingSetGb?: number;
   /**
+   * A real cloud offering this component stands for, e.g.
+   * 'aws:rds-postgres:db.r6g.2xlarge:us-east-1'. Binding one writes its vCPU,
+   * memory and documented limits into the fields below, all of which stay
+   * editable — a SKU is a starting point, not a lock.
+   */
+  sku?: string;
+  /**
    * Connections a pooler or proxy holds open. Above this, callers queue for a
    * connection rather than for the data.
    */
@@ -325,6 +332,17 @@ export interface GraphDSL {
   edges: GraphEdge[];
   stickies: { text: string }[];
   flows: Flow[];
+  /**
+   * Which cloud this design is drawn against, if any.
+   *
+   * Absent means neutral, which is the default and is the tool as it has always
+   * been: no SKUs, no provider-specific rules, nothing to pick. Loadbearing
+   * teaches architecture, and a learner who never chooses a provider must lose
+   * nothing by it.
+   */
+  target?: import('./skus.js').DeploymentTarget;
+  /** Default region for components that do not name one of their own. */
+  region?: string;
 }
 
 /**

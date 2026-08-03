@@ -1,14 +1,73 @@
 import {
+  capacityOf,
+  costOf,
+  driftFrom,
   GROUP_LABEL,
   GROUP_ORDER,
+  latencyOf,
   paramsFor,
+  skuById,
   type ArchNodeType,
+  type CatalogValue,
   type NodeAttrs,
 } from '@loadbearing/shared';
 import { NODE_SPEC } from '../canvas/nodeCatalog';
 import { useCanvas, type ArchNodeData } from '../state/canvasStore';
 import { IconSkull } from '../ui/UiIcons';
 import { explainNode } from '../lib/mathExplain';
+
+/**
+ * Where the numbers underneath a component actually came from.
+ *
+ * The arithmetic above shows how the result was reached. This shows whether the
+ * inputs were measured, documented by a provider, or a considered guess — which
+ * is the difference between a number worth defending in a review and one worth
+ * replacing. Most of the catalogue is still a guess, and it says so rather than
+ * presenting every default with equal confidence.
+ */
+function Provenance({ type, attrs }: { type: ArchNodeType; attrs?: NodeAttrs }) {
+  const rows: { label: string; value: CatalogValue }[] = [
+    { label: 'capacity', value: capacityOf(type) },
+    { label: 'service time', value: latencyOf(type) },
+    { label: 'cost', value: costOf(type) },
+  ];
+  const sku = skuById(attrs?.sku);
+  const drift = driftFrom(attrs);
+
+  return (
+    <details className="disclose">
+      <summary>where these came from</summary>
+      {sku && (
+        <p className="faint" style={{ fontSize: 11.5, margin: '4px 0' }}>
+          Bound to <strong>{sku.display}</strong> in {sku.region}, priced {sku.measuredAt}.
+          {drift.length > 0 && (
+            <>
+              {' '}
+              Edited since:{' '}
+              {drift.map((d) => `${String(d.key)} is ${d.current}, not ${d.fromSku}`).join('; ')}.
+            </>
+          )}
+        </p>
+      )}
+      <table className="mathwork">
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label}>
+              <td className="k">{r.label}</td>
+              <td className="w">
+                <span className={`chip ${r.value.confidence === 'estimate' ? '' : 'pass'}`}>
+                  {r.value.confidence}
+                </span>{' '}
+                {r.value.source}
+              </td>
+              <td className="r">{r.value.measuredAt ?? ''}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </details>
+  );
+}
 
 /**
  * Every knob a component has, and only the ones it has.
@@ -181,6 +240,7 @@ export function InspectorPanel() {
                           </tbody>
                         </table>
                       </details>
+                      <Provenance type={data.archType} attrs={data.attrs} />
                     </>
                   );
                 })()}

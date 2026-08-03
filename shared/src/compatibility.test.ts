@@ -908,3 +908,104 @@ describe('read-after-write against a follower', () => {
     expect(CONCEPTS).toContain(f!.concept!);
   });
 });
+
+describe('serverless straight into a pooled store', () => {
+  const g = (opts: { pooler?: boolean; sized?: boolean }): GraphDSL => ({
+    nodes: [
+      { id: 'client', type: 'client', label: 'Client', annotation: '' },
+      {
+        id: 'fn',
+        type: 'serverless_fn',
+        label: 'Checkout Function',
+        annotation: 'Runs per request.',
+        ...(opts.sized ? { attrs: { autoscaleMax: 1000 } } : {}),
+      },
+      ...(opts.pooler
+        ? [{ id: 'proxy', type: 'db_proxy' as const, label: 'RDS Proxy', annotation: 'Shares connections.' }]
+        : []),
+      {
+        id: 'db',
+        type: 'sql_db',
+        label: 'Orders DB',
+        annotation: 'System of record.',
+        ...(opts.sized ? { attrs: { maxConnections: 450 } } : {}),
+      },
+    ],
+    edges: [
+      { id: 'e1', from: 'client', to: 'fn', kind: 'sync', label: '' },
+      ...(opts.pooler
+        ? [
+            { id: 'e2', from: 'fn', to: 'proxy', kind: 'sync' as const, label: '' },
+            { id: 'e3', from: 'proxy', to: 'db', kind: 'sync' as const, label: '' },
+            { id: 'e4', from: 'fn', to: 'db', kind: 'sync' as const, label: '' },
+          ]
+        : [{ id: 'e2', from: 'fn', to: 'db', kind: 'sync' as const, label: '' }]),
+    ],
+    stickies: [],
+    flows: [{ id: 'f', name: 'checkout', kind: 'write', steps: ['client', 'fn', 'db'], rps: 100, description: '' }],
+  });
+
+  const find = (graph: GraphDSL) =>
+    checkTopology(graph).find((f) => f.rule === 'serverless-direct-to-pooled-store');
+
+  it('warns when a function talks straight to a relational store', () => {
+    expect(find(g({}))).toBeDefined();
+  });
+
+  it('goes quiet once a proxy shares the connections', () => {
+    expect(find(g({ pooler: true }))).toBeUndefined();
+  });
+
+  it('states the arithmetic when both ends are sized', () => {
+    // The whole point of binding a real SKU: a documented ceiling beats a lecture.
+    expect(find(g({ sized: true }))!.message).toContain('1000 connections against the 450');
+  });
+
+  it('states the principle when they are not', () => {
+    const f = find(g({}))!;
+    expect(f.message).not.toContain('against the');
+    expect(f.message).toContain('every dashboard still looks calm');
+  });
+});
+
+describe('no rule invents a concept', () => {
+  it('every concept a finding cites actually exists', () => {
+    // This app discards invented citation keys from the grader server-side. It
+    // should not be capable of emitting one itself, and twice while writing these
+    // rules I nearly did.
+    const graphs: GraphDSL[] = [
+      {
+        nodes: [
+          { id: 'c', type: 'client', label: 'Client', annotation: '' },
+          { id: 'fn', type: 'serverless_fn', label: 'Fn', annotation: '' },
+          { id: 'db', type: 'sql_db', label: 'DB', annotation: '' },
+          { id: 'rep', type: 'read_replica', label: 'Replica', annotation: '' },
+          { id: 'llm', type: 'llm', label: 'Model', annotation: '' },
+          { id: 'q', type: 'queue', label: 'Queue', annotation: '' },
+        ],
+        edges: [
+          { id: 'e1', from: 'c', to: 'fn', kind: 'sync', label: '' },
+          { id: 'e2', from: 'fn', to: 'db', kind: 'sync', label: '' },
+          { id: 'e3', from: 'fn', to: 'rep', kind: 'sync', label: '' },
+          { id: 'e4', from: 'c', to: 'llm', kind: 'sync', label: '' },
+          { id: 'e5', from: 'fn', to: 'q', kind: 'async', label: '' },
+        ],
+        stickies: [],
+        flows: [
+          { id: 'r', name: 'read', kind: 'read', steps: ['c', 'fn', 'rep'], rps: 80, description: '' },
+          { id: 'w', name: 'write', kind: 'write', steps: ['c', 'fn', 'db'], rps: 20, description: '' },
+        ],
+      },
+    ];
+    const known = new Set<string>(CONCEPTS);
+    for (const graph of graphs) {
+      const cited = checkTopology(graph).filter((f) => f.concept !== undefined);
+      expect(cited.length).toBeGreaterThan(0);
+      for (const f of cited) {
+        expect(known.has(f.concept!), `${f.rule} cites '${f.concept}', which does not exist`).toBe(
+          true,
+        );
+      }
+    }
+  });
+});
