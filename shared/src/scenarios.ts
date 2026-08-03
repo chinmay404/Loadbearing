@@ -127,6 +127,9 @@ export function evaluateScenario(
     rpsMultiplier: Number.isFinite(scenario?.rpsMultiplier) ? scenario.rpsMultiplier : 1,
     killNodeIds: resolveKillIds(graph, scenario?.killNodes),
     thirdPartyLatencyMs: scenario?.thirdPartyLatencyMs ?? 0,
+    // Without this a scenario whose whole point is an internal dependency slowing
+    // down ran at baseline and reported a pass.
+    ...(scenario?.degrade?.length ? { degradations: scenario.degrade } : {}),
   };
   const sim = simulate(graph, config);
 

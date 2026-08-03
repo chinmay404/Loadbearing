@@ -21,8 +21,9 @@ import {
 } from './engine.js';
 import { costReport } from './cost.js';
 import { familyOf } from './families.js';
-import { CACHE_TYPES, DATASTORE_TYPES, QUEUE_TYPES, STATEFUL_TYPES } from './components.js';
+import { CACHE_TYPES, DATASTORE_TYPES, DEFAULT_LATENCY, QUEUE_TYPES, STATEFUL_TYPES } from './components.js';
 import type {
+  Degradation,
   Flow,
   GraphDSL,
   GraphNode,
@@ -61,13 +62,6 @@ const pct = (fraction: number): string => `${Math.round(fraction * 100)}%`;
 
 
 /**
- * The old three-knob config, expressed as a scenario the engine understands.
- *
- * Kill lists are resolved against the drawing, case-insensitively, by id OR label:
- * the problem bank's scenarios name components the way a person would ("Redis",
- * "primary"), and a gate that silently kills nothing would pass every design.
- */
-/**
  * How long the run is healthy before anything is taken away.
  *
  * Outages used to start at second zero, which made the design broken before the first
@@ -80,6 +74,14 @@ const pct = (fraction: number): string => `${Math.round(fraction * 100)}%`;
  */
 export const OUTAGE_AT_S = 20;
 
+/**
+ * The knob config, expressed as a scenario the engine understands.
+ *
+ * Kills and degradations are both resolved against the drawing, case-insensitively, by
+ * id OR label: a scenario is written by somebody describing their own system, and
+ * "Redis" or "Pricing Service" is what they call it. One that silently matches nothing
+ * would pass every design.
+ */
 export function scenarioFromConfig(config: SimConfig, graph: GraphDSL): Scenario {
   const wanted = (config.killNodeIds ?? []).map((k) => k.toLowerCase());
   const killed = graph.nodes
@@ -93,11 +95,81 @@ export function scenarioFromConfig(config: SimConfig, graph: GraphDSL): Scenario
     loadMultiplier: Math.max(0, config.rpsMultiplier ?? 1),
     outages: killed.map((nodeId) => ({ nodeId, atS: OUTAGE_AT_S })),
     // A third-party brownout lands on everything you call but do not run.
-    latency:
-      (config.thirdPartyLatencyMs ?? 0) > 0
+    latency: [
+      ...((config.thirdPartyLatencyMs ?? 0) > 0
         ? [{ family: 'external' as const, addMs: config.thirdPartyLatencyMs }]
-        : [],
+        : []),
+      ...resolveDegradations(graph, config.degradations)
+        .filter((d) => d.addMs !== undefined || d.latencyMultiple !== undefined)
+        .map((d) => ({
+          nodeId: d.nodeId,
+          // The engine adds milliseconds; a multiple is expressed against the service
+          // time this component actually has, which is the number the author means
+          // when they say "from 40ms to 600ms".
+          addMs:
+            d.addMs ??
+            Math.max(0, (d.latencyMultiple! - 1) * (d.serviceMs ?? 0)),
+          atS: d.atS ?? OUTAGE_AT_S,
+          ...(d.forS !== undefined ? { forS: d.forS } : {}),
+        })),
+    ],
+    overrides: resolveDegradations(graph, config.degradations)
+      .filter((d) => d.capacityMultiple !== undefined || d.hitRate !== undefined)
+      .map((d) => ({
+        nodeId: d.nodeId,
+        ...(d.capacityMultiple !== undefined ? { capacityMultiple: d.capacityMultiple } : {}),
+        ...(d.hitRate !== undefined ? { hitRate: d.hitRate } : {}),
+        atS: d.atS ?? OUTAGE_AT_S,
+        ...(d.forS !== undefined ? { forS: d.forS } : {}),
+      })),
   };
+}
+
+/**
+ * Degradations against the drawing: names resolved to ids, and the service time each
+ * component actually has looked up so a multiple means something.
+ *
+ * A degradation naming nothing on the sheet is dropped rather than guessed at — the
+ * same rule kills follow. Silently doing nothing is how a scenario comes to test
+ * nothing, so callers that care report what did not match.
+ */
+export function resolveDegradations(
+  graph: GraphDSL,
+  degradations: Degradation[] | undefined,
+): (Omit<Degradation, 'node'> & { nodeId: string; serviceMs: number })[] {
+  const out: (Omit<Degradation, 'node'> & { nodeId: string; serviceMs: number })[] = [];
+  for (const d of degradations ?? []) {
+    const wanted = String(d.node ?? '').toLowerCase();
+    if (!wanted) continue;
+    const node = graph.nodes.find(
+      (n) => n.id.toLowerCase() === wanted || n.label.toLowerCase() === wanted,
+    );
+    if (!node) continue;
+    const { node: _name, ...rest } = d;
+    out.push({
+      ...rest,
+      nodeId: node.id,
+      serviceMs: node.attrs?.latencyMs ?? DEFAULT_LATENCY[node.type],
+    });
+  }
+  return out;
+}
+
+/** Which components a degradation could not find. For a caller that should say so. */
+export function unmatchedDegradations(
+  graph: GraphDSL,
+  degradations: Degradation[] | undefined,
+): string[] {
+  const matched = new Set(resolveDegradations(graph, degradations).map((d) => d.nodeId));
+  return (degradations ?? [])
+    .filter((d) => {
+      const wanted = String(d.node ?? '').toLowerCase();
+      return !graph.nodes.some(
+        (n) =>
+          (n.id.toLowerCase() === wanted || n.label.toLowerCase() === wanted) && matched.has(n.id),
+      );
+    })
+    .map((d) => d.node);
 }
 
 export function simulate(graph: GraphDSL, config: SimConfig): SimResult {

@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CAPACITY } from './components.js';
-import { OUTAGE_AT_S, simulate } from './simulate.js';
+import { OUTAGE_AT_S, simulate, unmatchedDegradations } from './simulate.js';
 import type { ArchNodeType, GraphDSL, GraphEdge, GraphNode, NodeAttrs, SimConfig } from './types.js';
 
 const node = (id: string, type: ArchNodeType, attrs: NodeAttrs = {}): GraphNode => ({
@@ -443,5 +443,91 @@ describe('the timeline', () => {
       expect(p.offeredRps).toBe(Math.round(p.offeredRps * 100) / 100);
       expect(p.successRate).toBe(Math.round(p.successRate * 1000) / 1000);
     }
+  });
+});
+
+describe('degrading one named component', () => {
+  /** A cart that calls pricing, which is a service this team runs. */
+  const graph: GraphDSL = {
+    nodes: [
+      { id: 'c', type: 'client', label: 'App', annotation: '', attrs: { trafficRps: 200 } },
+      { id: 'cart', type: 'service', label: 'Cart Service', annotation: '', attrs: { replicas: 6, vcpu: 2, latencyMs: 25, concurrency: 48 } },
+      { id: 'pri', type: 'service', label: 'Pricing Service', annotation: '', attrs: { replicas: 6, vcpu: 4, latencyMs: 40, concurrency: 30 } },
+      { id: 'ext', type: 'third_party', label: 'Tax API', annotation: '', attrs: { latencyMs: 100, elastic: true } },
+    ],
+    edges: [
+      { id: 'e1', from: 'c', to: 'cart', kind: 'sync', label: '' },
+      { id: 'e2', from: 'cart', to: 'pri', kind: 'sync', label: '' },
+      { id: 'e3', from: 'cart', to: 'ext', kind: 'sync', label: '' },
+    ],
+    stickies: [],
+    flows: [{ id: 'f1', name: 'price a cart', kind: 'read', steps: ['c', 'cart', 'pri'], rps: 200, description: '' }],
+  };
+
+  const worstP99 = (config: Partial<SimConfig>) =>
+    Math.max(
+      ...simulate(graph, { rpsMultiplier: 1, killNodeIds: [], thirdPartyLatencyMs: 0, ...config }).flows.map(
+        (f) => f.p99Ms,
+      ),
+    );
+
+  it('slows an internal dependency, which thirdPartyLatencyMs could never reach', () => {
+    const baseline = worstP99({});
+    // The bug this exists for: a scenario written as "pricing degrades to 600ms" used
+    // thirdPartyLatencyMs, which only touches components you call and do not run — so
+    // once pricing was drawn as an internal service the scenario tested nothing.
+    expect(worstP99({ thirdPartyLatencyMs: 560 })).toBeCloseTo(baseline, 0);
+    expect(worstP99({ degradations: [{ node: 'Pricing Service', addMs: 560 }] })).toBeGreaterThan(
+      baseline * 2,
+    );
+  });
+
+  it('takes a multiple against the service time the component actually has', () => {
+    // 40ms × 15 is 600ms, which is what the author means by "from 40ms to 600ms".
+    const byMultiple = worstP99({ degradations: [{ node: 'Pricing Service', latencyMultiple: 15 }] });
+    const byMillis = worstP99({ degradations: [{ node: 'Pricing Service', addMs: 560 }] });
+    expect(byMultiple).toBeCloseTo(byMillis, 0);
+  });
+
+  it('finds a component by label or by id, the way a kill does', () => {
+    const byLabel = worstP99({ degradations: [{ node: 'Pricing Service', addMs: 500 }] });
+    const byId = worstP99({ degradations: [{ node: 'pri', addMs: 500 }] });
+    expect(byId).toBeCloseTo(byLabel, 0);
+  });
+
+  it('shrinks capacity, which is what a hot partition does', () => {
+    const before = simulate(graph, { rpsMultiplier: 1, killNodeIds: [], thirdPartyLatencyMs: 0 });
+    const squeezed = simulate(graph, {
+      rpsMultiplier: 1,
+      killNodeIds: [],
+      thirdPartyLatencyMs: 0,
+      // Six replicas holding thirty requests each at 40ms is 4,500 rps; a multiple has
+      // to be small enough to fall under the 200 offered, and my first attempt at this
+      // test used 0.05, which is 225 — comfortably above it, and it passed nothing.
+      degradations: [{ node: 'Pricing Service', capacityMultiple: 0.01 }],
+    });
+    const capacityOf = (r: typeof before) => r.nodes.find((n) => n.nodeId === 'pri')!.capacityRps;
+    expect(capacityOf(squeezed)).toBeLessThan(capacityOf(before) / 50);
+    expect(squeezed.totalDroppedRps).toBeGreaterThan(0);
+  });
+
+  it('reports what it could not find rather than silently doing nothing', () => {
+    expect(unmatchedDegradations(graph, [{ node: 'Cassandra', addMs: 100 }])).toEqual(['Cassandra']);
+    expect(unmatchedDegradations(graph, [{ node: 'Pricing Service', addMs: 100 }])).toEqual([]);
+  });
+
+  it('ignores a degradation naming nothing, instead of throwing', () => {
+    const baseline = worstP99({});
+    expect(worstP99({ degradations: [{ node: 'nowhere', addMs: 5000 }] })).toBeCloseTo(baseline, 0);
+  });
+
+  it('leaves the run healthy until the degradation lands', () => {
+    const t = simulate(graph, {
+      rpsMultiplier: 1,
+      killNodeIds: [],
+      thirdPartyLatencyMs: 0,
+      degradations: [{ node: 'Pricing Service', addMs: 2000 }],
+    }).timeline!;
+    expect(t.points[OUTAGE_AT_S - 5]!.p99Ms).toBeLessThan(t.points[OUTAGE_AT_S + 5]!.p99Ms);
   });
 });

@@ -2103,3 +2103,26 @@ svg.timeline-chart {
   stroke: var(--brass);
   stroke-width: 0.8;
 }
+
+/* Kill and slow, paired per component: two different failures of the same thing,
+   and a design that survives one often does not survive the other. */
+.chaos-pair button:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+button.chaos-slow {
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0 5px;
+  color: var(--pencil);
+}
+button.chaos-slow.on {
+  color: var(--load);
+  border-color: #6b4a1e;
+  background: #241c11;
+}

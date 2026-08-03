@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONCEPTS, layoutDiagram } from '@loadbearing/shared';
+import { CONCEPTS, docFromBlueprint, graphFromDoc, layoutDiagram } from '@loadbearing/shared';
 import { PROBLEM_BANK, PROBLEM_BY_ID } from './bank.js';
 import { auditSeedProblem, validateProblem } from './validate.js';
 
@@ -36,6 +36,40 @@ describe('problem bank', () => {
         }
       }
     }
+  });
+
+  /**
+   * A gate that names something not on the sheet kills nothing, slows nothing, and
+   * passes every design. That is worse than having no gate, because it reports a pass.
+   *
+   * Only labs can be checked this way — a blank sheet has no components yet, and its
+   * scenarios name what the author HOPES you draw. A lab ships the architecture, so
+   * every name in its own scenarios must resolve against it.
+   */
+  it('has no lab scenario that names a component the lab does not contain', () => {
+    const misses: string[] = [];
+    for (const lab of PROBLEM_BANK.filter((p) => p.kind === 'lab' && p.diagram)) {
+      // Against the PLACED graph, not the authored keys. The first version of this
+      // test compared scenario names to diagram keys and passed while the gate it was
+      // checking killed nothing, because placing rewrites keys into node ids and the
+      // resolver matches ids and labels. A test that checks a different string from
+      // the one the code checks is worse than no test.
+      const placed = graphFromDoc(docFromBlueprint(lab.diagram!));
+      const names = new Set(placed.nodes.flatMap((n) => [n.id.toLowerCase(), n.label.toLowerCase()]));
+      for (const s of lab.scenarios) {
+        // A kill list may name alternatives — "redis" OR "cache" — so at least one
+        // has to land, not all of them.
+        if (s.killNodes?.length && !s.killNodes.some((k) => names.has(k.toLowerCase()))) {
+          misses.push(`${lab.id}/${s.id}: kills ${s.killNodes.join(' or ')}, none of which is on the sheet`);
+        }
+        for (const d of s.degrade ?? []) {
+          if (!names.has(d.node.toLowerCase())) {
+            misses.push(`${lab.id}/${s.id}: degrades "${d.node}", which is not on the sheet`);
+          }
+        }
+      }
+    }
+    expect(misses).toEqual([]);
   });
 
   it('every problem meets the seed-content bar', () => {

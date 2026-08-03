@@ -1692,7 +1692,7 @@ const DESIGN_PROBLEMS: Problem[] = [
         name: 'The entry expires',
         description: 'Every request misses at once when the cached feed expires.',
         rpsMultiplier: 1,
-        killNodes: ['cache', 'redis'],
+        killNodes: ['Feed Cache', 'cache', 'redis'],
         passCriteria: 'The database is not offered more than it can serve; readers get a stale or queued answer rather than a 12-second wait.',
       },
       {
@@ -1700,7 +1700,7 @@ const DESIGN_PROBLEMS: Problem[] = [
         name: 'Deploy flushes the cache',
         description: 'The cache is empty at full traffic.',
         rpsMultiplier: 2,
-        killNodes: ['cache', 'redis'],
+        killNodes: ['Feed Cache', 'cache', 'redis'],
         passCriteria: 'The site degrades in a stated way and recovers without manual intervention.',
       },
     ],
@@ -1770,9 +1770,12 @@ const DESIGN_PROBLEMS: Problem[] = [
       {
         id: 'brownout',
         name: 'Pricing slows down',
-        description: 'The pricing dependency adds 600ms to every call.',
+        description: 'The pricing dependency goes from 40ms to 600ms. It does not fail — it is just slow.',
         rpsMultiplier: 1,
-        thirdPartyLatencyMs: 600,
+        // Named, not thirdPartyLatencyMs: pricing is a service this team runs, and the
+        // third-party lever does not reach it. Before this existed the scenario ran at
+        // baseline and passed, which is the worst possible outcome for a gate.
+        degrade: [{ node: 'Pricing Service', addMs: 560 }],
         passCriteria: 'Attempts on the dependency stay near real traffic rather than multiplying, and checkout still answers within its budget.',
       },
       {
@@ -1780,7 +1783,7 @@ const DESIGN_PROBLEMS: Problem[] = [
         name: 'Pricing offline',
         description: 'The pricing service refuses every call for ten minutes.',
         rpsMultiplier: 1,
-        killNodes: ['pricing', 'service'],
+        killNodes: ['Pricing Service', 'pricing'],
         passCriteria: 'Checkout degrades in a stated way rather than hanging, and no layer floods the dead dependency.',
       },
       {
@@ -1788,7 +1791,7 @@ const DESIGN_PROBLEMS: Problem[] = [
         name: 'Slow at peak',
         description: 'The same slowdown lands during a five-times-normal traffic hour.',
         rpsMultiplier: 5,
-        thirdPartyLatencyMs: 600,
+        degrade: [{ node: 'Pricing Service', addMs: 560 }],
         passCriteria: 'The system sheds deliberately at the edge instead of collapsing inward.',
       },
     ],

@@ -95,7 +95,11 @@ export function InspectorPanel() {
   const updateNodeData = useCanvas((s) => s.updateNodeData);
   const setEdgeLabel = useCanvas((s) => s.setEdgeLabel);
   const killIds = useCanvas((s) => s.simConfig.killNodeIds);
+  const degradations = useCanvas((s) => s.simConfig.degradations);
+  // Filtered outside the selector: a fresh array from a selector re-renders forever.
+  const slowIds = (degradations ?? []).map((d) => d.node);
   const toggleKill = useCanvas((s) => s.toggleKillNode);
+  const toggleSlow = useCanvas((s) => s.toggleSlowNode);
   const simRunning = useCanvas((s) => s.simRunning);
   const sim = useCanvas((s) => s.simResult);
 
@@ -186,25 +190,44 @@ export function InspectorPanel() {
 
       {simRunning && archNodes.length > 0 && (
         <div className="card">
-          <h4>Chaos — take something offline</h4>
+          <h4>Chaos — break something</h4>
           <p className="faint" style={{ fontSize: 11.5 }}>
             Kill a component and watch which flows survive. Redundant siblings absorb the traffic; single
             instances break the flow. That is what a SPOF feels like.
+          </p>
+          <p className="faint" style={{ fontSize: 11.5 }}>
+            Slowing one down is usually worse than killing it, and it is the failure most designs are
+            unprepared for: a dead dependency fails fast and a slow one holds a worker until the caller
+            gives up. <b>Slow</b> makes a component ten times its own service time — a bad query plan, a
+            saturated disk — twenty seconds into the run, so you can see the before.
           </p>
           <div className="row wrap" style={{ gap: 4 }}>
             {archNodes.map((n) => {
               const data = n.data as ArchNodeData;
               const dead = killIds.includes(n.id);
+              const slow = slowIds.includes(n.id);
               return (
-                <button
-                  key={n.id}
-                  className={dead ? 'danger on' : ''}
-                  onClick={() => toggleKill(n.id)}
-                  title={dead ? 'Bring this component back online' : 'Take this component offline'}
-                >
-                  {dead ? <IconSkull size={13} /> : null}
-                  {data.label}
-                </button>
+                <span className="row chaos-pair" key={n.id} style={{ gap: 0 }}>
+                  <button
+                    className={dead ? 'danger on' : ''}
+                    onClick={() => toggleKill(n.id)}
+                    title={dead ? 'Bring this component back online' : 'Take this component offline'}
+                  >
+                    {dead ? <IconSkull size={13} /> : null}
+                    {data.label}
+                  </button>
+                  <button
+                    className={`chaos-slow${slow ? ' on' : ''}`}
+                    onClick={() => toggleSlow(n.id)}
+                    title={
+                      slow
+                        ? `${data.label} is back to its normal speed`
+                        : `Make ${data.label} ten times slower from 20s in — the failure a fail-fast design handles and a blocking one does not`
+                    }
+                  >
+                    slow
+                  </button>
+                </span>
               );
             })}
           </div>

@@ -379,6 +379,14 @@ export interface LoadScenario {
   killNodes?: string[];
   /** Extra latency injected into every third-party call, ms. */
   thirdPartyLatencyMs?: number;
+  /**
+   * Named components made worse without being killed.
+   *
+   * The lever a brownout needs. `thirdPartyLatencyMs` only reaches things you call
+   * and do not run, so a scenario about an internal dependency slowing down had no
+   * way to say so and quietly tested nothing.
+   */
+  degrade?: Degradation[];
   /** What a passing design must do. Shown after the run. */
   passCriteria: string;
   /** Structured gates; when absent, sensible defaults apply (see scenarios.ts). */
@@ -643,10 +651,41 @@ export interface SimResult {
   timeline?: SimTimeline;
 }
 
+/**
+ * One named component made worse, without killing it.
+ *
+ * A brownout is the interesting failure and it was the one thing this could not
+ * express. Every scenario phrased as "the pricing service degrades from 40ms to
+ * 600ms" was silently a no-op, because the only latency lever aimed at third
+ * parties — so the moment somebody drew pricing as an internal service, which is
+ * what it is, the scenario stopped doing anything at all and still reported a pass.
+ *
+ * Named by label or id, matched the way kills are, because a scenario is written by a
+ * person describing their own system and "Pricing Service" is what they call it.
+ */
+export interface Degradation {
+  /** Component label or id. */
+  node: string;
+  /** Milliseconds added to its service time. */
+  addMs?: number;
+  /** Multiplies its service time. 15 turns 40ms into 600ms. */
+  latencyMultiple?: number;
+  /** Multiplies its capacity. 0.1 is a hot partition; 0 is a stall. */
+  capacityMultiple?: number;
+  /** For a cache: the hit rate it drops to. 0 is a stampede. */
+  hitRate?: number;
+  /** Seconds in. Defaults to the same moment a kill would land. */
+  atS?: number;
+  /** How long for. Omitted means for the rest of the run. */
+  forS?: number;
+}
+
 export interface SimConfig {
   rpsMultiplier: number;
   killNodeIds: string[];
   thirdPartyLatencyMs: number;
+  /** Components made slower or smaller mid-run. */
+  degradations?: Degradation[];
 }
 
 // ---------- LLM / settings ----------

@@ -190,6 +190,8 @@ interface CanvasState extends Snapshot {
   setSimConfig: (patch: Partial<SimConfig>) => void;
   setSimRunning: (v: boolean) => void;
   toggleKillNode: (id: string) => void;
+  /** Make one component ten times slower, mid-run. Toggles. */
+  toggleSlowNode: (id: string) => void;
 
   // history
   undo: () => void;
@@ -1305,6 +1307,27 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   setSimResult: (simResult, source = 'local') => set({ simResult, simSource: source }),
   setSimConfig: (patch) => set((s) => ({ simConfig: { ...s.simConfig, ...patch } })),
   setSimRunning: (simRunning) => set({ simRunning }),
+
+  /**
+   * Slow one component down without killing it.
+   *
+   * The interesting failure is the brownout, and it was the one thing the instrument
+   * could not do: the latency slider aims at third parties, so a component you run
+   * yourself could only be alive or dead. Toggling sets a tenfold slowdown, which is
+   * roughly the shape of a bad query plan or a saturated disk.
+   */
+  toggleSlowNode: (id) =>
+    set((s) => {
+      const already = (s.simConfig.degradations ?? []).some((d) => d.node === id);
+      return {
+        simConfig: {
+          ...s.simConfig,
+          degradations: already
+            ? (s.simConfig.degradations ?? []).filter((d) => d.node !== id)
+            : [...(s.simConfig.degradations ?? []), { node: id, latencyMultiple: 10 }],
+        },
+      };
+    }),
 
   toggleKillNode: (id) =>
     set((s) => {
