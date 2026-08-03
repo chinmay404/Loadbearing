@@ -159,6 +159,37 @@ describe('registration', () => {
     expect(res.status).toBe(400);
     expect(await res.text()).toContain('not issued by this server');
   });
+
+  /**
+   * A refusal a connector cannot act on is a bricked connector.
+   *
+   * Claude registers once and remembers the client_id for that URL forever; it does
+   * not re-register when an authorize request is refused, because a refusal is an HTML
+   * page in a popup and not an error it parses. So the page has to say the one thing
+   * that fixes it, or the only way out is guessing.
+   */
+  it('tells the user how to recover from a client_id it cannot verify', async () => {
+    const res = await app.request(authorizeUrl('made.up', challengeFor(verifier())), { headers: { cookie } });
+    expect(await res.text()).toContain('add it again');
+  });
+
+  /**
+   * The two ways verification fails are not the same failure and do not have the same
+   * remedy, and the client_id itself says which one this is: ours carries a payload
+   * that still decodes even when the signature no longer matches.
+   */
+  it('recognises a client_id of its own shape whose signature no longer matches', async () => {
+    const real = await register();
+    const payload = real.slice(0, real.lastIndexOf('.'));
+    // Same shape, same length, a signature from some other secret.
+    const foreign = `${payload}.${createHash('sha256').update('another deployment').digest('base64url')}`;
+
+    const res = await app.request(authorizeUrl(foreign, challengeFor(verifier())), { headers: { cookie } });
+    expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text).toContain('signing secret');
+    expect(text).toContain('add it again');
+  });
 });
 
 describe('the authorization page', () => {

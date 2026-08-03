@@ -171,24 +171,111 @@ interface AuthorizeParams {
   challenge: string;
 }
 
-function readAuthorizeParams(query: Record<string, string | undefined>): AuthorizeParams | string {
+/**
+ * A refusal, and where possible the one action that ends it.
+ *
+ * Most of these are a client behaving badly and the message is for whoever is reading
+ * the logs. One of them is not: an unverifiable client_id happens to people who did
+ * everything right, and telling them only that it cannot be granted leaves them with
+ * a dead connector and no next move.
+ */
+interface Denial {
+  message: string;
+  remedy?: string;
+}
+
+const deny = (message: string): Denial => ({ message });
+
+const isDenial = (value: AuthorizeParams | Denial): value is Denial => 'message' in value;
+
+/**
+ * Does this client_id at least look like one we minted?
+ *
+ * The payload is ours to read even when the signature is not ours to trust: it is
+ * base64url JSON, so a client_id signed with a secret we no longer hold still decodes,
+ * while one that was typed in by hand or truncated in transit does not. That is the
+ * whole difference between the two remedies below, and it is legible from the value
+ * itself without storing anything.
+ */
+function looksMinted(clientId: string): boolean {
+  const cut = clientId.lastIndexOf('.');
+  if (cut <= 0) return false;
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(clientId.slice(0, cut), 'base64url').toString('utf8'),
+    ) as Partial<RegisteredClient>;
+    return Array.isArray(parsed.r) && typeof parsed.n === 'string';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A client_id that will not verify, explained.
+ *
+ * This is the failure that stranded a real connector, so it gets the diagnosis rather
+ * than a shrug. A connector registers once per address and remembers the answer
+ * forever: it does not re-register when an authorize request is refused, because the
+ * refusal is an HTML page in a popup and not an error it parses. So whatever this page
+ * says is the entire recovery procedure, and the log line is the only trace a
+ * serverless host will keep of which of the two happened.
+ */
+function denyUnknownClient(clientId: string): Denial {
+  const minted = looksMinted(clientId);
+  console.log(
+    `[loadbearing] oauth: refused a client_id of ${clientId.length} chars — ${
+      minted ? 'our shape, but the signature does not match this secret' : 'not our shape at all'
+    }`,
+  );
+
+  if (minted) {
+    return {
+      message:
+        'That client_id was issued here, but not with the signing secret this deployment is using now.',
+      remedy:
+        'LOADBEARING_SESSION_SECRET has changed since this client registered, which invalidates every registration signed with the old one. Remove the connector in Claude and add it again — it registered once and has no way to notice that the answer went stale.',
+    };
+  }
+  return {
+    message: 'That client_id was not issued by this server.',
+    remedy:
+      'Remove the connector in Claude and add it again, leaving both OAuth fields empty. Claude registers itself and is handed a client_id; one filled in by hand cannot work, because nothing on this side ever issued it.',
+  };
+}
+
+function readAuthorizeParams(query: Record<string, string | undefined>): AuthorizeParams | Denial {
   const clientId = query.client_id ?? '';
   const client = unpack<RegisteredClient>(clientId);
-  if (!client) return 'That client_id was not issued by this server.';
+  if (!client) return denyUnknownClient(clientId);
 
   const redirectUri = query.redirect_uri ?? client.r[0]!;
   // Exact match, no prefix matching: a redirect URI is where a credential gets sent.
-  if (!client.r.includes(redirectUri)) return 'That redirect_uri was not registered by this client.';
+  if (!client.r.includes(redirectUri)) return deny('That redirect_uri was not registered by this client.');
 
-  if ((query.response_type ?? 'code') !== 'code') return 'Only the authorization code flow is supported.';
+  if ((query.response_type ?? 'code') !== 'code') return deny('Only the authorization code flow is supported.');
   if (query.code_challenge_method !== 'S256') {
-    return 'PKCE with S256 is required. A client that cannot do that cannot connect.';
+    return deny('PKCE with S256 is required. A client that cannot do that cannot connect.');
   }
   const challenge = query.code_challenge ?? '';
-  if (challenge.length < 20) return 'A code_challenge is required.';
+  if (challenge.length < 20) return deny('A code_challenge is required.');
 
   return { clientId, client, redirectUri, state: query.state ?? '', challenge };
 }
+
+/** The refusal as the page a popup will show. */
+const refuse = (
+  // `html` is Hono's, which may hand back a promise; both call sites are async and
+  // return it either way.
+  c: { html: (body: string, status: 400) => Response | Promise<Response> },
+  denial: Denial,
+): Response | Promise<Response> =>
+  c.html(
+    page(
+      'This request cannot be granted',
+      `<p>${escape(denial.message)}</p>${denial.remedy ? `<p class="warn">${escape(denial.remedy)}</p>` : ''}`,
+    ),
+    400,
+  );
 
 /**
  * The consent screen.
@@ -200,7 +287,7 @@ function readAuthorizeParams(query: Record<string, string | undefined>): Authori
  */
 oauthRoutes.get('/oauth/authorize', async (c) => {
   const parsed = readAuthorizeParams(c.req.query());
-  if (typeof parsed === 'string') return c.html(page('This request cannot be granted', `<p>${escape(parsed)}</p>`), 400);
+  if (isDenial(parsed)) return refuse(c, parsed);
 
   const userId = verifyToken(tokenFrom(c));
   const user = userId ? await (await storage()).getUserById(userId) : null;
@@ -251,7 +338,7 @@ oauthRoutes.post('/oauth/authorize', requireUser, async (c) => {
     code_challenge: String(form.code_challenge ?? ''),
     code_challenge_method: 'S256',
   });
-  if (typeof parsed === 'string') return c.html(page('This request cannot be granted', `<p>${escape(parsed)}</p>`), 400);
+  if (isDenial(parsed)) return refuse(c, parsed);
 
   const code: AuthCode = {
     u: c.get('userId'),
