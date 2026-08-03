@@ -130,9 +130,11 @@ describe('evaluateScenario — default gates', () => {
     });
     const v = evaluateScenario(g, scenario({ rpsMultiplier: 100 }));
     expect(v.pass).toBe(false);
-    expect(v.metrics.droppedPct).toBeCloseTo(80, 1);
+    // Was 80% when the API tier's capacity ignored the database it calls. It now
+    // holds a worker for the round trip, so it serves less and drops more.
+    expect(v.metrics.droppedPct).toBeCloseTo(83.51, 1);
     expect(
-      v.reasons.some((r) => r.includes('80% of offered traffic dropped (gate: at most 1%)')),
+      v.reasons.some((r) => r.includes('83.51% of offered traffic dropped (gate: at most 1%)')),
     ).toBe(true);
     // Ordering: the failed drop gate leads, the passed no-broken gate follows.
     expect(v.reasons[0]!.startsWith('FAIL')).toBe(true);
@@ -181,10 +183,15 @@ describe('evaluateScenario — the problem p99 budget', () => {
     const v = evaluateScenario(straightLine(), scenario({ rpsMultiplier: 20 }), {
       problemP99Ms: 100,
     });
-    // 2000 rps exactly saturates the API tier: latency explodes, nothing drops.
+    // 2000 rps overruns the API tier, which holds a worker for its database round
+    // trip and so serves ~1644 rather than the 2000 it appeared to before.
+    //
+    // The claim under test is about GATE SELECTION, not about this design coping:
+    // whatever else the surge does, the problem's latency budget must not be one
+    // of the things judging it. So the p99 must be over budget and still unmentioned.
     expect(v.metrics.worstP99Ms).toBeGreaterThan(100);
-    expect(v.pass).toBe(true);
     expect(v.reasons.some((r) => r.includes('p99'))).toBe(false);
+    expect(v.reasons.some((r) => r.includes('at most 100ms'))).toBe(false);
   });
 
   it('measures p99 over synchronous flows only — an async pipeline never fails the gate', () => {
@@ -247,8 +254,10 @@ describe('evaluateAllScenarios', () => {
     // Baseline is held to the problem's 100ms budget (p99 is 125ms) and fails...
     expect(verdicts[0]!.pass).toBe(false);
     expect(verdicts[0]!.reasons.some((r) => r.includes('at most 100ms'))).toBe(true);
-    // ...while the 20x surge is not held to it.
-    expect(verdicts[1]!.pass).toBe(true);
+    // ...while the 20x surge is not held to it. The surge fails on dropped traffic
+    // — the API tier cannot serve 2000 rps once its database call is charged for —
+    // but never on the latency budget, which is the distinction being tested.
+    expect(verdicts[1]!.reasons.some((r) => r.includes('at most 100ms'))).toBe(false);
   });
 
   it('ignores a non-numeric p99 and returns [] for a problem with no scenarios', () => {

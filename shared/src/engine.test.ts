@@ -825,3 +825,110 @@ describe('queueing depends on how many channels a thing has', () => {
     expect(hop(runEngine(g, scenario()), 'api').servers).toBe(64);
   });
 });
+
+describe('a caller pays for what it waits on', () => {
+  const chain = (dbMs: number) =>
+    graph(
+      [
+        node('web', 'client', { trafficRps: 100 }),
+        // 8 slots in flight. Alone it would serve 8 / 0.010 = 800 rps.
+        node('api', 'service', { vcpu: 1, latencyMs: 10 }),
+        node('db', 'sql_db', { latencyMs: dbMs, capacityRps: 100_000 }),
+      ],
+      [edge('api', 'db'), edge('web', 'api')],
+    );
+
+  it('a fast dependency leaves the caller near its own limit', () => {
+    // 10ms own + 0.5ms wire + 10ms db = 20.5ms held => ~390 rps.
+    const api = hop(runEngine(chain(10), scenario()), 'api');
+    expect(api.capacityRps).toBeGreaterThan(350);
+    expect(api.capacityRps).toBeLessThan(420);
+  });
+
+  it('a slow dependency costs the caller throughput it never used', () => {
+    // The same 8 workers, now held ~510ms each: roughly 16 rps, from 800.
+    const api = hop(runEngine(chain(500), scenario()), 'api');
+    expect(api.capacityRps).toBeLessThan(25);
+    expect(api.capacityRps).toBeGreaterThan(10);
+  });
+
+  it('reports the occupancy it charged', () => {
+    expect(hop(runEngine(chain(500), scenario()), 'api').occupancyMs).toBeGreaterThan(500);
+  });
+
+  it('does not charge the caller for asynchronous hand-offs', () => {
+    // Nobody waits past a hand-off, so a slow consumer costs the producer nothing.
+    const g = graph(
+      [
+        node('web', 'client', { trafficRps: 100 }),
+        node('api', 'service', { vcpu: 1, latencyMs: 10 }),
+        node('q', 'queue'),
+      ],
+      [edge('api', 'q', { kind: 'async' }), edge('web', 'api')],
+    );
+    expect(hop(runEngine(g, scenario()), 'api').occupancyMs).toBeCloseTo(10, 0);
+  });
+
+  it('never charges more than the caller is willing to wait', () => {
+    // A 2s timeout releases the worker at 2s, rather than holding it for 30.
+    const g = graph(
+      [
+        node('web', 'client', { trafficRps: 1 }),
+        node('api', 'service', { vcpu: 1, latencyMs: 10, timeoutMs: 2000 }),
+        node('slow', 'third_party', { latencyMs: 30_000, capacityRps: 100_000 }),
+      ],
+      [edge('api', 'slow'), edge('web', 'api')],
+    );
+    expect(hop(runEngine(g, scenario()), 'api').occupancyMs).toBeLessThanOrEqual(2000);
+  });
+
+  it('charges the wire, so a cross-region dependency costs capacity too', () => {
+    const near = graph(
+      [
+        node('web', 'client', { trafficRps: 10 }),
+        node('api', 'service', { vcpu: 1, latencyMs: 10 }),
+        node('db', 'sql_db', { latencyMs: 10, capacityRps: 100_000 }),
+      ],
+      [edge('api', 'db'), edge('web', 'api')],
+    );
+    const far = graph(
+      [
+        node('web', 'client', { trafficRps: 10 }),
+        node('api', 'service', { vcpu: 1, latencyMs: 10 }),
+        node('db', 'sql_db', { latencyMs: 10, capacityRps: 100_000 }),
+      ],
+      [edge('api', 'db', { placement: 'cross-region' }), edge('web', 'api')],
+    );
+    const nearCap = hop(runEngine(near, scenario()), 'api').capacityRps;
+    const farCap = hop(runEngine(far, scenario()), 'api').capacityRps;
+    // 20.5ms held becomes 90.5ms held: roughly a quarter of the throughput.
+    expect(farCap).toBeLessThan(nearCap / 3);
+  });
+
+  it('terminates on a cycle instead of recursing forever', () => {
+    const g = graph(
+      [
+        node('web', 'client', { trafficRps: 10 }),
+        node('a', 'service', { latencyMs: 10 }),
+        node('b', 'service', { latencyMs: 10 }),
+      ],
+      [edge('web', 'a'), edge('a', 'b'), edge('b', 'a')],
+    );
+    expect(() => runEngine(g, scenario())).not.toThrow();
+  });
+
+  it('settles rather than oscillating on a deep synchronous chain', () => {
+    const nodes = [node('web', 'client', { trafficRps: 50 })];
+    const edges = [edge('web', 's0')];
+    for (let i = 0; i < 10; i += 1) {
+      nodes.push(node(`s${i}`, 'service', { vcpu: 1, latencyMs: 20 }));
+      if (i > 0) edges.push(edge(`s${i - 1}`, `s${i}`));
+    }
+    const g = graph(nodes, edges);
+    const a = runEngine(g, scenario({ horizonS: 30 }));
+    const b = runEngine(g, scenario({ horizonS: 30 }));
+    expect(JSON.stringify(a.final)).toBe(JSON.stringify(b.final));
+    const lastTwo = a.ticks.slice(-2);
+    expect(lastTwo[0]!.p99Ms).toBeCloseTo(lastTwo[1]!.p99Ms, 6);
+  });
+});

@@ -39,6 +39,7 @@ import {
   waitP99Ms,
   TAIL_MULTIPLE_IDLE,
 } from './queueing.js';
+import { inferPlacement, rttMs } from './network.js';
 import type {
   ArchNodeType,
   GraphDSL,
@@ -164,6 +165,13 @@ export interface HopState {
    * until it is nearly full.
    */
   servers: number;
+  /**
+   * How long one request holds a worker: this component's own service time plus
+   * the wire and the response of everything it synchronously calls. Capacity is
+   * concurrency divided by this, which is why a slow dependency costs its caller
+   * throughput the caller never used.
+   */
+  occupancyMs: number;
 }
 
 export interface TickState {
@@ -371,15 +379,15 @@ function defaultConcurrency(node: GraphNode): number {
  * catalogue default. An explicit `capacityRps` still overrides it, for anyone who
  * would rather state the number outright.
  */
-function perReplicaCapacity(node: GraphNode, serviceMs: number): number {
+function perReplicaCapacity(node: GraphNode, occupancyMs: number): number {
   const explicit = node.attrs?.capacityRps;
   if (typeof explicit === 'number' && explicit > 0) return explicit;
-  if (serviceMs <= 0) return DEFAULT_CAPACITY[node.type] ?? 500;
+  if (occupancyMs <= 0) return DEFAULT_CAPACITY[node.type] ?? 500;
   const concurrency = num(node.attrs?.concurrency, concurrencyFor(node));
   const shards = Math.max(1, Math.floor(num(node.attrs?.shards, 1)));
   // Shards hold DIFFERENT data, so throughput multiplies. Replicas hold the same data
   // and are handled separately, because they buy availability rather than capacity.
-  return (concurrency / (serviceMs / 1000)) * shards;
+  return (concurrency / (occupancyMs / 1000)) * shards;
 }
 
 /**
@@ -698,6 +706,15 @@ interface NodeRuntime {
   hostLimited: boolean;
   /** Parallel service channels, for queueing. */
   servers: number;
+  /** Own service time plus everything synchronously waited on, ms. */
+  occupancyMs: number;
+  /**
+   * The scenario's capacity override for this tick — a hot partition at 0.1, say.
+   * Carried on the runtime because capacity is re-derived from occupancy inside
+   * the relaxation loop, and a re-derivation that forgot this silently undid
+   * every degradation a scenario asked for.
+   */
+  capacityMultiple: number;
 }
 
 /**
@@ -751,6 +768,113 @@ function consumerCapacity(
 function isTransparentWhenDown(type: ArchNodeType): boolean {
   const family = familyOf(type);
   return family === 'cache' || family === 'control';
+}
+
+/**
+ * Families where a request in flight occupies a WORKER rather than a socket.
+ *
+ * This is the line between "a slow dependency costs me throughput" and "a slow
+ * dependency costs me nothing but memory". A thread-per-request service blocked on
+ * a database has that worker unavailable to anyone else, and its capacity falls
+ * accordingly. An event-driven proxy blocked on the same database is holding a
+ * file descriptor: it can hold tens of thousands of them, which is the entire
+ * reason load balancers and gateways are built that way.
+ *
+ * Getting this wrong is not subtle. Charging a load balancer's capacity for its
+ * backends' service time took it from 50,000 rps to 2,400 and starved everything
+ * drawn behind it.
+ */
+const WORKER_BOUND: ReadonlySet<Family> = new Set<Family>([
+  'compute',
+  'datastore',
+  'ai',
+  'external',
+]);
+
+/**
+ * How long each component holds a worker, and therefore what its capacity is.
+ *
+ * A caller waits for its own work AND for everything it synchronously calls, so a
+ * payment provider slowing to four seconds takes out a checkout API that is
+ * nowhere near its request limit. The engine asserted this relationship in three
+ * separate comments and implemented it in none: `perReplicaCapacity` read only a
+ * node's own `latencyMs`, so a slow dependency changed nothing upstream.
+ *
+ * Walks downward from every node, memoised per pass. What a caller experiences is
+ * the callee's QUEUED response, not its bare service time, so congestion
+ * propagates upward and a saturated dependency drags its callers down with it —
+ * which is the cascading failure this whole model exists to show.
+ *
+ * Two guards. A cycle returns the node's own service time on the second visit
+ * rather than recursing. And every result is capped at what the caller is
+ * prepared to wait: a caller that gives up at two seconds does not hold a worker
+ * for thirty. That cap is physically correct and also what bounds the feedback
+ * loop — the spiral must be possible, but it must terminate.
+ */
+function computeOccupancy(prep: Prepared, runtime: Map<string, NodeRuntime>): void {
+  const memo = new Map<string, number>();
+
+  const responseOf = (nodeId: string, visiting: Set<string>): number => {
+    const r = runtime.get(nodeId);
+    if (!r) return 0;
+    const cached = memo.get(nodeId);
+    if (cached !== undefined) return cached;
+    if (visiting.has(nodeId)) return r.serviceMs;
+
+    visiting.add(nodeId);
+
+    // Past a hand-off nobody is waiting, so it costs the caller nothing.
+    const outs = (prep.out.get(nodeId) ?? []).filter(
+      (e) => e.kind !== 'async' && runtime.has(e.to),
+    );
+
+    /** One hop's cost: the wire, plus whatever the far end takes to answer. */
+    const costOf = (e: GraphEdge): number => {
+      const fromRegion = r.node.attrs?.region;
+      const toRegion = runtime.get(e.to)!.node.attrs?.region;
+      return (
+        rttMs(e.placement ?? inferPlacement(fromRegion, toRegion), fromRegion, toRegion) +
+        responseOf(e.to, visiting)
+      );
+    };
+
+    let downstream = 0;
+    if (outs.length > 0) {
+      if (distributionOf(r.node.type) === 'distribute') {
+        // A router hands each request to ONE downstream, so what its caller waits
+        // for is the weighted AVERAGE of its backends, not their sum. Summing made
+        // a load balancer in front of three services wait for all three, which
+        // collapsed its capacity and starved everything behind it.
+        const routable = outs.filter(
+          (e) => familyOf(runtime.get(e.to)!.node.type) !== 'control',
+        );
+        const across = routable.length > 0 ? routable : outs;
+        const weights = across.map((e) => num(e.share, 1 / across.length));
+        const total = weights.reduce((a, b) => a + b, 0) || 1;
+        downstream = across.reduce(
+          (sum, e, i) => sum + (weights[i]! / total) * costOf(e),
+          0,
+        );
+      } else {
+        // A service calls every dependency it has, so it waits for all of them —
+        // each weighted by how often that call is actually made.
+        downstream = outs.reduce((sum, e) => sum + Math.min(1, num(e.share, 1)) * costOf(e), 0);
+      }
+    }
+    visiting.delete(nodeId);
+
+    const occupancy = Math.min(
+      r.serviceMs + downstream,
+      num(r.node.attrs?.timeoutMs, defaultTimeoutFor(r.node, r.family)),
+    );
+    r.occupancyMs = occupancy;
+
+    const response = occupancy * responseMultiple(r.utilization, r.servers);
+    memo.set(nodeId, response);
+    return response;
+  };
+
+  for (const node of prep.nodes) responseOf(node.id, new Set());
 }
 
 export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
@@ -834,6 +958,8 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         failFraction: 0,
         hostLimited: false,
         servers: serversOf(node, replicas),
+        occupancyMs: serviceMs,
+        capacityMultiple,
       });
     }
 
@@ -937,6 +1063,26 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
           firstAttempts += attempts;
           retriedAttempts += attempts * multiplier;
         });
+      }
+
+      // Occupancy before anything measures demand against a pool, because a
+      // "how much of the pool does this need" question is answered in
+      // concurrency-seconds and needs the holding time to be right first.
+      //
+      // Capacity is then re-derived from it. This is the fixpoint: capacity
+      // depends on what a caller waits for, which depends on how busy that thing
+      // is, which depends on what upstream capacity let through. The same
+      // relaxation rounds that already resolve retry amplification resolve this.
+      computeOccupancy(prep, runtime);
+      for (const node of prep.nodes) {
+        const r = runtime.get(node.id)!;
+        if (r.down || r.node.attrs?.elastic === true) continue;
+        // Only where a request in flight costs a worker. A proxy waiting on a
+        // backend is holding a socket, and sockets are cheap.
+        if (!WORKER_BOUND.has(r.family)) continue;
+        // An explicit rps is the author overriding the derivation outright.
+        if (typeof r.node.attrs?.capacityRps === 'number' && r.node.attrs.capacityRps > 0) continue;
+        r.capacity = Math.max(0, perReplicaCapacity(r.node, r.occupancyMs) * r.replicas * r.capacityMultiple);
       }
 
       // Components sharing a pool compete for it.
@@ -1173,6 +1319,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         hostLimited: r.hostLimited,
         elastic: r.node.attrs?.elastic === true,
         servers: r.servers,
+        occupancyMs: round(r.occupancyMs),
       };
     });
 
