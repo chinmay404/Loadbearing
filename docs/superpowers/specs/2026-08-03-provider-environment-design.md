@@ -49,19 +49,32 @@ The central simplification. Cloud billing looks like hundreds of models and is
 in practice six:
 
 ```ts
+/** Graduated pricing. A flat rate is a single tier starting at zero. */
+interface Tier {
+  fromUnits: number;
+  usd: number;
+}
+
 type PricingShape =
-  | { kind: 'per-hour';                  usd: number }
-  | { kind: 'per-million-requests';      usd: number }
-  | { kind: 'per-gb-month';              usd: number }
-  | { kind: 'per-gb-transferred';        usd: number }
-  | { kind: 'per-gb-second';             usd: number }
-  | { kind: 'per-provisioned-unit-hour'; usd: number; unit: string };
+  | { kind: 'per-hour';                  tiers: Tier[] }
+  | { kind: 'per-million-requests';      tiers: Tier[] }
+  | { kind: 'per-gb-month';              tiers: Tier[] }
+  | { kind: 'per-gb-transferred';        tiers: Tier[] }
+  | { kind: 'per-gb-second';             tiers: Tier[] }
+  | { kind: 'per-provisioned-unit-hour'; tiers: Tier[]; unit: string };
 ```
 
 `cost.ts` implements six formulas. Every service is then *data* filling one or
 more of them. This is what makes full coverage across three providers a data
 problem rather than three hundred special cases, and it is the load-bearing
 decision in this design.
+
+Tiers are not optional sophistication. GCP's catalogue is explicitly graduated —
+its `pricingInfo` carries a rate for the first N units and another beyond it —
+and so are AWS egress and object storage. A flat-rate model reads only the first
+tier and is therefore wrong for exactly the high-volume designs where cost is the
+interesting question. Every shape carries a tier list; a flat rate is a list of
+one, so the common case stays trivial.
 
 ### The SKU record
 
@@ -157,18 +170,45 @@ discipline the playbook already follows.
 
 ## Ingestion
 
-`scripts/ingest/infracost.ts` queries the Cloud Pricing API — roughly three
-million prices across the three providers — and **emits a filtered snapshot**:
-only services named in `services.json`, only SKU families on an allowlist, only
-the configured regions. The repository holds a few hundred kilobytes rather than
-the whole catalogue.
+Pricing comes from each provider's own catalogue rather than through a
+third-party aggregator. First-party data is authoritative, carries no external
+rate limit or dependency, and each provider's tier structure survives intact
+instead of being flattened by someone else's normalisation.
 
-`scripts/ingest/aws-quotas.ts` reads `list-aws-default-service-quotas` for real
-limits. Azure and GCP publish quotas far less uniformly; where no machine
-readable source exists, limits are hand-entered from provider documentation and
-carry `confidence: 'documented'`. That unevenness is surfaced in the UI, not
-smoothed over — a learner should be able to see that the AWS numbers are better
-grounded than the GCP ones.
+| script | endpoint | auth |
+| --- | --- | --- |
+| `ingest/azure-prices.ts` | `prices.azure.com/api/retail/prices`, OData `$filter` by `serviceName` and `armRegionName` | none |
+| `ingest/aws-prices.ts` | Price List bulk offers, **region-scoped** index files | none |
+| `ingest/gcp-prices.ts` | `cloudbilling.googleapis.com/v1/services` then `/skus` | API key |
+| `ingest/aws-quotas.ts` | `list-aws-default-service-quotas` | IAM |
+
+Azure is implemented first among the three price scripts: unauthenticated OData
+means the snapshot shape, the tier parsing and the filtering logic can all be
+settled before any credential handling exists. AWS and GCP then follow the
+established shape.
+
+The AWS bulk catalogue must be fetched **per region**, not whole. The
+full EC2 offer file runs to several gigabytes uncompressed and will defeat a
+naive whole-file parse; the region-scoped index under
+`offers/v1.0/aws/AmazonEC2/current/<region>/index.json` is a manageable
+fraction of it and contains everything the snapshot needs.
+
+Every script **emits a filtered snapshot**: only services named in
+`services.json`, only SKU families on the allowlist in `data/allowlist.json`,
+only configured regions. The repository holds a few hundred kilobytes rather than
+provider catalogues measured in gigabytes.
+
+Credentials for AWS and GCP are read from the local environment and never
+committed. The scripts are run by hand on a developer machine; they are
+deliberately **not** wired into CI, because the engine's determinism guarantee
+requires that a given commit produce identical numbers offline and forever. A
+pipeline that refreshed prices automatically would quietly break that.
+
+`ingest/aws-quotas.ts` reads real limits. Azure and GCP publish quotas far less
+uniformly; where no machine-readable source exists, limits are hand-entered from
+provider documentation and carry `confidence: 'documented'`. That unevenness is
+surfaced in the UI, not smoothed over — a learner should be able to see that the
+AWS numbers are better grounded than the GCP ones.
 
 Derived limits are computed rather than copied where the provider publishes a
 formula. Postgres on RDS, for instance, documents
