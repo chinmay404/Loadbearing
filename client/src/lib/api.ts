@@ -141,6 +141,8 @@ export interface AttackRun {
   outcome: {
     droppedPct: number;
     worstP99Ms: number;
+    /** False when no flow could be measured, so the zeroes above mean nothing. */
+    measured?: boolean;
     brokenFlows: string[];
     firstToBreak: string | null;
     verdict: string;

@@ -660,6 +660,20 @@ export interface SimFlowResult {
   broken: boolean;
   brokenAt?: string;
   notes: string[];
+  /**
+   * Whether any of this flow's steps were found in the drawing at all.
+   *
+   * False means the numbers above are not small — they are ABSENT. A flow whose
+   * steps name components that no longer exist reports zero offered, zero
+   * completed and a zero p99, and every consumer that aggregates flows was unable
+   * to tell that zero apart from a design that is simply doing well. It made an
+   * attack report SURVIVED while the engine's own verdict said the design had
+   * lost 97% of its requests.
+   *
+   * Anything reading these fields must skip a flow that was not measured rather
+   * than average it in, and say so rather than passing quietly.
+   */
+  measured: boolean;
 }
 
 /** One second of a run. */

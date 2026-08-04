@@ -407,15 +407,21 @@ scoringRoutes.post('/attacks', requireUser, async (c) => {
       ...(attack.degrade.length > 0 ? { degradations: attack.degrade } : {}),
     };
     const sim = simulate(graph, config);
-    const offered = sim.flows.reduce((sum, f) => sum + f.offeredRps, 0);
-    const completed = sim.flows.reduce((sum, f) => sum + f.completedRps, 0);
+    // Only flows whose steps actually resolved. An unmeasured flow reports zeroes,
+    // and averaging those in reads as a design that dropped nothing and answered
+    // instantly — which is how an attack came to report SURVIVED while the
+    // engine's own verdict said the design had lost most of its requests.
+    const usable = sim.flows.filter((f) => f.measured);
+    const offered = usable.reduce((sum, f) => sum + f.offeredRps, 0);
+    const completed = usable.reduce((sum, f) => sum + f.completedRps, 0);
     return {
       attack,
       config,
       outcome: {
+        measured: usable.length > 0,
         droppedPct: offered > 0 ? Math.round(((offered - completed) / offered) * 1000) / 10 : 0,
-        worstP99Ms: Math.round(Math.max(0, ...sim.flows.map((f) => f.p99Ms))),
-        brokenFlows: sim.flows.filter((f) => f.broken).map((f) => f.name),
+        worstP99Ms: Math.round(Math.max(0, ...usable.map((f) => f.p99Ms))),
+        brokenFlows: usable.filter((f) => f.broken).map((f) => f.name),
         // The component the engine says broke first, which is the claim the
         // hypothesis can be checked against.
         firstToBreak: sim.timeline?.firstFailure?.nodeId ?? null,

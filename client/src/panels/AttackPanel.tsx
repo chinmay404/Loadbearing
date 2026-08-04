@@ -82,7 +82,11 @@ export function AttackPanel() {
 
       {runs?.map((run) => {
         const { attack, outcome } = run;
-        const survived = outcome.droppedPct < 1 && outcome.brokenFlows.length === 0;
+        // Unmeasured is not survival. A design whose flows name components that are no
+        // longer on the canvas produces zeroes everywhere, and calling that SURVIVED
+        // was the most dangerous thing this panel could say.
+        const measured = outcome.measured !== false;
+        const survived = measured && outcome.droppedPct < 1 && outcome.brokenFlows.length === 0;
         /**
          * Only ever confirms, never contradicts.
          *
@@ -101,8 +105,8 @@ export function AttackPanel() {
           <div className={`card attack ${survived ? 'ok-card' : 'sev-high'}`} key={attack.id}>
             <div className="row wrap">
               <h4 className="grow">{attack.name}</h4>
-              <span className={`chip ${survived ? 'pass' : 'fail'}`}>
-                {survived ? 'SURVIVED' : `${outcome.droppedPct}% LOST`}
+              <span className={`chip ${!measured ? 'load' : survived ? 'pass' : 'fail'}`}>
+                {!measured ? 'NOT MEASURED' : survived ? 'SURVIVED' : `${outcome.droppedPct}% LOST`}
               </span>
             </div>
 

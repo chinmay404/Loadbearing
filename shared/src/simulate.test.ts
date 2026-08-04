@@ -531,3 +531,61 @@ describe('degrading one named component', () => {
     expect(t.points[OUTAGE_AT_S - 5]!.p99Ms).toBeLessThan(t.points[OUTAGE_AT_S + 5]!.p99Ms);
   });
 });
+
+describe('a flow that could not be measured says so', () => {
+  const design = (steps: string[]): GraphDSL => ({
+    nodes: [
+      node('client', 'client', { trafficRps: 500 }),
+      node('agent', 'agent_runtime', { replicas: 2 }),
+      node('llm', 'llm'),
+    ],
+    edges: [edge('client', 'agent'), edge('agent', 'llm')],
+    stickies: [],
+    flows: [{ id: 'f1', name: 'query', kind: 'read', steps, rps: 500, description: '' }],
+  });
+
+  it('marks a normal flow as measured', () => {
+    const sim = simulate(design(['client', 'agent', 'llm']), config());
+    expect(sim.flows[0]!.measured).toBe(true);
+    expect(sim.flows[0]!.p99Ms).toBeGreaterThan(0);
+  });
+
+  it('marks a flow naming components that are gone as NOT measured', () => {
+    // The exact shape that produced a false all-clear: every metric reads zero,
+    // and zero is indistinguishable from a design that is doing beautifully.
+    const sim = simulate(design(['client-old', 'agent-old', 'llm-old']), config());
+    const flow = sim.flows[0]!;
+    expect(flow.measured).toBe(false);
+    expect(flow.p99Ms).toBe(0);
+    expect(flow.offeredRps).toBe(0);
+    // The engine still knows perfectly well what happened.
+    expect(sim.verdict).toMatch(/loses \d+% of requests/);
+  });
+
+  it('does not let an unmeasured flow be mistaken for a healthy one', () => {
+    // The consumer-side guard, stated as the rule rather than as one caller's
+    // code: anything aggregating flows must drop the unmeasured ones first, and
+    // must not report survival when nothing was left to measure.
+    const sim = simulate(design(['client-old', 'agent-old']), config());
+    const usable = sim.flows.filter((f) => f.measured);
+    expect(usable).toHaveLength(0);
+
+    const offered = usable.reduce((s, f) => s + f.offeredRps, 0);
+    const survived = usable.length > 0 && offered > 0;
+    expect(survived).toBe(false);
+  });
+
+  it('measures a flow where only some steps are stale, and says which', () => {
+    const sim = simulate(design(['client', 'ghost', 'llm']), config());
+    expect(sim.flows[0]!.measured).toBe(true);
+    expect(sim.flows[0]!.notes.join(' ')).toContain('ghost is named in this flow');
+  });
+
+  it('marks derived paths as measured, since they come from the drawing', () => {
+    const g = design(['client', 'agent', 'llm']);
+    g.flows = [];
+    const sim = simulate(g, config());
+    expect(sim.flows.length).toBeGreaterThan(0);
+    expect(sim.flows.every((f) => f.measured)).toBe(true);
+  });
+});

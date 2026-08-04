@@ -290,12 +290,15 @@ function flowResults(
     const notes: string[] = [];
 
     let previousId: string | undefined;
+    // At least one step had to resolve for any of these numbers to mean anything.
+    let measured = false;
     for (const stepId of journey.steps) {
       const hop = byId.get(stepId);
       if (!hop) {
         notes.push(`${stepId} is named in this flow but not in the drawing.`);
         continue;
       }
+      measured = true;
       // The hop between two steps costs what the distance between them costs. A
       // flow is a list of components, so the connection joining each pair has to
       // be looked up to know how far apart they are.
@@ -343,6 +346,7 @@ function flowResults(
       broken: offeredRps > EPSILON && carried / offeredRps < BROKEN_COMPLETION_RATIO,
       ...(brokenAt ? { brokenAt } : {}),
       notes,
+      measured,
     };
   });
 }
