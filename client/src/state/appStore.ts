@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { ChatTurn, Problem, ProblemSummary, ScoreResult, SimResult } from '@loadbearing/shared';
+import type { AttackRun } from '../lib/api';
 
 export type View =
   | 'problems'
@@ -59,6 +60,14 @@ interface AppState {
    */
   chat: ChatTurn[];
   chatFor: string | null;
+  /**
+   * The attacks devised for the sheet on screen, for exactly the reason the chat
+   * above lives here: the panel unmounts on every tab change, and each run costs
+   * a model call. Losing a set of attacks by glancing at the feedback tab means
+   * paying for them again.
+   */
+  attacks: AttackRun[] | null;
+  attacksFor: string | null;
 
   setView: (v: View) => void;
   setLeftTab: (t: LeftTab) => void;
@@ -78,6 +87,7 @@ interface AppState {
   bumpCustomObjects: () => void;
   /** Replaces the thread — used when one is loaded for a sheet, or cleared. */
   setChat: (problemId: string, turns: ChatTurn[]) => void;
+  setAttacks: (problemId: string, runs: AttackRun[] | null) => void;
   /** Shows a turn immediately; the server is the one that keeps it. */
   appendChat: (turn: ChatTurn) => void;
   setHealth: (h: {
@@ -119,6 +129,8 @@ export const useApp = create<AppState>((set) => ({
   customObjectsVersion: 0,
   chat: [],
   chatFor: null,
+  attacks: null,
+  attacksFor: null,
 
   setView: (view) => set({ view }),
   setLeftTab: (leftTab) => set({ leftTab }),
@@ -181,6 +193,7 @@ export const useApp = create<AppState>((set) => ({
   bumpCustomObjects: () => set((s) => ({ customObjectsVersion: s.customObjectsVersion + 1 })),
 
   setChat: (chatFor, chat) => set({ chatFor, chat }),
+  setAttacks: (attacksFor, attacks) => set({ attacksFor, attacks }),
   appendChat: (turn) => set((s) => ({ chat: [...s.chat, turn] })),
 
   setHealth: ({ serverUp, llmConfigured, stubMode, username, storageKind, houseKey }) =>
@@ -214,5 +227,7 @@ export const useApp = create<AppState>((set) => ({
       error: null,
       chat: [],
       chatFor: null,
+      attacks: null,
+      attacksFor: null,
     }),
 }));

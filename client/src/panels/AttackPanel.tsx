@@ -27,7 +27,16 @@ export function AttackPanel() {
   const setRunning = useCanvas((s) => s.setSimRunning);
   const focusNode = useCanvas((s) => s.focusNode);
 
-  const [runs, setRuns] = useState<AttackRun[] | null>(null);
+  /**
+   * Held in the app store, not here. This panel unmounts on every tab change, and
+   * a set of attacks costs a model call — losing them by glancing at the feedback
+   * tab means paying for them twice.
+   */
+  const stored = useApp((s) => s.attacks);
+  const storedFor = useApp((s) => s.attacksFor);
+  const setAttacks = useApp((s) => s.setAttacks);
+  // Attacks are aimed at one specific drawing, so another sheet's are not mine.
+  const runs = problem && storedFor === problem.id ? stored : null;
   const [busy, setBusy] = useState(false);
 
   const label = (id: string): string => {
@@ -40,7 +49,7 @@ export function AttackPanel() {
     try {
       setBusy(true);
       const { attacks } = await api.attacks({ problemId: problem.id, graph: toGraph() });
-      setRuns(attacks);
+      setAttacks(problem.id, attacks);
     } catch (e) {
       const err = e as ApiError;
       setError({ message: err.message, hint: err.hint });
