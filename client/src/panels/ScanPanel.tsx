@@ -88,15 +88,16 @@ export function ScanPanel() {
   if (scans.length === 0) {
     return (
       <div style={{ fontSize: 12 }}>
-        <p className="faint" style={{ marginTop: 0 }}>
-          No repository has been scanned on this account yet.
+        <p style={{ marginTop: 0 }}>
+          Show Loadbearing your code, and it will tell you what is actually in it — what gets deployed,
+          every address it answers on, what it stores things in, and what would go wrong if it were
+          public tomorrow.
         </p>
         <p className="faint">
-          Ask the coding agent in your project to send it: <em>“scan my repo into Loadbearing”</em>. It
-          collects your manifests, deploy config and route files, redacts every secret value, and posts
-          them here. Your source is read once and dropped — only a few lines of evidence per finding are
-          kept.
+          It will <strong>not</strong> draw the architecture for you. You get a list of your app’s own
+          parts; everything around them is yours to design.
         </p>
+        <SetupGuide />
       </div>
     );
   }
@@ -250,11 +251,139 @@ export function ScanPanel() {
               {n}
             </p>
           ))}
+
+          <details style={{ marginTop: 14 }}>
+            <summary className="faint">Scan another repository, or add security tools and timings</summary>
+            <div style={{ marginTop: 8 }}>
+              <SetupGuide />
+            </div>
+          </details>
         </>
       )}
     </div>
   );
 }
+
+/**
+ * How to get a repository in here, for somebody who has never done it.
+ *
+ * Written out in the app rather than left in the docs because the person who
+ * needs it is looking at an empty panel wondering what to do, and a link to a
+ * markdown file is a worse answer than the four commands themselves.
+ */
+function SetupGuide() {
+  const [notice, setNotice] = useState<string | null>(null);
+  const base = apiOrigin();
+  const local = base.includes('localhost') || base.includes('127.0.0.1');
+
+  const copy = (text: string, label: string) => {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => setNotice(`${label} copied`))
+      .catch(() => setNotice('Could not reach the clipboard — select it and copy manually.'));
+  };
+
+  const steps: { text: string; code?: string; label?: string; warn?: string }[] = [
+    {
+      text: 'Connect your coding agent to Loadbearing. Run this once, inside the project you want scanned.',
+      code: `claude mcp add --transport http loadbearing ${base}/api/mcp`,
+      label: 'Connect command',
+      warn: local
+        ? 'This points at the Loadbearing running on your own machine, so your code never leaves it. Use your deployment’s address instead if you want to reach this from elsewhere.'
+        : 'Your code is read by this server and dropped straight away — only a few lines per finding are kept. For a repository you cannot send anywhere at all, run Loadbearing locally and point at that instead.',
+    },
+    {
+      text: 'Give the agent the instructions it follows. Once per project — this is what tells it which files to collect and, more importantly, to strip every secret before anything is sent.',
+      code:
+        'mkdir -p .claude/skills/loadbearing-scan && curl -o .claude/skills/loadbearing-scan/SKILL.md https://raw.githubusercontent.com/chinmay404/Loadbearing/main/.claude/skills/loadbearing-scan/SKILL.md',
+      label: 'Skill command',
+    },
+    {
+      text: 'Ask it, in your own words:',
+      code: 'scan my repo into Loadbearing',
+      label: 'Prompt',
+    },
+    {
+      text: 'Come back here and pick your repository from the list at the top.',
+    },
+  ];
+
+  const extras: { text: string; code: string; label: string }[] = [
+    {
+      text: 'Real security scanning. Runs on your machine — Loadbearing never runs it — then tell the agent to attach the results.',
+      code: 'semgrep --config auto --sarif --output semgrep.sarif --quiet .',
+      label: 'Semgrep command',
+    },
+    {
+      text: 'Real timings instead of estimates. Start your app like this, click around it for a minute, then tell the agent to send the traces. Every part you have added to the canvas switches from a guessed speed to your measured one.',
+      code: 'OTEL_TRACES_EXPORTER=console node --require @opentelemetry/auto-instrumentations-node/register server.js',
+      label: 'Trace command',
+    },
+  ];
+
+  return (
+    <div>
+      <h4 style={{ margin: '14px 0 6px', fontSize: 12 }}>Getting your code in here</h4>
+      <ol className="connect-steps">
+        {steps.map((step, i) => (
+          <li key={i}>
+            <p>{step.text}</p>
+            {step.code && (
+              <div className="connect-code">
+                <pre className="mono config-block">{step.code}</pre>
+                <button onClick={() => copy(step.code!, step.label ?? 'Copied')}>Copy</button>
+              </div>
+            )}
+            {step.warn && <p className="connect-warn">{step.warn}</p>}
+          </li>
+        ))}
+      </ol>
+
+      <h4 style={{ margin: '14px 0 6px', fontSize: 12 }}>Worth adding, once it works</h4>
+      <ol className="connect-steps">
+        {extras.map((step, i) => (
+          <li key={i}>
+            <p>{step.text}</p>
+            <div className="connect-code">
+              <pre className="mono config-block">{step.code}</pre>
+              <button onClick={() => copy(step.code, step.label)}>Copy</button>
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      <h4 style={{ margin: '14px 0 6px', fontSize: 12 }}>What happens to your code</h4>
+      <ul className="faint" style={{ paddingLeft: 16, margin: 0 }}>
+        <li>
+          Every secret value is replaced before anything is sent. A key written into your source keeps
+          its line and loses its value, so it still shows up as something to fix while the key itself
+          stays on your machine.
+        </li>
+        <li>Your files are read once and thrown away. At most five lines are kept per finding, as proof.</li>
+        <li>
+          Private keys, certificates and credential files are never sent, and the server refuses them
+          even if something tries.
+        </li>
+        <li>Nothing is drawn for you. You add your app’s own parts; the design around them is yours.</li>
+      </ul>
+
+      {notice && (
+        <p className="faint" style={{ marginTop: 8 }}>
+          {notice}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Where the API actually is.
+ *
+ * In development the page is served by Vite on 5173 and the server answers on
+ * 8787, so the address in the browser bar is not the one an agent should be
+ * pointed at. In the deployment they are the same origin and this is a no-op.
+ */
+const apiOrigin = (): string => window.location.origin.replace(':5173', ':8787');
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
