@@ -20,7 +20,7 @@ import {
   ListToolsRequestSchema,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { docFromBlueprint, graphFromDoc, type CanvasDoc } from '@loadbearing/shared';
+import { docFromBlueprint, graphFromDoc, type CanvasDoc, type RepoScan } from '@loadbearing/shared';
 import { LoadbearingClient, LoadbearingError } from './client.js';
 import { renderGraph, renderProblem, renderSim } from './render.js';
 
@@ -111,11 +111,71 @@ export const TOOLS: Tool[] = [
   {
     name: 'add_sheet',
     description:
-      'Add a problem or lab to this account\'s bank. Held to the same shape as everything else: id like "l3-my-problem", a level 1-6, a prompt, functional requirements, non-functional numbers, constraints, concept ids, expected flows, rubric hints, at least two twists and at least two load scenarios. Pass kind:"lab" with a diagram to make it start with an architecture already drawn.',
+      'Add a problem or lab to this account\'s bank. Pass kind:"lab" with a diagram to make it start with an architecture already drawn.\n\nThe field names below are the INPUT shape and several differ from what get_sheet renders — do not infer them from a rendered sheet. Unknown keys are ignored rather than rejected, so a wrong name is not an error: `rubricHints` as an array, `numbers` for `nonFunctional`, `flows` for `expectedFlows`, `loadMultiplier` for `rpsMultiplier`, or a scenario `title`/`pass`/`kill` all vanish silently and produce a sheet that looks complete while carrying no pass criteria and running every scenario at 1x.',
     inputSchema: {
       type: 'object',
       properties: {
-        problem: { type: 'object', description: 'The whole problem object. See the description for the shape.' },
+        problem: {
+          type: 'object',
+          description: 'The whole problem. Arrays of strings are arrays of plain strings, never objects.',
+          properties: {
+            id: { type: 'string', description: 'Like "l6-my-problem". Slugified to [a-z0-9-].' },
+            title: { type: 'string', description: 'Defaults to the id if omitted.' },
+            level: { type: 'number', description: '1-6. Anything outside that silently becomes 3.' },
+            domain: { type: 'string', description: "Defaults to 'general'." },
+            prompt: { type: 'string', description: 'The brief. Must exceed 40 characters.' },
+            functional: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Functional requirements. NOT "functionalRequirements". Required, non-empty.',
+            },
+            nonFunctional: {
+              type: 'object',
+              description: 'Numbers and targets as an object of string or number values. NOT "numbers".',
+            },
+            constraints: { type: 'array', items: { type: 'string' } },
+            concepts: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Known concept ids. Unknown ones are dropped; if all are dropped the write fails.',
+            },
+            expectedFlows: { type: 'array', items: { type: 'string' }, description: 'NOT "flows".' },
+            rubricHints: {
+              type: 'string',
+              description: 'One string, not an array. An array is stored as empty without complaint.',
+            },
+            twists: {
+              type: 'array',
+              items: { type: 'string' },
+              description:
+                'Plain strings. Objects are filtered out, which empties the array and fails the write with "no twists".',
+            },
+            scenarios: {
+              type: 'array',
+              description: 'At least two load scenarios.',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  name: { type: 'string', description: 'NOT "title".' },
+                  description: { type: 'string' },
+                  rpsMultiplier: { type: 'number', description: 'Load multiple. NOT "loadMultiplier".' },
+                  thirdPartyLatencyMs: { type: 'number' },
+                  killNodes: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description:
+                      'NOT "kill". Case-insensitive substring match against the labels and types the learner draws, so "database" or "fact store" is right.',
+                  },
+                  passCriteria: { type: 'string', description: 'NOT "pass".' },
+                },
+              },
+            },
+            diagram: { type: 'object', description: 'Optional. With kind:"lab", the starting architecture.' },
+            kind: { type: 'string', enum: ['design', 'lab'] },
+          },
+          required: ['id', 'prompt', 'functional', 'twists', 'concepts'],
+        },
       },
       required: ['problem'],
     },
@@ -141,6 +201,72 @@ export const TOOLS: Tool[] = [
         body: { type: 'string', description: 'Markdown.' },
       },
       required: ['scope', 'scopeId', 'title'],
+    },
+  },
+  {
+    name: 'scan_repo',
+    description:
+      "Send a codebase to Loadbearing and get back what it actually contains: what gets deployed, every HTTP endpoint, the datastores and third parties and AI pieces it talks to, and what stands between it and being safely public. Loadbearing does the analysis — do NOT summarise the code or decide the architecture yourself, just collect files and send them. REDACT EVERY SECRET FIRST: replace the value in any .env line and any credential written into source with «redacted shape=...», keeping the surrounding line intact so the finding survives while the secret does not. Collect manifests (package.json, requirements.txt, pyproject.toml), deploy config (Dockerfile, docker-compose, vercel.json, Procfile, fly.toml, k8s yaml), framework config (next.config, middleware), schema and migrations (prisma, drizzle, *.sql), .env files as NAMES ONLY, Next.js route files (app/**/route.ts, pages/api/**), and any file matching a router registration, a database or model-provider client, or a process.env read. Never send node_modules, .git, dist, .next, lockfiles, or key material. Optionally attach SARIF you produced by running Semgrep or by pulling GitHub code-scanning alerts on the user's own machine — Loadbearing runs neither tool itself.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectName: { type: 'string', description: 'The repository directory name.' },
+        files: {
+          type: 'array',
+          description: 'Repo-relative paths with forward slashes and no leading "./", already redacted.',
+          items: {
+            type: 'object',
+            properties: { path: { type: 'string' }, content: { type: 'string' } },
+            required: ['path', 'content'],
+          },
+        },
+        sarif: {
+          type: 'array',
+          description: "Analyzer output. `results` is the SARIF runs[].results array, not the whole document.",
+          items: {
+            type: 'object',
+            properties: {
+              tool: { type: 'string', description: 'semgrep or codeql.' },
+              version: { type: 'string' },
+              results: { type: 'array', items: { type: 'object' } },
+            },
+            required: ['tool', 'results'],
+          },
+        },
+        meta: {
+          type: 'object',
+          description: 'What you saw and chose not to send, so the scan can report its own coverage.',
+          properties: {
+            filesSeen: { type: 'number' },
+            truncated: { type: 'array', items: { type: 'string' } },
+            skipped: { type: 'array', items: { type: 'string' } },
+            dropped: { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
+      required: ['files'],
+    },
+  },
+  {
+    name: 'get_scan',
+    description:
+      'A scan already sent, with its inventory: the rows a learner drags onto a sheet. Call with no id to list the scans on this account.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Scan id from scan_repo. Omit to list.' } },
+    },
+  },
+  {
+    name: 'add_trace',
+    description:
+      "Attach an OpenTelemetry trace to a scan, so the simulator uses measured service times instead of catalogue defaults. Have the user run their app with OTEL_TRACES_EXPORTER=console and @opentelemetry/auto-instrumentations-node/register (or `opentelemetry-instrument` for Python), exercise it for a minute, and send whatever the exporter wrote — OTLP JSON, JSON Lines, or console output pasted verbatim.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scanId: { type: 'string' },
+        spans: { description: 'The exporter output, as a string or as parsed JSON.' },
+      },
+      required: ['scanId', 'spans'],
     },
   },
 ];
@@ -204,6 +330,12 @@ async function dispatch(
       return searchNotes(client, args);
     case 'add_note':
       return addNote(client, args);
+    case 'scan_repo':
+      return scanRepo(client, args);
+    case 'get_scan':
+      return getScan(client, args);
+    case 'add_trace':
+      return addTrace(client, args);
     default:
       return `No such tool: ${tool}`;
   }
@@ -354,6 +486,131 @@ async function addNote(client: LoadbearingClient, args: Record<string, unknown>)
   const scope = args.scope === 'project' ? 'project' : 'sheet';
   await client.addNote(scope, str(args.scopeId), str(args.title), str(args.body));
   return `Written to ${scope} ${str(args.scopeId)}.`;
+}
+
+/**
+ * Scanning is the one tool that carries somebody's source code, so the reply is
+ * written to be read by a person over the agent's shoulder: what was found, what
+ * was refused, and what the scan could not see. An agent that reports "done" after
+ * sending a private repository somewhere has not told anybody enough.
+ */
+async function scanRepo(client: LoadbearingClient, args: Record<string, unknown>): Promise<string> {
+  const files = Array.isArray(args.files) ? args.files : [];
+  if (files.length === 0) {
+    return 'No files were sent. Collect the manifests, the deploy config and the route files from the repository root, redact every secret value, and try again.';
+  }
+
+  // A last line of defence, not the first. The skill tells the agent to redact and
+  // to grep its own payload; this catches the case where it did not, and refusing
+  // here is far better than storing a live key because a model forgot a rule.
+  const leaked = findUnredacted(files as { path?: unknown; content?: unknown }[]);
+  if (leaked) {
+    return `Refusing to send: ${leaked.path} still contains what looks like a live credential (${leaked.shape}). Replace the value with «redacted shape=${leaked.shape}» — keep the rest of the line — then call this tool again. Nothing has been sent.`;
+  }
+
+  const { id, scan } = await client.scanRepo(args);
+  return `${renderScan(scan)}\n\nScan id: \`${id}\``;
+}
+
+async function getScan(client: LoadbearingClient, args: Record<string, unknown>): Promise<string> {
+  const id = str(args.id);
+  if (!id) {
+    const { scans } = await client.scans();
+    if (scans.length === 0) return 'No repositories have been scanned on this account yet. Use scan_repo.';
+    return scans
+      .map(
+        (s) =>
+          `- **${s.projectName}** — \`${s.id}\`\n  ${s.endpoints} endpoint(s), ${s.criticals} critical finding(s), scanned ${s.scannedAt}`,
+      )
+      .join('\n');
+  }
+  const { scan } = await client.scan(id);
+  return renderScan(scan);
+}
+
+async function addTrace(client: LoadbearingClient, args: Record<string, unknown>): Promise<string> {
+  const { trace } = await client.addTrace(str(args.scanId), args.spans);
+  const lines = [
+    `${trace.traces} trace(s), ${trace.spans} span(s).`,
+    '',
+    '## What it cost',
+    ...trace.components.map(
+      (c) => `- **${c.label}** — p50 ${c.p50Ms}ms, p95 ${c.p95Ms}ms over ${c.calls} call(s)`,
+    ),
+  ];
+  if (trace.flows.length) {
+    lines.push('', '## Paths it walked');
+    for (const f of trace.flows) {
+      lines.push(`- ${f.steps.join(' → ')}  (${f.samples}x, p95 ${f.p95Ms}ms)`);
+    }
+  }
+  for (const note of trace.notes) lines.push('', `_${note}_`);
+  return lines.join('\n');
+}
+
+function renderScan(scan: RepoScan): string {
+  const lines = [`# ${scan.projectName}`, '', `**Shape:** ${scan.shape.verdict} — ${scan.shape.why}`];
+
+  if (scan.endpoints.length) {
+    const unguarded = scan.endpoints.filter((e) => e.authGuard === 'none').length;
+    lines.push('', `## ${scan.endpoints.length} endpoint(s), ${unguarded} with no sign-in check`);
+    for (const e of scan.endpoints.slice(0, 25)) {
+      lines.push(`- \`${e.method} ${e.path}\` — ${e.authGuard === 'none' ? '**no guard**' : e.authGuard} · ${e.evidence.file}:${e.evidence.line}`);
+    }
+    if (scan.endpoints.length > 25) lines.push(`- …and ${scan.endpoints.length - 25} more`);
+  }
+
+  const group = (title: string, list: { label: string; mechanism: string; confidence: string }[]) => {
+    if (list.length === 0) return;
+    lines.push('', `## ${title}`);
+    for (const d of list) {
+      lines.push(`- **${d.label}** — ${d.mechanism}${d.confidence === 'inferred' ? ' _(inferred)_' : ''}`);
+    }
+  };
+  group('Data', scan.datastores);
+  group('External services', scan.externals);
+  group('AI', scan.ai);
+
+  if (scan.exposures.length) {
+    lines.push('', `## ${scan.exposures.length} thing(s) between this and being safely public`);
+    for (const e of scan.exposures.slice(0, 15)) {
+      lines.push(
+        `- **[${e.severity}]** ${e.title}${e.confidence === 'inferred' ? ' _(needs checking)_' : ''}` +
+          `\n  ${e.detail}` +
+          (e.path ? `\n  Chain: ${e.path.join(' → ')}` : '') +
+          `\n  Fix: ${e.fix}`,
+      );
+    }
+  }
+
+  lines.push('', `_Read ${scan.coverage.filesRead} of ${scan.coverage.filesSeen} file(s)._`);
+  for (const note of scan.coverage.notes) lines.push(`_${note}_`);
+  return lines.join('\n');
+}
+
+/** Shapes that must never leave a machine, checked one last time before they do. */
+function findUnredacted(
+  files: { path?: unknown; content?: unknown }[],
+): { path: string; shape: string } | null {
+  const shapes: [RegExp, string][] = [
+    [/\bsk-ant-[A-Za-z0-9-]{16,}/, 'anthropic-key'],
+    [/\bsk-[A-Za-z0-9]{24,}/, 'openai-key'],
+    [/\bghp_[A-Za-z0-9]{24,}/, 'github-token'],
+    [/\bgithub_pat_[A-Za-z0-9_]{24,}/, 'github-token'],
+    [/\bAKIA[0-9A-Z]{16}/, 'aws-key-id'],
+    [/\bAIza[0-9A-Za-z_-]{30,}/, 'google-key'],
+    [/\bxox[baprs]-[A-Za-z0-9-]{12,}/, 'slack-token'],
+    [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, 'private-key'],
+    [/\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\./, 'jwt'],
+  ];
+  for (const file of files) {
+    const path = typeof file?.path === 'string' ? file.path : '(unnamed)';
+    const content = typeof file?.content === 'string' ? file.content : '';
+    for (const [re, shape] of shapes) {
+      if (re.test(content)) return { path, shape };
+    }
+  }
+  return null;
 }
 
 const emptyDoc = (): CanvasDoc => ({ nodes: [], edges: [], stickies: [], strokes: [], flows: [] });

@@ -517,3 +517,73 @@ describe('templates from a selection', () => {
     }
   });
 });
+
+// Bindings: "this drawn component IS that piece of code".
+//
+// The primitive the whole scan feature turns on, so the store has to keep it
+// honest — one node stands for one piece of code, and a binding must never
+// outlive the node it points at.
+describe('bindings between the drawing and the code', () => {
+  beforeEach(() => store().loadProblem('test', null));
+
+  it('starts empty, so the code-versus-drawing checks stay silent', () => {
+    expect(store().bindings).toEqual([]);
+    expect(store().scanId).toBeNull();
+  });
+
+  it('binds a node to a code reference', () => {
+    const id = place('sql_db', 0, 0);
+    store().bindNode('component:sql-db-supabase-postgres', id);
+    expect(store().bindings).toEqual([
+      { codeRef: 'component:sql-db-supabase-postgres', nodeId: id, source: 'static' },
+    ]);
+  });
+
+  it('replaces rather than accumulates when the same code is bound twice', () => {
+    const first = place('sql_db', 0, 0);
+    const second = place('sql_db', 0, 0);
+    store().bindNode('component:db', first);
+    store().bindNode('component:db', second);
+    expect(store().bindings).toHaveLength(1);
+    expect(store().bindings[0]!.nodeId).toBe(second);
+  });
+
+  it('never lets one node stand for two different pieces of code', () => {
+    const id = place('llm', 0, 0);
+    store().bindNode('component:anthropic', id);
+    store().bindNode('component:openai', id);
+    expect(store().bindings).toHaveLength(1);
+    expect(store().bindings[0]!.codeRef).toBe('component:openai');
+  });
+
+  it('drops bindings whose node is gone when the document is written', () => {
+    const kept = place('sql_db', 0, 0);
+    const removed = place('llm', 0, 0);
+    store().bindNode('component:db', kept);
+    store().bindNode('component:llm', removed);
+    store().onNodesChange([{ type: 'remove', id: removed }]);
+
+    const doc = store().toDoc();
+    expect(doc.bindings).toEqual([{ codeRef: 'component:db', nodeId: kept, source: 'static' }]);
+  });
+
+  it('round-trips the scan and its bindings through a saved document', () => {
+    const id = place('sql_db', 0, 0);
+    store().setScanId('nightly-abc');
+    store().bindNode('component:db', id);
+
+    const doc = store().toDoc();
+    store().loadProblem('test', doc);
+
+    expect(store().scanId).toBe('nightly-abc');
+    expect(store().bindings).toEqual([{ codeRef: 'component:db', nodeId: id, source: 'static' }]);
+  });
+
+  it('forgets both when a different sheet is opened', () => {
+    store().setScanId('nightly-abc');
+    store().bindNode('component:db', place('sql_db', 0, 0));
+    store().loadProblem('other', null);
+    expect(store().scanId).toBeNull();
+    expect(store().bindings).toEqual([]);
+  });
+});

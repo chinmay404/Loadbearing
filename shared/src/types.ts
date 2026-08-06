@@ -374,6 +374,23 @@ export interface CanvasDoc {
   }[];
   strokes: { points: [number, number][]; color: string }[];
   flows: Flow[];
+  /**
+   * The repository scan this sheet was drawn against, when there is one.
+   *
+   * Stored on the document rather than in a table of its own because a design is
+   * already one JSON blob per (user, sheet) and a scan belongs to exactly one
+   * drawing. No migration, and a sheet cannot end up pointing at a scan that was
+   * deleted from under it.
+   */
+  scanId?: string;
+  /**
+   * Which drawn component is which piece of code.
+   *
+   * Empty until somebody drags a row of the code view onto a node. While it is
+   * empty the code-versus-drawing checks stay silent, which is correct: without a
+   * stated correspondence there is no contradiction to report.
+   */
+  bindings?: import('./scan/types.js').Binding[];
 }
 
 /**

@@ -5,7 +5,18 @@
 // like and how the engine behaves lives behind those routes, and a second process
 // reaching around them would be a second implementation of all of it, free to drift.
 
-import type { CanvasDoc, GraphDSL, LibraryNote, Problem, ProblemSummary, SimConfig, SimResult } from '@loadbearing/shared';
+import type {
+  CanvasDoc,
+  GraphDSL,
+  InventoryItem,
+  LibraryNote,
+  Problem,
+  ProblemSummary,
+  RepoScan,
+  SimConfig,
+  SimResult,
+  TraceSummary,
+} from '@loadbearing/shared';
 
 export class LoadbearingError extends Error {
   constructor(
@@ -102,5 +113,27 @@ export class LoadbearingClient {
     this.req<{ id: string }>('/notes', {
       method: 'POST',
       body: JSON.stringify({ scope, scopeId, title, body }),
+    });
+
+  scanRepo = (payload: unknown) =>
+    this.req<{ id: string; scan: RepoScan; inventory: InventoryItem[] }>('/scan', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+  scan = (id: string) =>
+    this.req<{ id: string; scan: RepoScan; inventory: InventoryItem[] }>(
+      `/scan/${encodeURIComponent(id)}`,
+    );
+
+  scans = () =>
+    this.req<{ scans: { id: string; projectName: string; scannedAt: string; endpoints: number; criticals: number }[] }>(
+      '/scans',
+    );
+
+  addTrace = (id: string, spans: unknown) =>
+    this.req<{ trace: TraceSummary }>(`/scan/${encodeURIComponent(id)}/trace`, {
+      method: 'POST',
+      body: JSON.stringify({ spans }),
     });
 }

@@ -18,6 +18,7 @@ import { ReferencePanel } from './panels/ReferencePanel';
 import { SettingsPanel } from './panels/SettingsPanel';
 import { ComposePanel } from './panels/ComposePanel';
 import { ChecksPanel } from './panels/ChecksPanel';
+import { ScanPanel } from './panels/ScanPanel';
 import { NoteLibrary } from './panels/NoteLibrary';
 import { NotesPanel } from './panels/NotesPanel';
 import { Panes } from './ui/Panes';
@@ -245,6 +246,7 @@ const LEFT_TABS: { id: LeftTab; label: string }[] = [
   { id: 'flows', label: 'Flows' },
   { id: 'inspect', label: 'Inspect' },
   { id: 'checks', label: 'Checks' },
+  { id: 'code', label: 'Code' },
   { id: 'notes', label: 'Notes' },
 ];
 
@@ -364,6 +366,7 @@ function Workspace() {
             {leftTab === 'flows' && <FlowPanel />}
             {leftTab === 'inspect' && <InspectorPanel />}
             {leftTab === 'checks' && <ChecksPanel />}
+            {leftTab === 'code' && <ScanPanel />}
             {leftTab === 'notes' && (
               <NotesPanel
                 scope="sheet"

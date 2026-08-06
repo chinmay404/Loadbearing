@@ -11,6 +11,7 @@ import {
 } from '@xyflow/react';
 import type {
   ArchNodeType,
+  Binding,
   BlueprintLike,
   CanvasDoc,
   CanvasMarkup,
@@ -65,6 +66,19 @@ interface Snapshot {
 
 interface CanvasState extends Snapshot {
   problemId: string | null;
+  /**
+   * The repository scan this sheet is being drawn against, when there is one.
+   * Set when the code view is opened; persisted on the document.
+   */
+  scanId: string | null;
+  /**
+   * Which drawn component is which piece of code.
+   *
+   * Empty until somebody adds a row of the code view to the canvas. While it is
+   * empty the code-versus-drawing checks stay silent, which is correct: without a
+   * stated correspondence there is no contradiction to report.
+   */
+  bindings: Binding[];
   tool: Tool;
   edgeKind: EdgeKind;
   penColor: string;
@@ -101,6 +115,10 @@ interface CanvasState extends Snapshot {
 
   // lifecycle
   loadProblem: (problemId: string, doc: CanvasDoc | null) => void;
+  setScanId: (scanId: string | null) => void;
+  /** Records that a node represents a piece of code. One node, one codeRef. */
+  bindNode: (codeRef: string, nodeId: string) => void;
+  unbindNode: (nodeId: string) => void;
   reset: () => void;
 
   // graph editing
@@ -419,6 +437,8 @@ function spliceFlowSteps(flows: Flow[], from: string, to: string, middle: string
 export const useCanvas = create<CanvasState>((set, get) => ({
   ...EMPTY,
   problemId: null,
+  scanId: null,
+  bindings: [],
   tool: 'select',
   edgeKind: 'sync',
   penColor: '#cfa349',
@@ -437,7 +457,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
 
   loadProblem: (problemId, doc) => {
     if (!doc) {
-      set({ ...EMPTY, problemId, past: [], future: [], markup: [], aiAccepted: [], simResult: null, dirty: false });
+      set({ ...EMPTY, problemId, scanId: null, bindings: [], past: [], future: [], markup: [], aiAccepted: [], simResult: null, dirty: false });
       return;
     }
     // Every section is treated as optional. A newly created project view is stored
@@ -497,6 +517,8 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       edges,
       flows: doc.flows ?? [],
       strokes: doc.strokes ?? [],
+      scanId: doc.scanId ?? null,
+      bindings: doc.bindings ?? [],
       past: [],
       future: [],
       markup: [],
@@ -506,7 +528,22 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     });
   },
 
-  reset: () => set({ ...EMPTY, past: [], future: [], markup: [], aiAccepted: [], simResult: null, dirty: true }),
+  setScanId: (scanId) => set({ scanId, dirty: true }),
+
+  // A node stands for one piece of code, and a piece of code is drawn once. Both
+  // sides are replaced on bind, so repeatedly adding the same inventory row cannot
+  // silently accumulate stale correspondences pointing at deleted nodes.
+  bindNode: (codeRef, nodeId) =>
+    set((s) => ({
+      bindings: [...s.bindings.filter((b) => b.codeRef !== codeRef && b.nodeId !== nodeId), { codeRef, nodeId, source: 'static' }],
+      dirty: true,
+    })),
+
+  unbindNode: (nodeId) =>
+    set((s) => ({ bindings: s.bindings.filter((b) => b.nodeId !== nodeId), dirty: true })),
+
+  reset: () =>
+    set({ ...EMPTY, scanId: null, bindings: [], past: [], future: [], markup: [], aiAccepted: [], simResult: null, dirty: true }),
 
   onNodesChange: (changes) => {
     const structural = changes.some((c) => c.type === 'remove' || c.type === 'add');
@@ -1476,6 +1513,13 @@ export const useCanvas = create<CanvasState>((set, get) => ({
         })),
       strokes: s.strokes,
       flows: s.flows,
+      ...(s.scanId ? { scanId: s.scanId } : {}),
+      // Bindings pointing at deleted nodes are dropped on the way out rather than
+      // on delete: a node can leave through undo, a lasso, or React Flow's own
+      // change stream, and filtering in one place beats catching three.
+      ...(s.bindings.length
+        ? { bindings: s.bindings.filter((b) => s.nodes.some((n) => n.id === b.nodeId)) }
+        : {}),
     };
   },
 }));

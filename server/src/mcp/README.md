@@ -94,6 +94,19 @@ claude mcp add loadbearing -e LOADBEARING_TOKEN=lb_… -- npx tsx /absolute/path
 | `run_engine` | Run the load engine: which flows complete, where traffic stops, what saturates, what it costs. Optionally one of the sheet's own scenarios. |
 | `add_sheet` | Add a problem or lab, held to the same shape as everything in the bank. |
 | `search_notes` / `add_note` | Everything written across every sheet and project. |
+| `scan_repo` | Send a codebase and get back what it actually contains: deployables, endpoints, datastores, third parties, AI pieces, and what stands between it and being safely public. Refuses to send a payload still holding a live-looking credential. |
+| `get_scan` | A scan already sent, with the inventory a learner drags onto a sheet. No id lists them. |
+| `add_trace` | Attach an OpenTelemetry trace so the simulator uses measured service times instead of catalogue defaults. |
+
+`scan_repo` is the one tool that carries somebody's source code, so it has rules of its
+own: the agent collects files and **does not analyse them** — the analysis is
+deterministic and lives in `shared/src/scan/`, and a model summarising the architecture
+on the way past would make the scan unreproducible. Every secret value is replaced
+before the payload is built, the tool checks the payload again before sending, and the
+server refuses key material whatever the sender claims. Only evidence snippets are
+stored, never the files. [The skill](../../../.claude/skills/loadbearing-scan/SKILL.md)
+spells out exactly what to collect; [the feature docs](../../../docs/repo-scan.md)
+cover the rest.
 
 Tools answer in prose with the numbers in it, not raw JSON. A canvas document is
 mostly coordinates and a run is mostly per-tick arrays; a model asked what is wrong

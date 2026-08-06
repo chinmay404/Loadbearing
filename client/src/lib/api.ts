@@ -21,6 +21,10 @@ import type {
   ConceptCard,
   CanvasDoc,
   UserTemplate,
+  RepoScan,
+  InventoryItem,
+  CandidateFlow,
+  TraceSummary,
 } from '@loadbearing/shared';
 
 export class ApiError extends Error {
@@ -396,4 +400,19 @@ export const api = {
     harder?: boolean;
   }) =>
     req<Problem>('/problems/from-brief', { method: 'POST', body: JSON.stringify(body) }),
+
+  // ---- repository scans ----
+  scans: () => req<{ scans: ScanIndexEntry[] }>('/scans'),
+  scan: (id: string) =>
+    req<{ id: string; scan: RepoScan; inventory: InventoryItem[]; candidateFlows: CandidateFlow[]; trace?: TraceSummary }>(
+      `/scan/${encodeURIComponent(id)}`,
+    ),
 };
+
+export interface ScanIndexEntry {
+  id: string;
+  projectName: string;
+  scannedAt: string;
+  endpoints: number;
+  criticals: number;
+}

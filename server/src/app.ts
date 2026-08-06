@@ -22,6 +22,7 @@ import { playbookRoutes } from './reference/routes.js';
 import { templateRoutes } from './templates/routes.js';
 import { projectRoutes } from './projects/routes.js';
 import { noteRoutes } from './notes/routes.js';
+import { scanRoutes } from './scan/routes.js';
 import { mcpRoutes, useAppForMcp } from './mcp/routes.js';
 import { oauthRoutes } from './auth/oauth.js';
 
@@ -165,6 +166,7 @@ app.route('/api', playbookRoutes);
 app.route('/api', templateRoutes);
 app.route('/api', projectRoutes);
 app.route('/api', noteRoutes);
+app.route('/api', scanRoutes);
 app.route('/api', mcpRoutes);
 // Discovery lives at the root because that is where the specs say to look; the
 // endpoints it points at live under /api like everything else.

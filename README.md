@@ -76,6 +76,35 @@ and add your own API key. To try the UI without a model at all, pick "Offline st
    three weakest concepts. Any attempt exports as a Markdown post-mortem (with a Mermaid diagram) into
    your Obsidian vault.
 
+## Bring your own codebase
+
+Point Loadbearing at a repository and it tells you what is actually in it — what gets deployed, every
+endpoint, what each handler reaches, and what stands between it and being safely public. Say *"scan my
+repo into Loadbearing"* to whatever coding agent is already in your project; it follows the
+[loadbearing-scan](.claude/skills/loadbearing-scan/SKILL.md) skill, strips every secret value before
+anything is sent, and posts the result. Then open the **Code** tab on any sheet.
+
+What arrives is a list, not a diagram. Your app's own parts drag onto the canvas carrying annotations
+written from your code — *"Postgres reached through the Supabase JS client"* — and everything **around**
+them is yours to design, because a cache, a queue and a rate limit are not in your repository. The
+scan removes the typing, not the thinking.
+
+Then the free engines go to work on the gap between the two:
+
+> `POST /api/chat` has no sign-in check, and it reaches a model API. Anyone who finds the URL can
+> spend your tokens.
+
+> `SUPABASE_SERVICE_ROLE_KEY` can reach the browser: `components/Chat.tsx → lib/db.ts`
+
+> You drew a queue in front of the model, but your handler calls it directly and waits.
+
+Every claim carries the file and line it came from, and clicking it shows the lines themselves — a scan
+nobody can check is just a confident opinion. Analysis runs in milliseconds with no model involved, and
+only evidence snippets are stored, never your files. You can attach Semgrep or GitHub code-scanning
+results as SARIF (Loadbearing runs neither tool — they run on your machine, under your own licence),
+and an OpenTelemetry trace to replace the simulator's estimated service times with your app's measured
+ones. [Full documentation](docs/repo-scan.md).
+
 ## For work, not just practice
 
 - **Review a system you actually own.** Problem index → *Review my system*. Describe your production

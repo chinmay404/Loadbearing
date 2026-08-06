@@ -105,7 +105,7 @@ describe('the handshake', () => {
     expect(res.status).toBe(200);
     const tools = (res.body!.result as { tools: { name: string }[] }).tools;
     expect(tools.map((t) => t.name)).toContain('run_engine');
-    expect(tools).toHaveLength(9);
+    expect(tools).toHaveLength(12);
   });
 
   it('handles a batch, because JSON-RPC allows one', async () => {

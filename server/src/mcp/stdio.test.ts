@@ -141,11 +141,14 @@ describe('the protocol', () => {
     expect(tools.map((t) => t.name).sort()).toEqual([
       'add_note',
       'add_sheet',
+      'add_trace',
+      'get_scan',
       'get_sheet',
       'list_sheets',
       'place_starting_architecture',
       'read_canvas',
       'run_engine',
+      'scan_repo',
       'search_notes',
       'write_canvas',
     ]);
@@ -457,5 +460,117 @@ describe('when things are wrong', () => {
     await fetch(`${baseUrl}/api/auth/tokens/${made.token.id}`, { method: 'DELETE', headers: { cookie } });
     const after = await fetch(`${baseUrl}/api/auth/me`, { headers: { authorization: `Bearer ${made.secret}` } });
     expect(after.status).toBe(401);
+  });
+});
+
+// Scanning a repository, driven the way an agent drives it.
+//
+// The interesting assertions are not "did it parse" but the two promises the
+// feature makes to somebody handing over private source: that a live credential is
+// refused before it is sent anywhere, and that what comes back is checkable.
+describe('scanning a repository', () => {
+  const VIBE_APP = [
+    {
+      path: 'package.json',
+      content: JSON.stringify({
+        name: 'nightly',
+        scripts: { dev: 'next dev' },
+        dependencies: { next: '^15.0.0', '@supabase/supabase-js': '^2.45.0', '@anthropic-ai/sdk': '^0.30.0' },
+      }),
+    },
+    { path: 'vercel.json', content: '{}' },
+    {
+      path: 'app/api/chat/route.ts',
+      content: [
+        "import Anthropic from '@anthropic-ai/sdk';",
+        "import { db } from '@/lib/db';",
+        '',
+        'export async function POST(req: Request) {',
+        "  await db.from('messages').insert({});",
+        '  return Response.json({});',
+        '}',
+      ].join('\n'),
+    },
+    {
+      path: 'lib/db.ts',
+      content: [
+        "import { createClient } from '@supabase/supabase-js';",
+        'export const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);',
+      ].join('\n'),
+    },
+    {
+      path: 'components/Chat.tsx',
+      content: ["'use client';", "import { db } from '../lib/db';", 'export const Chat = () => null;'].join('\n'),
+    },
+  ];
+
+  it('refuses to send a payload that still holds a live key, and sends nothing', async () => {
+    const text = await tool('scan_repo', {
+      projectName: 'leaky',
+      files: [
+        { path: 'lib/x.ts', content: 'const key = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";' },
+      ],
+    });
+    expect(text).toContain('Refusing to send');
+    expect(text).toContain('anthropic-key');
+    expect(text).toContain('Nothing has been sent');
+
+    // And it really did not store anything: the scan list is still empty.
+    expect(await tool('get_scan')).toContain('No repositories have been scanned');
+  });
+
+  it('reports what the repository contains, with a file and line for each claim', async () => {
+    const text = await tool('scan_repo', { projectName: 'nightly', files: VIBE_APP });
+    expect(text).toContain('static+functions');
+    expect(text).toContain('POST /api/chat');
+    expect(text).toContain('app/api/chat/route.ts:');
+    expect(text).toContain('Supabase Postgres');
+    expect(text).toContain('Anthropic API');
+  });
+
+  it('names the leak and prints the chain that proves it', async () => {
+    const text = await tool('scan_repo', { projectName: 'nightly', files: VIBE_APP });
+    expect(text).toContain('SUPABASE_SERVICE_ROLE_KEY can reach the browser');
+    expect(text).toContain('Chain: components/Chat.tsx → lib/db.ts');
+  });
+
+  it('keeps the scan, and lists it afterwards', async () => {
+    const text = await tool('scan_repo', { projectName: 'nightly', files: VIBE_APP });
+    const id = /Scan id: `([^`]+)`/.exec(text)?.[1];
+    expect(id).toBeTruthy();
+    expect(await tool('get_scan', { id })).toContain('POST /api/chat');
+    expect(await tool('get_scan')).toContain('nightly');
+  });
+
+  it('turns a trace into measured service times', async () => {
+    const scanText = await tool('scan_repo', { projectName: 'nightly', files: VIBE_APP });
+    const id = /Scan id: `([^`]+)`/.exec(scanText)?.[1]!;
+    const spans = [
+      {
+        traceId: 't1',
+        spanId: 's1',
+        name: 'POST /api/chat',
+        kind: 'SERVER',
+        durationMs: 2500,
+        attributes: { 'http.route': '/api/chat', 'http.request.method': 'POST' },
+      },
+      {
+        traceId: 't1',
+        spanId: 's2',
+        parentSpanId: 's1',
+        name: 'POST',
+        kind: 'CLIENT',
+        durationMs: 2400,
+        attributes: { 'server.address': 'api.anthropic.com' },
+      },
+    ];
+    const text = await tool('add_trace', { scanId: id, spans });
+    expect(text).toContain('api.anthropic.com');
+    expect(text).toContain('p95 2400ms');
+    expect(text).toContain('→');
+  });
+
+  it('says plainly when there is nothing to scan', async () => {
+    expect(await tool('scan_repo', { files: [] })).toContain('No files were sent');
   });
 });
