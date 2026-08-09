@@ -90,9 +90,9 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
     .join(' ');
 
   // How badly it is over its limit, 0 at the line and 1 by twice it. Drives how
-  // hard the box shakes, so a component at 105% trembles and one at 300% is
-  // visibly coming apart. A percentage is a number you read; this is a thing you
-  // notice from across the room, which is the point of it.
+  // heavily the box reads, so a component at 105% is marked and one at 300% is
+  // unmissable. A percentage is a number you read; this is a thing you notice
+  // from across the room, which is the point of it.
   const overload = Number.isFinite(sim?.utilization)
     ? Math.min(1, Math.max(0, (sim!.utilization - 1) / 1))
     : 0;
