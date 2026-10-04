@@ -110,6 +110,95 @@ describe('where traffic starts', () => {
   });
 });
 
+describe('deep designs', () => {
+  // A real request path is often nine or ten hops long: DNS, CDN, WAF, a balancer,
+  // a gateway, a service, a cache, a store. Every hop has to carry the load, or the
+  // last ones look idle in a design that is actually drowning.
+  const chain = (length: number): GraphDSL => {
+    const ids = Array.from({ length }, (_, i) => `s${i}`);
+    return graph(
+      [node('web', 'client', { trafficRps: 100 }), ...ids.map((id) => node(id, 'service', { concurrency: 100_000 }))],
+      [edge('web', 's0'), ...ids.slice(1).map((id, i) => edge(ids[i]!, id))],
+    );
+  };
+
+  // A service whose capacity depends on how busy its dependency is: serving more
+  // makes the payment provider slower, which holds workers longer, which serves
+  // less. The answer is the balance between those, not whichever extreme the
+  // iteration happened to stop on.
+  const feedback = (tail: number): GraphDSL => {
+    const extra = Array.from({ length: tail }, (_, i) => `audit${i}`);
+    return graph(
+      [
+        node('web', 'client', { trafficRps: 200 }),
+        node('gw', 'api_gateway'),
+        node('svc', 'service', { replicas: 6 }),
+        node('db', 'sql_db'),
+        node('pay', 'payment_gateway'),
+        node('bus', 'event_bus'),
+        ...extra.map((id) => node(id, 'worker')),
+      ],
+      [
+        edge('web', 'gw'),
+        edge('gw', 'svc'),
+        edge('svc', 'db'),
+        edge('svc', 'pay'),
+        edge('db', 'bus', { kind: 'async' }),
+        ...extra.map((id, i) => edge(i === 0 ? 'bus' : extra[i - 1]!, id, { kind: 'async' })),
+      ],
+    );
+  };
+
+  it('does not change its answer upstream when something is added after a hand-off', () => {
+    const svc = (tail: number) => hop(runEngine(feedback(tail), scenario()), 'svc').servedRps;
+    // Nothing after the bus is waited on by anyone, so the service cannot care.
+    expect(svc(1)).toBeCloseTo(svc(0), 0);
+    expect(svc(3)).toBeCloseTo(svc(0), 0);
+  });
+
+  it.each([9, 12, 20])('carries the load to the end of a %i-hop chain', (length) => {
+    const result = runEngine(chain(length), scenario());
+    expect(hop(result, `s${length - 1}`).arrivingRps).toBeCloseTo(100, 0);
+  });
+});
+
+describe('how long a request takes', () => {
+  // A handler that reads the user, then the cart, then the prices makes three calls
+  // and waits for each one. The request takes as long as all three together.
+  const sequential = (calls: number): GraphDSL => {
+    const dbs = Array.from({ length: calls }, (_, i) => `db${i}`);
+    return graph(
+      [
+        node('web', 'client', { trafficRps: 10 }),
+        node('api', 'service', { concurrency: 100_000, latencyMs: 5 }),
+        ...dbs.map((id) => node(id, 'sql_db', { latencyMs: 100, capacityRps: 1_000_000 })),
+      ],
+      [edge('web', 'api'), ...dbs.map((id) => edge('api', id))],
+    );
+  };
+  const p50 = (g: GraphDSL) => last(runEngine(g, scenario()).ticks).p50Ms;
+
+  it('waits for each dependency in turn', () => {
+    expect(p50(sequential(3)) - p50(sequential(1))).toBeGreaterThan(190);
+    expect(p50(sequential(6)) - p50(sequential(1))).toBeGreaterThan(480);
+  });
+
+  it('a router waits only for the backend it picks', () => {
+    const g = graph(
+      [
+        node('web', 'client', { trafficRps: 10 }),
+        node('lb', 'load_balancer'),
+        node('fast', 'service', { concurrency: 100_000, latencyMs: 100 }),
+        node('slow', 'service', { concurrency: 100_000, latencyMs: 300 }),
+      ],
+      [edge('web', 'lb'), edge('lb', 'fast'), edge('lb', 'slow')],
+    );
+    // Half the requests take 100 ms and half 300: the average is 200, never the sum.
+    expect(p50(g)).toBeGreaterThan(180);
+    expect(p50(g)).toBeLessThan(260);
+  });
+});
+
 describe('how a component divides what arrives', () => {
   it('a router sends each request to one of its downstreams', () => {
     const g = graph(
@@ -468,6 +557,23 @@ describe('timeouts and retries', () => {
     expect(result.firstFailure?.reason).toContain('past the 100ms');
   });
 
+  it('times out on the whole response, including what it is waiting for', () => {
+    // The API's own work takes 5 ms, but it is waiting on a payment provider that
+    // takes four seconds. Its callers give up at 200 ms whatever the reason.
+    const g = graph(
+      [
+        node('web', 'client', { trafficRps: 10 }),
+        node('api', 'service', { concurrency: 100_000, latencyMs: 5, timeoutMs: 200 }),
+        node('pay', 'payment_gateway', { latencyMs: 4000, elastic: true }),
+      ],
+      [edge('web', 'api'), edge('api', 'pay')],
+    );
+    const result = runEngine(g, scenario());
+
+    expect(hop(result, 'api').servedRps).toBe(0);
+    expect(last(result.ticks).successRate).toBe(0);
+  });
+
   it('sends more attempts than requests once a dependency starts failing', () => {
     const g = graph(
       [
@@ -483,6 +589,38 @@ describe('timeouts and retries', () => {
     // retry storm, and the database is strictly worse off for it.
     expect(hop(result, 'db').arrivingRps).toBeGreaterThan(1000);
     expect(result.retryAmplification).toBeGreaterThan(1);
+  });
+
+  it('retries a call that failed further down, not only one the callee dropped itself', () => {
+    // The API is fine; its database fails four calls in five, so four in five of the
+    // API's answers are errors — and the client retries those.
+    const g = graph(
+      [
+        node('web', 'client', { trafficRps: 1000 }),
+        node('api', 'service', { concurrency: 100_000 }),
+        node('db', 'sql_db', { capacityRps: 200 }),
+      ],
+      [edge('web', 'api', { retries: 3 }), edge('api', 'db')],
+    );
+    const result = runEngine(g, scenario());
+
+    expect(hop(result, 'api').arrivingRps).toBeGreaterThan(1500);
+    expect(result.retryAmplification).toBeGreaterThan(1.5);
+  });
+
+  it('retries a call that ran past its timeout', () => {
+    const g = graph(
+      [
+        node('web', 'client', { trafficRps: 100 }),
+        node('api', 'service', { concurrency: 100_000, latencyMs: 5, timeoutMs: 200 }),
+        node('pay', 'payment_gateway', { latencyMs: 4000, elastic: true }),
+      ],
+      [edge('web', 'api', { retries: 2 }), edge('api', 'pay')],
+    );
+    const result = runEngine(g, scenario());
+
+    // Every call times out, so every request is sent three times.
+    expect(hop(result, 'api').arrivingRps).toBeCloseTo(300, 0);
   });
 
   it('stops amplifying when the caller is told not to retry', () => {

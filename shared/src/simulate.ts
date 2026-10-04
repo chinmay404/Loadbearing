@@ -17,11 +17,12 @@ import {
   type EngineResult,
   type HopState,
   type Scenario,
+  patienceFor,
 } from './engine.js';
 import { TAIL_MULTIPLE_IDLE, responseMultiple, waitP99Ms } from './queueing.js';
 import { inferPlacement, rttMs } from './network.js';
 import { costReport } from './cost.js';
-import { familyOf } from './families.js';
+import { distributionOf, familyOf } from './families.js';
 import { CACHE_TYPES, DATASTORE_TYPES, DEFAULT_LATENCY, QUEUE_TYPES, STATEFUL_TYPES } from './components.js';
 import type {
   Degradation,
@@ -268,20 +269,33 @@ function flowResults(
   nodesById: Map<string, GraphNode>,
 ): SimFlowResult[] {
   const named = graph.flows ?? [];
-  const journeys: { id: string; name: string; steps: string[]; kind?: Flow['kind'] }[] =
+  const journeys: { id: string; name: string; steps: string[]; kind?: Flow['kind']; rps?: number }[] =
     named.length > 0
-      ? named.map((f) => ({ id: f.id, name: f.name, steps: f.steps, kind: f.kind }))
+      ? named.map((f) => ({ id: f.id, name: f.name, steps: f.steps, kind: f.kind, rps: f.rps }))
       : engine.paths.slice(0, 8).map((p, i) => ({
           id: `path-${i + 1}`,
           name: p.nodeIds.map((id) => label(graph, id)).join(' → '),
           steps: p.nodeIds,
         }));
 
+  // Several flows can start at the same component — reads and writes from one
+  // client. Each is offered its own share of what arrives there, by its declared
+  // rate; giving each the whole of it counted the traffic once per flow.
+  const declaredFrom = new Map<string, { total: number; count: number }>();
+  for (const j of journeys) {
+    const first = j.steps[0] ?? '';
+    const d = declaredFrom.get(first) ?? { total: 0, count: 0 };
+    declaredFrom.set(first, { total: d.total + Math.max(0, j.rps ?? 0), count: d.count + 1 });
+  }
+
   return journeys.map((journey) => {
     const first = journey.steps[0] ?? '';
     // Offered is what actually arrives at the flow's first hop, so a flow that
     // starts half way down the design is measured from where it starts.
-    const offeredRps = round(byId.get(first)?.arrivingRps ?? 0);
+    const arriving = byId.get(first)?.arrivingRps ?? 0;
+    const shared = declaredFrom.get(first) ?? { total: 0, count: 1 };
+    const share = shared.total > EPSILON ? Math.max(0, journey.rps ?? 0) / shared.total : 1 / shared.count;
+    const offeredRps = round(arriving * share);
 
     let carried = offeredRps;
     let p50 = 0;
@@ -292,7 +306,11 @@ function flowResults(
     let previousId: string | undefined;
     // At least one step had to resolve for any of these numbers to mean anything.
     let measured = false;
-    for (const stepId of journey.steps) {
+    // A flow that steps between two components nothing connects is not a path any
+    // request can take — it describes the design the author meant, not the one drawn.
+    let gap = false;
+    for (let i = 0; i < journey.steps.length; i += 1) {
+      const stepId = journey.steps[i]!;
       const hop = byId.get(stepId);
       if (!hop) {
         notes.push(`${stepId} is named in this flow but not in the drawing.`);
@@ -302,6 +320,20 @@ function flowResults(
       // The hop between two steps costs what the distance between them costs. A
       // flow is a list of components, so the connection joining each pair has to
       // be looked up to know how far apart they are.
+      // Each step has to be called by something the request already passed through —
+      // the step before it, or an earlier one (an API calling a cache, then the
+      // database, is API → cache → database).
+      const earlier = new Set(journey.steps.slice(0, i));
+      if (previousId !== undefined && !graph.edges.some((e) => e.to === stepId && earlier.has(e.from))) {
+        const backwards = graph.edges.some((e) => e.from === stepId && earlier.has(e.to));
+        notes.push(
+          backwards
+            ? `${label(graph, previousId)} → ${label(graph, stepId)} is drawn the other way round, so requests cannot go that way — reverse the connection or the flow.`
+            : `Nothing before ${label(graph, stepId)} in this flow calls it, so it is not connected to the request — draw that connection, or change the flow.`,
+        );
+        if (brokenAt === undefined) brokenAt = previousId;
+        gap = true;
+      }
       if (previousId !== undefined) {
         const from = nodesById.get(previousId);
         const to = nodesById.get(stepId);
@@ -323,27 +355,59 @@ function flowResults(
       const survival = hop.arrivingRps > EPSILON ? hop.servedRps / hop.arrivingRps : 1;
       if (survival < 1 && brokenAt === undefined && hop.droppedRps > EPSILON) brokenAt = stepId;
       carried *= survival;
-      p50 += hop.latencyMs;
-      // Service-time spread (an openly-labelled estimate) plus the true M/M/c
-      // queueing percentile (a closed form), rather than one invented factor
-      // standing in for both.
-      //
-      // `hop.latencyMs` is already service time times the response multiple, so
-      // the bare service time is recovered by dividing that multiple back out —
-      // the tail estimate belongs to the service time itself, not to the queue
-      // wait sitting on top of it.
-      const serviceMs = hop.latencyMs / responseMultiple(hop.utilization, hop.servers);
-      p99 += serviceMs * TAIL_MULTIPLE_IDLE + waitP99Ms(hop.utilization, hop.servers, serviceMs);
+
+      // A flow is the journey its author listed — a job through a queue and its
+      // workers, a write until it reaches the server — so every listed step counts,
+      // hand-offs included. How long a CALLER waits, which does stop at a hand-off,
+      // is the run's headline latency, not a flow's.
+      {
+        p50 += hop.latencyMs;
+        // Service-time spread (an openly-labelled estimate) plus the true M/M/c
+        // queueing percentile (a closed form), rather than one invented factor
+        // standing in for both.
+        //
+        // `hop.latencyMs` is already service time times the response multiple, so
+        // the bare service time is recovered by dividing that multiple back out —
+        // the tail estimate belongs to the service time itself, not to the queue
+        // wait sitting on top of it.
+        const serviceMs = hop.latencyMs / responseMultiple(hop.utilization, hop.servers);
+        p99 += serviceMs * TAIL_MULTIPLE_IDLE + waitP99Ms(hop.utilization, hop.servers, serviceMs);
+
+        // A flow names the request's path, not every call made on the way. A service
+        // step also waits for its other synchronous dependencies, each in turn; a
+        // router step only for the backend the flow names.
+        const self = nodesById.get(stepId);
+        if (self && distributionOf(self.type) !== 'distribute') {
+          // A call to a component that comes later in the flow is timed when the
+          // flow reaches it, so only the calls the flow does not name are added here.
+          const later = new Set(journey.steps.slice(i + 1));
+          for (const e of graph.edges) {
+            if (e.from !== stepId || later.has(e.to) || e.kind === 'async') continue;
+            const callee = byId.get(e.to);
+            const calleeNode = nodesById.get(e.to);
+            if (!callee || !calleeNode) continue;
+            const wire = rttMs(
+              e.placement ?? inferPlacement(self.attrs?.region, calleeNode.attrs?.region),
+              self.attrs?.region,
+              calleeNode.attrs?.region,
+            );
+            const patience = patienceFor(calleeNode);
+            const calls = Math.max(0, e.share ?? 1);
+            p50 += calls * (wire + Math.min(callee.responseMs, patience));
+            p99 += calls * (wire + Math.min(callee.responseP99Ms, patience));
+          }
+        }
+      }
     }
 
     return {
       flowId: journey.id,
       name: journey.name,
       offeredRps,
-      completedRps: round(carried),
+      completedRps: gap ? 0 : round(carried),
       p50Ms: round(p50),
       p99Ms: round(p99),
-      broken: offeredRps > EPSILON && carried / offeredRps < BROKEN_COMPLETION_RATIO,
+      broken: gap || (offeredRps > EPSILON && carried / offeredRps < BROKEN_COMPLETION_RATIO),
       ...(brokenAt ? { brokenAt } : {}),
       notes,
       measured,

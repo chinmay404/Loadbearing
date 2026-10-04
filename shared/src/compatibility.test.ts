@@ -1009,3 +1009,46 @@ describe('no rule invents a concept', () => {
     }
   });
 });
+
+describe('a flow that skips a connection', () => {
+  const drawn = (steps: string[]): GraphDSL => ({
+    nodes: [
+      { id: 'web', type: 'client', label: 'Web', annotation: '' },
+      { id: 'api', type: 'service', label: 'API', annotation: '' },
+      { id: 'db', type: 'sql_db', label: 'Orders DB', annotation: '' },
+    ],
+    edges: [
+      { id: 'e1', from: 'web', to: 'api', kind: 'sync', label: '' },
+      { id: 'e2', from: 'api', to: 'db', kind: 'sync', label: '' },
+    ],
+    stickies: [],
+    flows: [{ id: 'f', name: 'place order', kind: 'write', steps, rps: 100, description: '' }],
+  });
+  const skips = (g: GraphDSL) => checkTopology(g).filter((f) => f.rule === 'flow-skips-a-connection');
+
+  it('is an error when two steps have nothing joining them', () => {
+    const found = skips(drawn(['web', 'db']));
+    expect(found).toHaveLength(1);
+    expect(found[0]!.severity).toBe('error');
+    expect(found[0]!.message).toContain('Web');
+    expect(found[0]!.message).toContain('Orders DB');
+    expect(found[0]!.nodeIds).toEqual(['web', 'db']);
+  });
+
+  it('says when the connection exists but points the other way', () => {
+    expect(skips(drawn(['api', 'web']))[0]!.message).toContain('other way');
+  });
+
+  it('stays quiet when every step follows a drawn connection', () => {
+    expect(skips(drawn(['web', 'api', 'db']))).toEqual([]);
+  });
+
+  it('accepts a step called by an earlier step rather than the one just before', () => {
+    // Cache-aside: the API calls the cache, then the database. Nothing joins the
+    // cache to the database, and nothing should.
+    const g = drawn(['web', 'api', 'cache', 'db']);
+    g.nodes.push({ id: 'cache', type: 'cache', label: 'Redis', annotation: '' });
+    g.edges.push({ id: 'e3', from: 'api', to: 'cache', kind: 'sync', label: '' });
+    expect(skips(g)).toEqual([]);
+  });
+});

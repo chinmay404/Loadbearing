@@ -476,7 +476,15 @@ describe('degrading one named component', () => {
     // The bug this exists for: a scenario written as "pricing degrades to 600ms" used
     // thirdPartyLatencyMs, which only touches components you call and do not run — so
     // once pricing was drawn as an internal service the scenario tested nothing.
-    expect(worstP99({ thirdPartyLatencyMs: 560 })).toBeCloseTo(baseline, 0);
+    //
+    // The flow itself does slow with a third-party brownout — the cart calls the Tax
+    // API on every request, and a flow now waits for the calls its steps make — so
+    // what is checked is the thing the bug was about: pricing itself is untouched.
+    const pricing = (config: Partial<SimConfig>) =>
+      simulate(graph, { rpsMultiplier: 1, killNodeIds: [], thirdPartyLatencyMs: 0, ...config }).nodes.find(
+        (n) => n.nodeId === 'pri',
+      )!.latencyMs;
+    expect(pricing({ thirdPartyLatencyMs: 560 })).toBeCloseTo(pricing({}), 0);
     expect(worstP99({ degradations: [{ node: 'Pricing Service', addMs: 560 }] })).toBeGreaterThan(
       baseline * 2,
     );
@@ -587,5 +595,84 @@ describe('a flow that could not be measured says so', () => {
     const sim = simulate(g, config());
     expect(sim.flows.length).toBeGreaterThan(0);
     expect(sim.flows.every((f) => f.measured)).toBe(true);
+  });
+});
+
+describe('how long a flow takes', () => {
+  // The flow names the path the request takes; it does not have to name every call a
+  // handler makes on the way. A request through an API that also reads two other
+  // stores waits for all three, so the flow does too.
+  const withSideCalls: GraphDSL = {
+    nodes: [
+      node('web', 'client', { trafficRps: 10 }),
+      node('api', 'service', { concurrency: 100_000, latencyMs: 5 }),
+      node('orders', 'sql_db', { latencyMs: 100, capacityRps: 1_000_000 }),
+      node('users', 'sql_db', { latencyMs: 100, capacityRps: 1_000_000 }),
+      node('prices', 'sql_db', { latencyMs: 100, capacityRps: 1_000_000 }),
+    ],
+    edges: [edge('web', 'api'), edge('api', 'orders'), edge('api', 'users'), edge('api', 'prices')],
+    stickies: [],
+    flows: [{ id: 'f', name: 'checkout read', kind: 'read', steps: ['web', 'api', 'orders'], rps: 10, description: '' }],
+  };
+
+  it('includes the calls a step makes that the flow did not name', () => {
+    const flow = simulate(withSideCalls, config()).flows[0]!;
+    expect(flow.p50Ms).toBeGreaterThan(300);
+  });
+
+  it('times the whole listed journey, while the caller only waits until the hand-off', () => {
+    const g: GraphDSL = {
+      nodes: [
+        node('web', 'client', { trafficRps: 10 }),
+        node('api', 'service', { concurrency: 100_000, latencyMs: 5 }),
+        node('q', 'queue'),
+        node('worker', 'worker', { latencyMs: 2000, concurrency: 100_000 }),
+      ],
+      edges: [edge('web', 'api'), edge('api', 'q'), edge('q', 'worker', { kind: 'async' })],
+      stickies: [],
+      flows: [{ id: 'f', name: 'job processed', kind: 'async', steps: ['web', 'api', 'q', 'worker'], rps: 10, description: '' }],
+    };
+    const result = simulate(g, config());
+    // The flow is the job's journey, worker included …
+    expect(result.flows[0]!.p50Ms).toBeGreaterThan(2000);
+    // … but nobody waits on the worker: the caller is answered once the job is queued.
+    expect(result.timeline!.points.at(-1)!.p99Ms).toBeLessThan(300);
+  });
+});
+
+describe('a flow is checked against the drawing', () => {
+  const drawn = (flows: GraphDSL['flows']): GraphDSL => ({
+    nodes: [
+      node('web', 'client', { trafficRps: 1000 }),
+      node('api', 'service', { concurrency: 100_000 }),
+      node('db', 'sql_db', { capacityRps: 1_000_000 }),
+    ],
+    edges: [edge('web', 'api'), edge('api', 'db')],
+    stickies: [],
+    flows,
+  });
+
+  it('breaks a flow that jumps between components nothing connects', () => {
+    const result = simulate(drawn([{ id: 'f', name: 'shortcut', kind: 'read', steps: ['web', 'db'], rps: 1000, description: '' }]), config());
+    const flow = result.flows[0]!;
+    expect(flow.broken).toBe(true);
+    expect(flow.completedRps).toBe(0);
+    expect(flow.notes.join(' ')).toContain('not connected');
+  });
+
+  it('breaks a flow that walks a connection backwards', () => {
+    const result = simulate(drawn([{ id: 'f', name: 'backwards', kind: 'read', steps: ['api', 'web'], rps: 1000, description: '' }]), config());
+    expect(result.flows[0]!.broken).toBe(true);
+  });
+
+  it('gives each flow from a shared starting point its own share of the traffic', () => {
+    const result = simulate(
+      drawn([
+        { id: 'r', name: 'reads', kind: 'read', steps: ['web', 'api', 'db'], rps: 900, description: '' },
+        { id: 'w', name: 'writes', kind: 'write', steps: ['web', 'api', 'db'], rps: 100, description: '' },
+      ]),
+      config(),
+    );
+    expect(result.flows.map((f) => f.offeredRps)).toEqual([900, 100]);
   });
 });

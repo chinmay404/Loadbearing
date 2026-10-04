@@ -670,6 +670,43 @@ export function checkTopology(graph: GraphDSL): TopologyFinding[] {
     );
   }
 
+  // Rule 4b — a flow step that nothing earlier in the flow calls.
+  //
+  // A flow lists the components a request touches, in order. Each one has to be
+  // called by something the request has already passed through — not necessarily
+  // the step just before it: a cache-aside read goes API → cache → database with the
+  // API calling both, and a write goes API → database → queue with the API doing the
+  // publishing. A step nothing earlier calls is not somewhere the request can go,
+  // and before this the simulator reported such a flow as completing while the
+  // component it named received nothing at all.
+  for (const flow of flows) {
+    const steps = flow.steps ?? [];
+    for (let i = 1; i < steps.length; i += 1) {
+      const to = byId.get(steps[i]!);
+      const from = byId.get(steps[i - 1]!);
+      if (!to || !from) continue;
+      const earlier = new Set(steps.slice(0, i));
+      if (edges.some((e) => e.to === to.id && earlier.has(e.from))) continue;
+      const backwards = edges.some((e) => e.from === to.id && earlier.has(e.to));
+      errors.push(
+        finding(
+          'error',
+          'flow-skips-a-connection',
+          backwards
+            ? `The flow '${flow.name}' reaches ${to.label} after ${from.label}, but the connection is drawn the other way round — ` +
+                `${to.label} calls into the flow rather than being called by it, so a request cannot go that way.`
+            : `The flow '${flow.name}' reaches ${to.label} after ${from.label}, but nothing earlier in the flow calls ${to.label} — ` +
+                `no request can take that step, so the flow describes a design that is not the one drawn.`,
+          backwards
+            ? `Reverse the connection if ${from.label} really calls ${to.label}, or reverse the flow's steps.`
+            : `Draw the connection from whichever step calls ${to.label}, or add the components between them to the flow.`,
+          [from.id, to.id],
+          [],
+        ),
+      );
+    }
+  }
+
   // Rule 5b — a write and a read of the same data, where the read goes to a follower.
   //
   // This is a correctness finding, not a capacity one, which is why it lives here

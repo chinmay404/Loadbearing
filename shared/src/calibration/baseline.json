@@ -69,8 +69,8 @@
         "name": "cached read",
         "offeredRps": 2000,
         "completedRps": 2000,
-        "p50Ms": 68.54,
-        "p99Ms": 169.06,
+        "p50Ms": 85.62,
+        "p99Ms": 212.96,
         "broken": false
       }
     ],
@@ -192,30 +192,30 @@
     ]
   },
   "idempotent-write": {
-    "verdict": "At 200 rps it loses 25% of requests. It gives way at Payment Provider first.",
-    "bottleneckNodeId": "pay",
-    "totalDroppedRps": 50,
-    "monthlyCost": 775.65,
+    "verdict": "At 200 rps it loses 26% of requests. It gives way at Write Service first.",
+    "bottleneckNodeId": "svc",
+    "totalDroppedRps": 52.61,
+    "monthlyCost": 866.29,
     "flows": [
       {
         "name": "idempotent write",
         "offeredRps": 200,
-        "completedRps": 200,
-        "p50Ms": 54.56,
-        "p99Ms": 136.29,
+        "completedRps": 147.39,
+        "p50Ms": 1584.04,
+        "p99Ms": 3748.62,
         "broken": false
       }
     ],
     "nodes": [
       {
         "nodeId": "bus",
-        "utilization": 0.002,
+        "utilization": 0.006,
         "latencyMs": 4,
         "capacityRps": 25000
       },
       {
         "nodeId": "cdc",
-        "utilization": 0.012,
+        "utilization": 0.029,
         "latencyMs": 50,
         "capacityRps": 5000
       },
@@ -227,7 +227,7 @@
       },
       {
         "nodeId": "db",
-        "utilization": 0.067,
+        "utilization": 0.049,
         "latencyMs": 8,
         "capacityRps": 3000
       },
@@ -239,15 +239,15 @@
       },
       {
         "nodeId": "pay",
-        "utilization": 1.333,
-        "latencyMs": 9000,
+        "utilization": 0.983,
+        "latencyMs": 769.04,
         "capacityRps": 150
       },
       {
         "nodeId": "svc",
-        "utilization": 0.832,
-        "latencyMs": 40.06,
-        "capacityRps": 240.48
+        "utilization": 1.357,
+        "latencyMs": 800,
+        "capacityRps": 147.39
       }
     ]
   },
@@ -261,8 +261,8 @@
         "name": "offline write reaches the server",
         "offeredRps": 100,
         "completedRps": 100,
-        "p50Ms": 71.5,
-        "p99Ms": 176.5,
+        "p50Ms": 75,
+        "p99Ms": 184.5,
         "broken": false
       }
     ],
@@ -309,8 +309,8 @@
         "name": "document indexed",
         "offeredRps": 5,
         "completedRps": 5,
-        "p50Ms": 2675.5,
-        "p99Ms": 6685,
+        "p50Ms": 2684,
+        "p99Ms": 6705.5,
         "broken": false
       }
     ],
@@ -375,8 +375,8 @@
         "name": "question answered from documents",
         "offeredRps": 30,
         "completedRps": 30,
-        "p50Ms": 1777.69,
-        "p99Ms": 4830.94,
+        "p50Ms": 1860.74,
+        "p99Ms": 5036.94,
         "broken": false
       }
     ],
@@ -457,16 +457,16 @@
     "flows": [
       {
         "name": "request on the migrated path",
-        "offeredRps": 240,
-        "completedRps": 240,
+        "offeredRps": 200,
+        "completedRps": 200,
         "p50Ms": 57.5,
         "p99Ms": 141.5,
         "broken": false
       },
       {
         "name": "request still on the legacy path",
-        "offeredRps": 240,
-        "completedRps": 156.68,
+        "offeredRps": 40,
+        "completedRps": 26.11,
         "p50Ms": 8017.5,
         "p99Ms": 9041.5,
         "broken": false
@@ -539,8 +539,8 @@
         "name": "agent completes a task",
         "offeredRps": 5,
         "completedRps": 5,
-        "p50Ms": 4918,
-        "p99Ms": 12290.5,
+        "p50Ms": 4933.5,
+        "p99Ms": 12328.5,
         "broken": false
       }
     ],

@@ -173,6 +173,13 @@ export interface HopState {
    * throughput the caller never used.
    */
   occupancyMs: number;
+  /**
+   * How long a caller waits for this component to answer: its own latency plus,
+   * for a service, each synchronous dependency in turn, and for a router the one it
+   * picks — each dependency counted no longer than its timeout.
+   */
+  responseMs: number;
+  responseP99Ms: number;
 }
 
 export interface TickState {
@@ -286,8 +293,18 @@ export const DEFAULT_QUEUE_DEPTH = 100_000;
 /** Utilisation at which a component is warned about. */
 
 export const HOT_UTILIZATION = 0.9;
-/** Rounds of relaxation per tick. Factors only shrink, so this converges fast. */
-const RELAX_ROUNDS = 8;
+/**
+ * Rounds of relaxation per tick. Each round carries traffic one hop further, so a
+ * design needs at least as many rounds as its longest chain is deep — a fixed eight
+ * once left everything nine hops from a source idle while the run reported success.
+ * The bounds keep a shallow design settling properly and a pathological one finite.
+ */
+const MIN_RELAX_ROUNDS = 8;
+const MAX_RELAX_ROUNDS = 80;
+/** A round that moves no component's throughput by more than this has reached the fixpoint. */
+const SETTLED_RPS = 0.01;
+/** Extra rounds past the deepest hop, for capacity and pools to settle. */
+const SETTLE_ROUNDS = 4;
 /** Headroom on top of the worst congestion the model will report. */
 const TIMEOUT_HEADROOM = 1.1;
 /**
@@ -553,6 +570,26 @@ export const effectiveHitRate = (node: GraphNode): number => absorbOf(node);
  * retry count is what creates amplification. No stated timeout means the caller is
  * patient, which is both the safer default and usually the truth.
  */
+/**
+ * Whether callers give up on this component.
+ *
+ * A stated timeout is spent on the whole response — the component's own work and
+ * everything it waits for. An unstated one stays what it was designed to be:
+ * generous, measured against the component's own time only, so it never fails
+ * anything on its own. Timeout failures come from somebody saying how long they
+ * will wait, not from a default nobody chose.
+ */
+function pastPatience(r: NodeRuntime): boolean {
+  const stated = typeof r.node.attrs?.timeoutMs === 'number';
+  const patience = num(r.node.attrs?.timeoutMs, defaultTimeoutFor(r.node, r.family));
+  return (stated ? r.responseMs : r.latencyMs) > patience;
+}
+
+/** How long a caller waits for this component before giving up, ms — stated, or the family's default. */
+export function patienceFor(node: GraphNode): number {
+  return num(node.attrs?.timeoutMs, defaultTimeoutFor(node, familyOf(node.type)));
+}
+
 function defaultTimeoutFor(node: GraphNode, family: Family): number {
   const patient = serviceMsOf(node) * MAX_WAIT_MULTIPLE * TIMEOUT_HEADROOM;
   return Math.max(DEFAULT_TIMEOUT_MS[family], patient);
@@ -606,6 +643,8 @@ interface Prepared {
   pathsOmitted: number;
   /** Share of declared traffic that is reads, for routers that split by kind. */
   readFraction: number;
+  /** Hops in the longest chain that does not revisit a component. */
+  depth: number;
 }
 
 /**
@@ -755,7 +794,26 @@ function prepare(graph: GraphDSL): Prepared {
     paths,
     pathsOmitted: omitted,
     readFraction: readFractionOf(graph),
+    depth: longestChain(nodes, out),
   };
+}
+
+/** Hops in the longest chain through the request path, cutting any cycle where it closes. */
+function longestChain(nodes: GraphNode[], out: Map<string, GraphEdge[]>): number {
+  const memo = new Map<string, number>();
+  const visiting = new Set<string>();
+  const from = (id: string): number => {
+    const known = memo.get(id);
+    if (known !== undefined) return known;
+    if (visiting.has(id)) return 0;
+    visiting.add(id);
+    let deepest = 0;
+    for (const e of out.get(id) ?? []) deepest = Math.max(deepest, 1 + from(e.to));
+    visiting.delete(id);
+    memo.set(id, deepest);
+    return deepest;
+  };
+  return nodes.reduce((max, n) => Math.max(max, from(n.id)), 0);
 }
 
 // ------------------------------------------------------------------ per tick --
@@ -815,6 +873,28 @@ interface NodeRuntime {
   servers: number;
   /** Own service time plus everything synchronously waited on, ms. */
   occupancyMs: number;
+  /**
+   * The occupancy capacity is actually derived from, approached in steps.
+   *
+   * Occupancy and capacity form a loop: serving more makes a dependency busier,
+   * which holds workers longer, which serves less. Taken a full step each round,
+   * that loop can swing between its two extremes forever, and whichever one the
+   * last round landed on became the answer — a service reported as fine or as
+   * failing 70% depending on how many rounds the drawing happened to need. So
+   * each component steps towards its new occupancy, and halves its step every
+   * time the direction flips: a component that settles normally still moves the
+   * whole way, and one caught in the swing closes in on the balance point.
+   */
+  occDamped: number;
+  occStep: number;
+  occDelta: number;
+  /** End to end, as its callers see it: own latency plus what it waits for, ms. */
+  responseMs: number;
+  /**
+   * Share of calls to it that do not come back — its own drops, failures anywhere
+   * below it, and running past a stated timeout. What a retrying caller reacts to.
+   */
+  callFail: number;
   /**
    * Capacity before this round's constraints, so it can be rebuilt from scratch
    * each time round the relaxation loop.
@@ -994,6 +1074,156 @@ function computeOccupancy(prep: Prepared, runtime: Map<string, NodeRuntime>): vo
   for (const node of prep.nodes) responseOf(node.id, new Set());
 }
 
+/**
+ * How long a caller waits for each component, end to end.
+ *
+ * The same shape as occupancy, and for the same reason: a service makes every one
+ * of its synchronous calls and waits for each in turn, so their times ADD; a router
+ * hands the request to one backend, so its caller waits for the weighted AVERAGE;
+ * past an async hand-off nobody is waiting at all. Averaging a service's calls
+ * instead — which the path walk used to do — reported a handler making six
+ * sequential 100 ms queries as taking 111 ms.
+ *
+ * A dependency is counted no longer than its timeout, because that is when its
+ * caller stops waiting.
+ */
+function responseTimes(prep: Prepared, runtime: Map<string, NodeRuntime>): Map<string, { p50: number; p99: number }> {
+  const memo = new Map<string, { p50: number; p99: number }>();
+
+  const own = (r: NodeRuntime) =>
+    r.bypassed
+      ? { p50: 0, p99: 0 }
+      : {
+          p50: r.latencyMs,
+          // Service-time spread (an openly-labelled estimate) plus the true M/M/c wait.
+          p99: r.serviceMs * TAIL_MULTIPLE_IDLE + waitP99Ms(r.utilization, r.servers, r.serviceMs),
+        };
+
+  const visit = (id: string, visiting: Set<string>): { p50: number; p99: number } => {
+    const known = memo.get(id);
+    if (known) return known;
+    const r = runtime.get(id);
+    if (!r) return { p50: 0, p99: 0 };
+    // A cycle cannot be summed; the second visit counts only its own time.
+    if (visiting.has(id)) return own(r);
+    visiting.add(id);
+
+    const outs = (prep.out.get(id) ?? []).filter((e) => e.kind !== 'async' && runtime.has(e.to));
+    const hop = (e: GraphEdge) => {
+      const callee = runtime.get(e.to)!;
+      const fromRegion = r.node.attrs?.region;
+      const toRegion = callee.node.attrs?.region;
+      const wire = rttMs(e.placement ?? inferPlacement(fromRegion, toRegion), fromRegion, toRegion);
+      const patience = num(callee.node.attrs?.timeoutMs, defaultTimeoutFor(callee.node, callee.family));
+      const answer = visit(e.to, visiting);
+      return { p50: wire + Math.min(answer.p50, patience), p99: wire + Math.min(answer.p99, patience) };
+    };
+
+    let below = { p50: 0, p99: 0 };
+    if (outs.length > 0) {
+      if (distributionOf(r.node.type) === 'distribute') {
+        const routable = outs.filter((e) => familyOf(runtime.get(e.to)!.node.type) !== 'control');
+        const across = routable.length > 0 ? routable : outs;
+        const weights = across.map((e) => num(e.share, defaultRouteShare(e, across, prep.readFraction)));
+        const total = weights.reduce((a, b) => a + b, 0) || 1;
+        below = across.reduce(
+          (acc, e, i) => {
+            const t = hop(e);
+            return { p50: acc.p50 + (weights[i]! / total) * t.p50, p99: acc.p99 + (weights[i]! / total) * t.p99 };
+          },
+          { p50: 0, p99: 0 },
+        );
+      } else {
+        below = outs.reduce(
+          (acc, e) => {
+            const t = hop(e);
+            const calls = callsPerRequest(e);
+            return { p50: acc.p50 + calls * t.p50, p99: acc.p99 + calls * t.p99 };
+          },
+          { p50: 0, p99: 0 },
+        );
+      }
+    }
+
+    visiting.delete(id);
+    const mine = own(r);
+    const result = { p50: mine.p50 + below.p50, p99: mine.p99 + below.p99 };
+    memo.set(id, result);
+    return result;
+  };
+
+  for (const node of prep.nodes) visit(node.id, new Set());
+  return memo;
+}
+
+/**
+ * The chance a call to each component comes back, over everything below it.
+ *
+ * A router picks ONE downstream, weighted by share; a service needs ALL the
+ * dependencies it calls, each weighted by how often it calls them; hand-offs are
+ * excluded because nobody is waiting on the far side. Used for what completed, and
+ * — counting timeouts as they happen — for what a retrying caller sees.
+ */
+function callSuccess(prep: Prepared, runtime: Map<string, NodeRuntime>, countTimeouts: boolean): Map<string, number> {
+  const succeeds = new Map<string, number>();
+  const succeedsAt = (nodeId: string, visiting: Set<string>): number => {
+    const cached = succeeds.get(nodeId);
+    if (cached !== undefined) return cached;
+    // A cycle cannot be resolved as a probability; treat the second visit as
+    // succeeding so the recursion terminates instead of counting forever.
+    if (visiting.has(nodeId)) return 1;
+    const r = runtime.get(nodeId);
+    if (!r) return 1;
+
+    visiting.add(nodeId);
+    const survives = r.arriving > EPSILON ? clamp01(r.served / r.arriving) : 1;
+    // Mid-solve, a component past a stated timeout still shows what it served — the
+    // timeout is only applied once throughput settles — so its callers are told here.
+    const own = countTimeouts && prep.waited.has(nodeId) && pastPatience(r) ? 0 : survives;
+    const outs = (prep.out.get(nodeId) ?? []).filter((e) => e.kind !== 'async');
+    let below = 1;
+
+    if (outs.length > 0) {
+      if (distributionOf(r.node.type) === 'distribute') {
+        const routable = outs.filter(
+          (e) => familyOf(runtime.get(e.to)?.node.type ?? 'custom') !== 'control',
+        );
+        const across = routable.length > 0 ? routable : outs;
+        const weights = across.map((e) => num(e.share, defaultRouteShare(e, across, prep.readFraction)));
+        const total = weights.reduce((a, b) => a + b, 0) || 1;
+        below = across.reduce(
+          (sum, e, i) => sum + (weights[i]! / total) * succeedsAt(e.to, visiting),
+          0,
+        );
+      } else {
+        // Every call must come back, and the two readings of the share need
+        // different arithmetic here.
+        //
+        // Below one it is the fraction of requests that make the call at all, so
+        // only that fraction is exposed to the failure. Above one it is a COUNT
+        // of calls, and all of them have to succeed — which compounds: eighty
+        // embed calls at 99% each leave a 45% chance the document survives. That
+        // compounding is the real reason a wide fan-out is fragile, and it was
+        // invisible while the count was clamped to one.
+        below = outs.reduce((product, e) => {
+          const calls = callsPerRequest(e);
+          const p = succeedsAt(e.to, visiting);
+          const all = calls <= 1 ? 1 - calls + calls * p : p ** calls;
+          return product * all;
+        }, 1);
+      }
+    }
+
+    visiting.delete(nodeId);
+    const result = own * below;
+    succeeds.set(nodeId, result);
+    return result;
+  };
+
+  for (const node of prep.nodes) succeedsAt(node.id, new Set());
+  return succeeds;
+}
+
 export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
   const prep = prepare(graph);
   const horizon = Math.max(1, Math.floor(scenario.horizonS || DEFAULT_HORIZON_S));
@@ -1012,6 +1242,15 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
   let finalStates: HopState[] = [];
   let peakOffered = 0;
   let peakRetry = 1;
+
+  // The previous second's settled state. A system does not start from nothing every
+  // second, and neither should the solve: beginning where the last second ended,
+  // a steady second settles in a round or two instead of re-deriving the whole flow
+  // hop by hop.
+  let previous: Map<string, NodeRuntime> | null = null;
+  // What went into the previous second, and what its retries came to.
+  let lastSignature = '';
+  let lastAttempts = { first: 0, retried: 0 };
 
   for (let t = 0; t < horizon; t += TICK_S) {
     const runtime = new Map<string, NodeRuntime>();
@@ -1077,9 +1316,31 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         hostLimited: false,
         servers: serversOf(node, replicas),
         occupancyMs: serviceMs,
+        occDamped: serviceMs,
+        occStep: 1,
+        occDelta: 0,
+        responseMs: serviceMs,
+        callFail: 0,
         capacityMultiple,
       });
     }
+
+    const last = previous;
+    const warm = last !== null;
+    if (last) {
+      for (const [id, r] of runtime) {
+        const before = last.get(id);
+        if (!before) continue;
+        r.served = before.served;
+        r.failFraction = before.failFraction;
+        r.callFail = before.callFail;
+        // Where occupancy settled, but a full step again: a step shrunk by last
+        // second's search would crawl towards this second's answer and could stop
+        // short of it.
+        r.occDamped = before.occDamped;
+      }
+    }
+    previous = runtime;
 
     // Offered load this second, per source.
     const offeredBySource = new Map<string, number>();
@@ -1092,16 +1353,36 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
     }
     peakOffered = Math.max(peakOffered, offeredTotal);
 
+    // A second whose every input matches the last one has the last one's answer —
+    // the same traffic into the same components in the same condition. Most of a
+    // steady run is exactly that, so it is solved once rather than every second.
+    const signature = [
+      ...[...offeredBySource.values()].map((v) => v.toFixed(6)),
+      ...prep.nodes.map((n) => {
+        const r = runtime.get(n.id)!;
+        return `${r.down ? 1 : 0}/${r.serviceMs}/${r.capacityMultiple}/${r.absorb}/${r.replicas}/${r.backlog.toFixed(6)}`;
+      }),
+    ].join('|');
+    const repeat = last !== null && signature === lastSignature;
+    lastSignature = signature;
+    if (repeat) for (const [id, r] of runtime) Object.assign(r, last!.get(id));
+
     // Relaxation. Arrivals depend on upstream throughput, and retries depend on
     // downstream failure, so the two are solved together. Failure fractions only
     // rise as load rises, which is why a handful of rounds settles it.
     // Counted while flow is pushed, because that is the only place the difference
     // between "a request" and "an attempt" exists. An earlier version divided two
     // totals that are equal by construction and always reported no amplification.
-    let firstAttempts = 0;
-    let retriedAttempts = 0;
+    let firstAttempts = repeat ? lastAttempts.first : 0;
+    let retriedAttempts = repeat ? lastAttempts.retried : 0;
 
-    for (let round = 0; round < RELAX_ROUNDS; round += 1) {
+    // At least deep enough for traffic to reach the last hop and settle; then on until
+    // nothing moves, because a loop between capacity and a busy dependency can need
+    // more than that to find its balance.
+    // A warm start already carries flow to every hop, so the first quiet round is the answer.
+    const atLeast = warm ? 1 : Math.min(MAX_RELAX_ROUNDS, Math.max(MIN_RELAX_ROUNDS, prep.depth + SETTLE_ROUNDS));
+    for (let round = 0; round < (repeat ? 0 : MAX_RELAX_ROUNDS); round += 1) {
+      const before = round >= atLeast ? prep.nodes.map((n) => runtime.get(n.id)!.served) : null;
       for (const r of runtime.values()) {
         r.arriving = 0;
         r.hostLimited = false;
@@ -1184,7 +1465,9 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
               ? shares[i]! / shareTotal
               : shares[i]!;
           const attempts = forwarded * fraction;
-          const multiplier = retryMultiplier(target.failFraction, num(e.retries, DEFAULT_RETRIES));
+          // A caller retries whatever came back as an error — dropped by the callee,
+          // failed somewhere below it, or too slow to wait for.
+          const multiplier = retryMultiplier(target.callFail, num(e.retries, DEFAULT_RETRIES));
           target.arriving += attempts * multiplier;
           firstAttempts += attempts;
           retriedAttempts += attempts * multiplier;
@@ -1200,6 +1483,14 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
       // is, which depends on what upstream capacity let through. The same
       // relaxation rounds that already resolve retry amplification resolve this.
       computeOccupancy(prep, runtime);
+      for (const node of prep.nodes) {
+        const r = runtime.get(node.id)!;
+        const delta = r.occupancyMs - r.occDamped;
+        if (delta * r.occDelta < 0) r.occStep *= 0.5;
+        r.occDelta = delta;
+        r.occDamped += r.occStep * delta;
+        r.occupancyMs = r.occDamped;
+      }
       for (const node of prep.nodes) {
         const r = runtime.get(node.id)!;
         if (r.down || r.node.attrs?.elastic === true) continue;
@@ -1282,19 +1573,41 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         r.utilization = r.capacity > 0 && Number.isFinite(r.capacity) ? r.arriving / r.capacity : 0;
         r.failFraction = r.arriving > EPSILON ? clamp01(r.dropped / r.arriving) : 0;
       }
+
+      // What each component's callers will see next round.
+      for (const node of prep.nodes) {
+        const r = runtime.get(node.id)!;
+        r.latencyMs = r.bypassed ? 0 : r.serviceMs * responseMultiple(r.utilization, r.servers);
+      }
+      const roundResponses = responseTimes(prep, runtime);
+      for (const node of prep.nodes) runtime.get(node.id)!.responseMs = roundResponses.get(node.id)?.p50 ?? 0;
+      const roundSuccess = callSuccess(prep, runtime, true);
+      for (const node of prep.nodes) runtime.get(node.id)!.callFail = 1 - (roundSuccess.get(node.id) ?? 1);
+
+      if (before && prep.nodes.every((n, i) => Math.abs(runtime.get(n.id)!.served - before[i]!) <= SETTLED_RPS)) break;
     }
+
+    lastAttempts = { first: firstAttempts, retried: retriedAttempts };
 
     // Latency, once throughput has settled. Timeouts turn "slow" into "failed" — but
     // only where somebody is actually waiting. Work behind a hand-off has no caller
     // counting the milliseconds, so a document parser that takes two and a half
     // seconds is doing its job, not failing; applying a synchronous budget to it
     // reported every ingest pipeline as broken at its own declared load.
+    //
+    // And the patience is spent on the whole response — the component's own work and
+    // everything it waits for. An API that does 5 ms of work while waiting four
+    // seconds on a payment provider is a four-second API to whoever called it.
     for (const node of prep.nodes) {
       const r = runtime.get(node.id)!;
       r.latencyMs = r.bypassed ? 0 : r.serviceMs * responseMultiple(r.utilization, r.servers);
+    }
+    const responses = responseTimes(prep, runtime);
+    for (const node of prep.nodes) {
+      const r = runtime.get(node.id)!;
+      r.responseMs = responses.get(node.id)?.p50 ?? r.latencyMs;
       if (!prep.waited.has(node.id)) continue;
-      const timeout = num(r.node.attrs?.timeoutMs, defaultTimeoutFor(r.node, r.family));
-      if (r.latencyMs > timeout && r.served > 0) {
+      if (pastPatience(r) && r.served > 0) {
         r.dropped += r.served;
         r.served = 0;
         r.failFraction = 1;
@@ -1341,117 +1654,29 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
     // ONE downstream, weighted by share, while a service needs ALL the dependencies
     // it calls, each weighted by how often it calls them. Hand-offs are excluded
     // because nobody is waiting on the far side.
-    const succeeds = new Map<string, number>();
-    const succeedsAt = (nodeId: string, visiting: Set<string>): number => {
-      const cached = succeeds.get(nodeId);
-      if (cached !== undefined) return cached;
-      // A cycle cannot be resolved as a probability; treat the second visit as
-      // succeeding so the recursion terminates instead of counting forever.
-      if (visiting.has(nodeId)) return 1;
-      const r = runtime.get(nodeId);
-      if (!r) return 1;
-
-      visiting.add(nodeId);
-      const own = r.arriving > EPSILON ? clamp01(r.served / r.arriving) : 1;
-      const outs = (prep.out.get(nodeId) ?? []).filter((e) => e.kind !== 'async');
-      let below = 1;
-
-      if (outs.length > 0) {
-        if (distributionOf(r.node.type) === 'distribute') {
-          const routable = outs.filter(
-            (e) => familyOf(runtime.get(e.to)?.node.type ?? 'custom') !== 'control',
-          );
-          const across = routable.length > 0 ? routable : outs;
-          const weights = across.map((e) => num(e.share, defaultRouteShare(e, across, prep.readFraction)));
-          const total = weights.reduce((a, b) => a + b, 0) || 1;
-          below = across.reduce(
-            (sum, e, i) => sum + (weights[i]! / total) * succeedsAt(e.to, visiting),
-            0,
-          );
-        } else {
-          // Every call must come back, and the two readings of the share need
-          // different arithmetic here.
-          //
-          // Below one it is the fraction of requests that make the call at all, so
-          // only that fraction is exposed to the failure. Above one it is a COUNT
-          // of calls, and all of them have to succeed — which compounds: eighty
-          // embed calls at 99% each leave a 45% chance the document survives. That
-          // compounding is the real reason a wide fan-out is fragile, and it was
-          // invisible while the count was clamped to one.
-          below = outs.reduce((product, e) => {
-            const calls = callsPerRequest(e);
-            const p = succeedsAt(e.to, visiting);
-            const all = calls <= 1 ? 1 - calls + calls * p : p ** calls;
-            return product * all;
-          }, 1);
-        }
-      }
-
-      visiting.delete(nodeId);
-      const result = own * below;
-      succeeds.set(nodeId, result);
-      return result;
-    };
+    const success = callSuccess(prep, runtime, false);
+    const succeedsAt = (nodeId: string): number => success.get(nodeId) ?? 1;
 
     let completed = 0;
     for (const [sourceId, rate] of offeredBySource) {
-      completed += rate * succeedsAt(sourceId, new Set());
+      completed += rate * succeedsAt(sourceId);
     }
 
-    // Latency is averaged over the paths, weighted by how much traffic each one
-    // actually carries — the same branch fractions, so a rarely-taken path does not
-    // drag the headline number around.
+    // How long a request takes, from each source: the response of whatever it calls,
+    // which is the same recursion as occupancy — a service waits for each of its
+    // dependencies in turn, a router for the one it picks.
     let p50Weighted = 0;
     let p99Weighted = 0;
     let weightTotal = 0;
-    for (const path of prep.paths) {
-      let weight = offeredBySource.get(path.nodeIds[0]!) ?? 0;
+    // Weighted by what was offered, not what completed: a caller whose request
+    // timed out still waited, and a run where nothing completes is not a fast one.
+    for (const [sourceId, rate] of offeredBySource) {
+      const weight = rate;
       if (weight <= EPSILON) continue;
-      let latency = 0;
-      let tail = 0;
-      let waiting = true;
-
-      for (let i = 0; i < path.nodeIds.length; i += 1) {
-        const r = runtime.get(path.nodeIds[i]!);
-        if (!r) continue;
-        weight *= r.arriving > EPSILON ? clamp01(r.served / r.arriving) : 1;
-        if (waiting) {
-          latency += r.latencyMs;
-          // Two separable things, and they used to be one invented factor. The
-          // service time has a spread of its own even at rest — GC, scheduling,
-          // jitter — which is the estimate; and a busy hop makes people wait for a
-          // channel, which is a real M/M/c percentile.
-          tail +=
-            r.serviceMs * TAIL_MULTIPLE_IDLE + waitP99Ms(r.utilization, r.servers, r.serviceMs);
-        }
-        const next = path.nodeIds[i + 1];
-        if (next === undefined) break;
-        const link = (prep.out.get(r.node.id) ?? []).find((e) => e.to === next);
-        if (!link) continue;
-        // Past a hand-off the caller has already been answered.
-        // Occupancy already charged this hop against the caller's capacity. This
-        // is the other half of the same fact: the milliseconds a reader sees.
-        if (waiting) {
-          const fromRegion = r.node.attrs?.region;
-          const toRegion = runtime.get(next)?.node.attrs?.region;
-          const wire = rttMs(
-            link.placement ?? inferPlacement(fromRegion, toRegion),
-            fromRegion,
-            toRegion,
-          );
-          latency += wire;
-          tail += wire;
-        }
-        if (link.kind === 'async') waiting = false;
-        const siblings = prep.out.get(r.node.id) ?? [];
-        weight *=
-          distributionOf(r.node.type) === 'distribute'
-            ? num(link.share, defaultRouteShare(link, siblings, prep.readFraction))
-            : callsPerRequest(link);
-      }
-
-      p50Weighted += latency * weight;
-      p99Weighted += tail * weight;
+      const response = responses.get(sourceId);
+      if (!response) continue;
+      p50Weighted += response.p50 * weight;
+      p99Weighted += response.p99 * weight;
       weightTotal += weight;
     }
 
@@ -1482,6 +1707,8 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         elastic: r.node.attrs?.elastic === true,
         servers: r.servers,
         occupancyMs: round(r.occupancyMs),
+        responseMs: round(responses.get(node.id)?.p50 ?? 0),
+        responseP99Ms: round(responses.get(node.id)?.p99 ?? 0),
       };
     });
 
@@ -1575,8 +1802,14 @@ function reasonFor(r: NodeRuntime): string {
     }
   }
   if (r.arriving > r.shedLimit) return `${r.node.label} is shedding above its ${Math.round(r.shedLimit)} rps limit.`;
-  if (r.latencyMs > num(r.node.attrs?.timeoutMs, DEFAULT_TIMEOUT_MS[r.family])) {
-    return `${r.node.label} answers in ${Math.round(r.latencyMs)}ms, past the ${Math.round(num(r.node.attrs?.timeoutMs, DEFAULT_TIMEOUT_MS[r.family]))}ms its caller waits.`;
+  if (pastPatience(r)) {
+    const patience = num(r.node.attrs?.timeoutMs, defaultTimeoutFor(r.node, r.family));
+    // Say where the time went: a slow component and a fast one stuck waiting are
+    // different problems with different fixes.
+    const stated = typeof r.node.attrs?.timeoutMs === 'number';
+    const took = stated ? r.responseMs : r.latencyMs;
+    const waiting = stated && r.responseMs > 2 * r.latencyMs ? ', most of it waiting on what it calls' : '';
+    return `${r.node.label} answers in ${Math.round(took)}ms${waiting}, past the ${Math.round(patience)}ms its caller waits.`;
   }
   if (r.family === 'messaging') {
     return `${r.node.label} is ${Math.round(r.backlog)} messages behind — consumers drain ${Math.round(r.capacity)} rps of ${Math.round(r.arriving)} arriving.`;
