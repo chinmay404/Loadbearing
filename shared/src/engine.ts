@@ -535,6 +535,13 @@ function absorbOf(node: GraphNode): number {
 }
 
 /**
+ * The share of reads a cache actually answers — what was asked for, capped by what
+ * its memory can cover. Exported so a gauge shows the rate the run used, not the
+ * one somebody typed.
+ */
+export const effectiveHitRate = (node: GraphNode): number => absorbOf(node);
+
+/**
  * How long a caller waits before giving up, when nobody has said.
  *
  * Deliberately generous: enough that congestion alone never trips it. Overload is

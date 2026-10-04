@@ -1,0 +1,319 @@
+/* ---------------------------------------------------------------- the bench --
+ * The drawing surface: a pegboard, parts on it, cables between them. Colour on
+ * the canvas is state and nothing else, so a part in trouble is the only loud
+ * thing on screen.
+ */
+
+.react-flow {
+  --xy-background-color: transparent;
+}
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__handle {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--cable);
+  transition:
+    border-color var(--d-hover) ease,
+    background-color var(--d-hover) ease,
+    transform var(--d-press) var(--ease-out);
+}
+.react-flow__handle:hover,
+.react-flow__handle.connectingfrom,
+.react-flow__handle.connectingto {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.react-flow__edge-text {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--muted);
+}
+.react-flow__controls {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-float);
+}
+.react-flow__controls button {
+  background: var(--surface);
+  border: none;
+  border-bottom: 1px solid var(--line);
+  fill: var(--fg-2);
+  border-radius: 0;
+  padding: 6px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .react-flow__controls button:hover:not(:disabled) {
+    background: var(--surface-2);
+  }
+}
+.react-flow__minimap {
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.react-flow__selection {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-sm);
+}
+
+/* Parts — nodes, gauges, both skins — live in nodes.css. */
+
+/* -------------------------------------------------------------- overlays --- */
+
+.toolbar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 4px;
+  z-index: 7;
+  box-shadow: var(--shadow-float);
+}
+.toolbar .sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line);
+  margin: 4px 4px;
+}
+.toolbar button {
+  padding: 6px 9px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--fg-2);
+  border-radius: 9px;
+  font-size: 12.5px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .toolbar button:hover:not(:disabled) {
+    background: var(--surface-2);
+    border-color: transparent;
+    color: var(--fg);
+  }
+}
+.toolbar button.on {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+}
+.toolbar .edge-glyph {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: -0.05em;
+}
+
+.instrument {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  right: 14px;
+  z-index: 6;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+.instrument .strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+}
+.instrument .readout {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-12);
+  color: var(--muted);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.instrument .readout b {
+  color: var(--fg);
+  font-weight: 600;
+}
+.instrument .verdict {
+  padding: 9px 12px;
+  border-top: 1px solid var(--line);
+  font-size: var(--t-13);
+  color: var(--fg-2);
+}
+.instrument input[type='range'] {
+  width: 140px;
+}
+
+.pen-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+}
+
+/* ------------------------------------------------------------- the timeline --
+ * Offered load behind, served in front: the visible gap between them is the
+ * traffic that was lost.
+ */
+.timeline {
+  border-top: 1px solid var(--line);
+  padding: 8px 12px 7px;
+}
+.timeline-head,
+.timeline-foot {
+  gap: 8px;
+  align-items: center;
+}
+.timeline-foot {
+  margin-top: 3px;
+}
+.timeline-readout {
+  font-family: var(--font-mono);
+  color: var(--fg);
+  font-size: 11.5px;
+}
+button.chip {
+  cursor: pointer;
+}
+button.chip.fail:hover {
+  border-color: var(--fail);
+}
+svg.timeline-chart {
+  display: block;
+  width: 100%;
+  height: 78px;
+  margin: 4px 0 0;
+  cursor: crosshair;
+}
+.tl-offered {
+  fill: var(--seg-off);
+  stroke: var(--line-2);
+  stroke-width: 0.6;
+}
+.tl-served {
+  fill: color-mix(in srgb, var(--pass) 22%, transparent);
+  stroke: var(--pass);
+  stroke-width: 1.2;
+}
+.tl-latency {
+  fill: none;
+  stroke: var(--load);
+  stroke-width: 1.2;
+  opacity: 0.85;
+}
+.tl-breach {
+  fill: color-mix(in srgb, var(--fail) 9%, transparent);
+}
+.tl-failure line {
+  stroke: var(--fail);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+.tl-failure circle {
+  fill: var(--fail);
+}
+.tl-cursor {
+  stroke: var(--accent);
+  stroke-width: 1;
+}
+
+/* Kill and slow, paired per component. */
+.chaos-pair button:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+button.chaos-slow {
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  font-size: 11.5px;
+  padding: 0 7px;
+  color: var(--muted);
+}
+button.chaos-slow.on {
+  color: var(--load);
+  border-color: var(--load-line);
+  background: var(--load-soft);
+}
+
+.edge-label {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: 1px 8px;
+  font: 500 11px / 1.5 var(--font-mono);
+  color: var(--muted);
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+}
+
+/* React Flow reads its own colours from these; point them at the bench. */
+.react-flow {
+  --xy-background-color-default: transparent;
+  --xy-background-pattern-dots-color-default: var(--peg);
+  --xy-minimap-background-color-default: var(--surface);
+  --xy-minimap-mask-background-color-default: color-mix(in srgb, var(--bench) 70%, transparent);
+  --xy-minimap-mask-stroke-color-default: var(--line-2);
+  --xy-minimap-node-background-color-default: var(--line-2);
+  --xy-minimap-node-stroke-color-default: transparent;
+  --xy-connectionline-stroke-default: var(--accent);
+  --xy-connectionline-stroke-width-default: 2;
+  --xy-selection-background-color-default: color-mix(in srgb, var(--accent) 8%, transparent);
+  --xy-selection-border-default: 1px solid var(--accent-line);
+  --xy-controls-button-background-color-default: var(--surface);
+  --xy-controls-button-background-color-hover-default: var(--surface-2);
+  --xy-controls-button-color-default: var(--fg-2);
+  --xy-controls-button-color-hover-default: var(--fg);
+  --xy-controls-button-border-color-default: var(--line);
+  --xy-edge-label-background-color-default: var(--surface);
+  --xy-edge-label-color-default: var(--muted);
+}
+.react-flow__minimap {
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-float);
+}
+
+/* An offer, not an action: the drawing only moves if you ask it to. */
+.make-room {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 14px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-float);
+  font-size: var(--t-13);
+  color: var(--fg-2);
+  animation: notice-in 260ms var(--ease-out);
+}
+.make-room button {
+  border-radius: var(--r-pill);
+  padding: 5px 12px;
+  font-size: var(--t-12);
+}
+
+/* Requests in flight: one canvas over the bench, under the floating panels. */
+.particles {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 4;
+}

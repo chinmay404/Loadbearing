@@ -118,7 +118,7 @@ export function FlowPanel() {
                   {i + 1}. {labelOf(s)}
                   <button
                     className="ghost"
-                    style={{ padding: '0 2px', fontSize: 10 }}
+                    style={{ padding: '0 4px', fontSize: 11.5 }}
                     onClick={() => removeFlowStep(flow.id, i)}
                   >
                     ✕

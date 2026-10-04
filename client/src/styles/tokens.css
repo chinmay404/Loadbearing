@@ -1,0 +1,229 @@
+/*
+ * The bench: tokens.
+ *
+ * Light by default, dark on request, and nothing else in the stylesheet names a
+ * colour. Cobalt is the only accent and it means *you* — the next action, the
+ * selection, your progress. Green, amber and red mean healthy, straining and
+ * failing, and are never used to decorate. Plum is kept for async and
+ * replication, the connections that do not wait for an answer.
+ *
+ * The bottom of this file maps the drafting-table names the components were
+ * written against (--ink, --chalk, --brass …) onto these, so every screen follows
+ * the theme while it is being redrawn.
+ */
+
+:root {
+  --font: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace;
+
+  /* type scale */
+  --t-11: 11px;
+  --t-12: 12px;
+  --t-13: 13px;
+  --t-14: 14px;
+  --t-15: 15px;
+  --t-17: 17px;
+  --t-22: 22px;
+  --t-29: 29px;
+
+  /* spacing — a 4px grid */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 28px;
+  --s-8: 32px;
+
+  /* corners */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 18px;
+  --r-pill: 999px;
+
+  /* motion */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --d-press: 140ms;
+  --d-hover: 150ms;
+  --d-small: 200ms;
+  --d-panel: 280ms;
+  --d-enter: 340ms;
+
+  /* density: roomy unless a surface asks for compact */
+  --pad-x: 16px;
+  --pad-y: 14px;
+  --gap: 12px;
+  --body: var(--t-14);
+  --control-h: 36px;
+}
+
+[data-density='compact'] {
+  --pad-x: 12px;
+  --pad-y: 10px;
+  --gap: 8px;
+  --body: 13px;
+  --control-h: 30px;
+}
+
+/* ------------------------------------------------------------------- light -- */
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #f6f6f3;
+  --surface: #ffffff;
+  --surface-2: #f7f7f4;
+  --surface-3: #efefea;
+  --bench: #eeeee9;
+  --peg: #d3d2c9;
+
+  --line: #e4e3dc;
+  --line-2: #d4d3ca;
+
+  --fg: #121211;
+  --fg-2: #40403b;
+  --muted: #6b6b65;
+  --faint: #a3a29a;
+
+  --accent: #3047f0;
+  --accent-hover: #2539d6;
+  --accent-fg: #ffffff;
+  --accent-soft: #eceffe;
+  --accent-line: #b9c2fb;
+
+  --pass: #187b47;
+  --pass-soft: #e4f3ea;
+  --pass-line: #a9d8bd;
+  --load: #8e6500;
+  --load-soft: #fbf1d9;
+  --load-line: #e6cb84;
+  --fail: #c6342b;
+  --fail-soft: #fcebe8;
+  --fail-line: #f0b4ad;
+  --plum: #8a4fbf;
+  --plum-soft: #f3ecfa;
+  --plum-line: #d3bbe9;
+
+  --seg-off: #e8e7e0;
+  --module-top: #ffffff;
+  --module-bot: #fafaf7;
+  --module-edge: #d9d8d0;
+  --cable: #bdbcb2;
+  --dot: #2a2a27;
+
+  --shadow-raised: 0 1px 0 rgb(255 255 255 / 0.9) inset, 0 1px 2px rgb(25 25 15 / 0.06),
+    0 10px 22px -12px rgb(25 25 15 / 0.25);
+  --shadow-lift: 0 1px 0 rgb(255 255 255 / 0.9) inset, 0 2px 4px rgb(25 25 15 / 0.07),
+    0 18px 32px -14px rgb(25 25 15 / 0.32);
+  --shadow-float: 0 1px 2px rgb(25 25 15 / 0.06), 0 18px 40px -18px rgb(25 25 15 / 0.3);
+  --scrim: rgb(20 20 15 / 0.32);
+
+  /* rack skin */
+  --metal-top: #fdfdfb;
+  --metal-bot: #efefea;
+  --metal-edge: #cfcec5;
+  --screw: #c9c8be;
+  --vent: #dad9d0;
+}
+
+/* -------------------------------------------------------------------- dark -- */
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0e0f11;
+  --surface: #15161a;
+  --surface-2: #1a1b1f;
+  --surface-3: #222328;
+  --bench: #111215;
+  --peg: #26282e;
+
+  --line: #24262b;
+  --line-2: #30323a;
+
+  --fg: #ededef;
+  --fg-2: #c8c9cf;
+  --muted: #9294a0;
+  --faint: #5f616b;
+
+  --accent: #8c9dff;
+  --accent-hover: #a5b2ff;
+  --accent-fg: #0e0f11;
+  --accent-soft: #1a1f3d;
+  --accent-line: #3a4590;
+
+  --pass: #4cc488;
+  --pass-soft: #11261b;
+  --pass-line: #1f5a3c;
+  --load: #edb43a;
+  --load-soft: #2a2110;
+  --load-line: #6b5220;
+  --fail: #f2685c;
+  --fail-soft: #2c1513;
+  --fail-line: #6e2c26;
+  --plum: #b98be6;
+  --plum-soft: #23192e;
+  --plum-line: #4f3966;
+
+  --seg-off: #25272d;
+  --module-top: #1e1f24;
+  --module-bot: #191a1e;
+  --module-edge: #2d2f36;
+  --cable: #3b3d45;
+  --dot: #e4e4e8;
+
+  --shadow-raised: 0 1px 0 rgb(255 255 255 / 0.05) inset, 0 1px 2px rgb(0 0 0 / 0.45),
+    0 12px 26px -14px rgb(0 0 0 / 0.8);
+  --shadow-lift: 0 1px 0 rgb(255 255 255 / 0.06) inset, 0 2px 4px rgb(0 0 0 / 0.5),
+    0 20px 36px -14px rgb(0 0 0 / 0.9);
+  --shadow-float: 0 1px 2px rgb(0 0 0 / 0.45), 0 22px 46px -18px rgb(0 0 0 / 0.85);
+  --scrim: rgb(0 0 0 / 0.55);
+
+  --metal-top: #24252a;
+  --metal-bot: #1b1c20;
+  --metal-edge: #33353c;
+  --screw: #3d3f46;
+  --vent: #2b2d33;
+}
+
+/* The rack's screen is a dark glass in both themes. */
+:root {
+  --screen: #0f1113;
+  --screen-off: #23282d;
+  --screen-fg: #e8eef2;
+  --screen-dim: #8a9399;
+  --screen-glow: #9cc8ff;
+  --screen-load: #ffc24a;
+  --screen-fail: #ff6b5e;
+  --screen-hi: #f2f6f8;
+  --screw-hi: #ffffff;
+}
+[data-theme='dark'] {
+  --screen: #08090a;
+}
+
+/* ------------------------------------------- the drafting-table names, mapped -- */
+:root,
+[data-theme='light'],
+[data-theme='dark'] {
+  --ink: var(--bg);
+  --ink-2: var(--surface);
+  --ink-3: var(--surface-2);
+  --ink-4: var(--surface-3);
+  --rule: var(--line);
+  --rule-2: var(--line-2);
+  --chalk: var(--fg);
+  --graphite: var(--fg-2);
+  --pencil: var(--muted);
+  --brass: var(--accent);
+  --brass-dim: var(--accent-soft);
+  --violet: var(--plum);
+  --display: var(--font);
+  --sheet-font: var(--font);
+  --mono: var(--font-mono);
+  --r: var(--r-sm);
+}

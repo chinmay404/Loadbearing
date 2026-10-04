@@ -67,7 +67,7 @@ export function PenLayer() {
           <path
             key={i}
             d={toPath(s.points)}
-            stroke={s.color}
+            style={{ stroke: s.color }}
             strokeWidth={2 / zoom}
             fill="none"
             strokeLinecap="round"
@@ -78,7 +78,7 @@ export function PenLayer() {
         {current.length > 1 && (
           <path
             d={toPath(current)}
-            stroke={penColor}
+            style={{ stroke: penColor }}
             strokeWidth={2 / zoom}
             fill="none"
             strokeLinecap="round"

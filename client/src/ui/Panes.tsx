@@ -31,7 +31,7 @@ export function Panes({
   return (
     <div className="workspace" style={{ gridTemplateColumns: columns }}>
       {leftOpen ? (
-        <aside className="pane">
+        <aside className="pane" data-density="compact">
           {left}
           <div
             className="pane-resize left"
@@ -54,7 +54,7 @@ export function Panes({
       <div className="canvas-wrap">{children}</div>
 
       {rightOpen ? (
-        <aside className="pane right">
+        <aside className="pane right" data-density="compact">
           {right}
           <div
             className="pane-resize right"

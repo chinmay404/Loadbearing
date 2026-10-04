@@ -1,0 +1,1074 @@
+/* ------------------------------------------------------------------ parts --
+ * Every part is a small machine: a name, the mechanism it uses, a light, and a
+ * gauge that is a live picture of what this kind of machine does. Two skins draw
+ * the same gauges — Instruments (default) and Rack.
+ *
+ * Health arrives as data-health from the engine's own verdict, and sets --h so
+ * every gauge on the part speaks the same colour.
+ */
+
+.node {
+  --h: var(--faint);
+  position: relative;
+  width: 216px;
+  min-height: 150px;
+  color: var(--fg);
+  font-size: var(--t-12);
+  transition:
+    border-color var(--d-small) ease,
+    box-shadow var(--d-small) ease,
+    transform 220ms var(--ease-out);
+}
+.node[data-health='pass'] {
+  --h: var(--pass);
+}
+.node[data-health='load'] {
+  --h: var(--load);
+}
+.node[data-health='fail'] {
+  --h: var(--fail);
+}
+
+/* Instruments: a calm white shell. */
+.node-instruments {
+  padding: 12px 13px 10px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--module-edge);
+  background: linear-gradient(var(--module-top), var(--module-bot));
+  box-shadow: var(--shadow-raised);
+  display: flex;
+  flex-direction: column;
+}
+@media (hover: hover) and (pointer: fine) {
+  .react-flow__node:hover > .node:not(.selected):not(.is-far) {
+    box-shadow: var(--shadow-lift);
+  }
+}
+
+.node.selected {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-raised), 0 0 0 3px var(--accent-soft);
+}
+.node[data-health='load']:not(.selected) {
+  border-color: color-mix(in srgb, var(--load) 55%, var(--module-edge));
+}
+/* Over the line — the further over, the heavier it reads. One paint, not sixty a second. */
+.node[data-health='fail']:not(.selected) {
+  border-color: color-mix(in srgb, var(--fail) 65%, var(--module-edge));
+  box-shadow:
+    var(--shadow-raised),
+    0 0 0 calc(3px + var(--stress, 0) * 4px) color-mix(in srgb, var(--fail) calc(12% + var(--stress, 0) * 14%), transparent);
+}
+.node[data-health='down'] {
+  opacity: 0.6;
+  filter: grayscale(1);
+  border-style: dashed;
+}
+.node[data-health='down']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: repeating-linear-gradient(-45deg, transparent 0 7px, color-mix(in srgb, var(--fg) 7%, transparent) 7px 8px);
+}
+.node.locked {
+  border-style: dashed;
+}
+.node.ghost {
+  border-style: dashed;
+  border-color: var(--plum-line);
+  background: var(--plum-soft);
+  box-shadow: none;
+}
+
+.react-flow__node.dragging > .node {
+  box-shadow: var(--shadow-lift);
+}
+/* A part arriving on the bench: from a little smaller, slightly out of focus. */
+.react-flow__node > .node {
+  animation: part-in var(--d-enter) var(--ease-out);
+}
+@keyframes part-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+    filter: blur(2px);
+  }
+}
+
+.n-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+.n-tile {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--fg);
+}
+.n-names {
+  min-width: 0;
+  display: grid;
+  flex: 1;
+}
+.n-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.n-kind {
+  font: 11px / 1.4 var(--font-mono);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.n-rename {
+  padding: 1px 5px;
+  font-weight: 600;
+  font-size: 13px;
+  border-radius: var(--r-xs);
+}
+.n-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  align-self: flex-start;
+  margin-top: 4px;
+  flex: none;
+  background: var(--h);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--h) 20%, transparent);
+  transition:
+    background-color var(--d-small) ease,
+    box-shadow var(--d-small) ease;
+}
+.node[data-health='idle'] .n-led {
+  box-shadow: none;
+}
+.node[data-health='fail'] .n-led,
+.node[data-health='fail'] .r-leds .r.on {
+  animation: blink 1s steps(2, jump-none) infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.n-annot {
+  margin-top: 9px;
+  font-size: var(--t-12);
+  line-height: 1.45;
+  color: var(--fg-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: text;
+}
+.n-annot.empty {
+  color: var(--muted);
+  opacity: 0.8;
+}
+.n-annot-edit {
+  margin-top: 8px;
+  font-size: var(--t-12);
+  min-height: 52px;
+  border-radius: var(--r-sm);
+}
+.n-gauge {
+  margin-top: 11px;
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.n-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  font: 11.5px / 1.4 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.n-gauge + .n-foot {
+  margin-top: 9px;
+}
+.n-foot span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.n-foot .bad {
+  color: var(--fail);
+  font-weight: 500;
+}
+
+.n-ghost {
+  margin-top: 10px;
+}
+.n-ghost-why {
+  font-size: var(--t-12);
+  line-height: 1.45;
+  color: var(--fg-2);
+}
+.n-ghost-why b {
+  color: var(--plum);
+  font-weight: 600;
+}
+.ghost-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+}
+.ghost-actions button {
+  font-size: var(--t-12);
+  padding: 4px 10px;
+}
+
+/* ------------------------------------------------------------------ gauges -- */
+
+.g-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font: 11px / 1.45 var(--font-mono);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.g-row b {
+  color: var(--fg);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.g-row em {
+  font-style: normal;
+  color: var(--fail);
+}
+.g-side {
+  flex: 1;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.g-note {
+  font-size: 10.5px;
+  color: var(--accent);
+  margin-top: 5px;
+}
+
+/* traffic: a source's rate and the shape of the run */
+.g-traffic {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.g-big {
+  display: grid;
+  line-height: 1;
+  flex: none;
+  min-width: 70px;
+}
+.g-big span {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+.g-big small {
+  font: 10.5px / 1.3 var(--font-mono);
+  color: var(--muted);
+  margin-top: 5px;
+}
+.g-spark {
+  flex: 1;
+  height: 42px;
+}
+.g-spark-area {
+  fill: var(--accent-soft);
+}
+.g-spark-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+}
+.g-spark-rest {
+  stroke: var(--line-2);
+  stroke-dasharray: 3 4;
+  vector-effect: non-scaling-stroke;
+}
+
+/* workers: a cell per channel (or per share of them), busy cells running a request */
+.g-workers .g-row {
+  margin-bottom: 7px;
+}
+.g-cells {
+  display: grid;
+  gap: 4px;
+}
+.g-cells i {
+  height: 14px;
+  border-radius: 4px;
+  background: var(--seg-off);
+  position: relative;
+  overflow: hidden;
+  transition: background-color 180ms ease;
+}
+.g-cells i.on {
+  background: color-mix(in srgb, var(--h) 24%, var(--seg-off));
+}
+.g-cells i.on b {
+  position: absolute;
+  inset: 0;
+  background: var(--h);
+  opacity: 0.88;
+  transform-origin: left;
+  transform: scaleX(0.66);
+}
+.node[data-running='true'] .g-cells i.on b {
+  animation: sweep var(--d, 0.8s) linear infinite;
+}
+@keyframes sweep {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* tank: how full the datastore is, rippling with the work arriving */
+.g-tank,
+.g-ring,
+.g-fanout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.g-cyl {
+  width: 52px;
+  height: 62px;
+  flex: none;
+  overflow: visible;
+}
+.g-cyl-bg {
+  fill: var(--surface-2);
+}
+.g-cyl-o {
+  fill: none;
+  stroke: var(--line-2);
+  stroke-width: 1.5;
+}
+.g-cyl-cap {
+  fill: var(--surface);
+  stroke: var(--line-2);
+  stroke-width: 1.5;
+}
+.g-liquid {
+  transform: translateY(calc(61px - var(--fill, 0) * 50px));
+  transition: transform 480ms var(--ease-out);
+}
+.g-wave {
+  transform: scaleY(calc(0.15 + var(--amp, 0) * 0.85));
+  transform-box: fill-box;
+  transform-origin: center top;
+}
+.g-wave path {
+  fill: var(--h);
+  opacity: 0.8;
+  transition: fill var(--d-small) ease;
+}
+.node[data-running='true'] .g-wave path {
+  animation: ripple 1.6s linear infinite;
+}
+@keyframes ripple {
+  to {
+    transform: translateX(-54px);
+  }
+}
+.g-ticks {
+  display: grid;
+  grid-template-columns: repeat(20, 1fr);
+  gap: 2px;
+  margin: 1px 0 2px;
+}
+.g-ticks i {
+  height: 7px;
+  border-radius: 1.5px;
+  background: var(--seg-off);
+}
+.g-ticks i.on {
+  background: var(--h);
+}
+
+/* ring: the share of reads answered here */
+.g-ring svg {
+  width: 60px;
+  height: 60px;
+  flex: none;
+}
+.g-ring-track {
+  fill: none;
+  stroke: var(--seg-off);
+  stroke-width: 6;
+}
+.g-ring-hit {
+  fill: none;
+  stroke: var(--pass);
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition: stroke-dasharray 400ms var(--ease-out);
+}
+.node[data-health='idle'] .g-ring-hit {
+  stroke: var(--line-2);
+}
+.g-orbit {
+  transform-origin: 30px 30px;
+}
+.g-orbit circle {
+  fill: var(--fg);
+}
+.node[data-running='true'] .g-orbit {
+  animation: orbit var(--orbit, 2s) linear infinite;
+}
+@keyframes orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.g-ring-text {
+  font: 600 12px var(--font-mono);
+  fill: var(--fg);
+  text-anchor: middle;
+}
+
+/* queue: messages arriving, and the pile of what has not been taken yet */
+.g-tube {
+  position: relative;
+  height: 20px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  overflow: hidden;
+  margin: 5px 0;
+}
+.g-tube-flow {
+  position: absolute;
+  inset: 4px 0;
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--fg) 55%, transparent) 0 5px, transparent 5px 18px);
+  opacity: 0.6;
+}
+.node[data-running='true'] .g-tube-flow {
+  animation: conveyor var(--flow, 1s) linear infinite;
+}
+@keyframes conveyor {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 18px 0;
+  }
+}
+.g-tube-pile {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  right: 3px;
+  width: calc(var(--pile, 0) * (100% - 6px));
+  border-radius: 4px;
+  background: repeating-linear-gradient(90deg, var(--h) 0 7px, transparent 7px 9px);
+  transition: width 480ms var(--ease-out);
+}
+
+/* fan-out: one stream in, several out */
+.g-fanout svg {
+  width: 92px;
+  height: 54px;
+  flex: none;
+}
+.g-fan-in,
+.g-fan-out {
+  fill: none;
+  stroke: var(--cable);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.g-fanout svg.moving .g-fan-out {
+  stroke: color-mix(in srgb, var(--h) 70%, var(--cable));
+  stroke-dasharray: 3 6;
+}
+.node[data-running='true'] .g-fanout svg.moving .g-fan-out {
+  animation: dashflow 0.9s linear infinite;
+}
+@keyframes dashflow {
+  to {
+    stroke-dashoffset: -9;
+  }
+}
+.g-fan-hub {
+  fill: var(--surface);
+  stroke: var(--fg-2);
+  stroke-width: 1.75;
+}
+
+/* latency: how long somebody else takes, against how long anyone will wait */
+.g-lat-track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--seg-off);
+  margin: 7px 0 6px;
+}
+.g-lat-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--h);
+  transform-origin: left;
+  transform: scaleX(var(--near, 0));
+  transition: transform 400ms var(--ease-out);
+}
+.g-lat-limit {
+  position: absolute;
+  right: -1px;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--fg-2);
+}
+
+.g-status {
+  font-size: var(--t-12);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  min-height: 52px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+}
+
+/* ------------------------------------------------------------------- rack -- */
+
+.node-rack {
+  padding: 13px 15px 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--metal-edge);
+  background: linear-gradient(180deg, var(--metal-top), var(--metal-bot));
+  box-shadow: var(--shadow-raised);
+  display: flex;
+  flex-direction: column;
+}
+.screw {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, color-mix(in srgb, var(--screw) 55%, var(--screw-hi)), var(--screw));
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.25);
+}
+.screw::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  top: 3px;
+  height: 1px;
+  background: rgb(0 0 0 / 0.35);
+  transform: rotate(35deg);
+}
+.screw.tl {
+  left: 5px;
+  top: 5px;
+}
+.screw.tr {
+  right: 5px;
+  top: 5px;
+}
+.screw.bl {
+  left: 5px;
+  bottom: 5px;
+}
+.screw.br {
+  right: 5px;
+  bottom: 5px;
+}
+.r-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 3px;
+  min-width: 0;
+}
+.r-head .n-name {
+  font-size: 13px;
+}
+.r-model {
+  font: 500 10px var(--font-mono);
+  color: var(--muted);
+  letter-spacing: 0.05em;
+  flex: none;
+}
+.node-rack .n-annot {
+  margin: 4px 3px 0;
+  font-size: 11.5px;
+  -webkit-line-clamp: 1;
+}
+.r-panel {
+  display: flex;
+  gap: 8px;
+  margin-top: 9px;
+}
+.r-screen {
+  flex: 1;
+  min-width: 0;
+  height: 78px;
+  border-radius: 7px;
+  background: var(--screen);
+  padding: 7px 9px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.6),
+    inset 0 0 0 1px rgb(255 255 255 / 0.04),
+    0 1px 0 rgb(255 255 255 / 0.6);
+  color: var(--screen-fg);
+  --g: var(--screen-glow);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+[data-theme='dark'] .r-screen {
+  box-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.8),
+    inset 0 0 0 1px rgb(255 255 255 / 0.05);
+}
+.r-screen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(0deg, rgb(255 255 255 / 0.025) 0 1px, transparent 1px 3px);
+  pointer-events: none;
+}
+.node[data-health='load'] .r-screen {
+  --g: var(--screen-load);
+}
+.node[data-health='fail'] .r-screen {
+  --g: var(--screen-fail);
+}
+.node[data-health='idle'] .r-screen,
+.node[data-health='down'] .r-screen {
+  --g: var(--screen-dim);
+}
+.s-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--screen-dim);
+}
+.s-v {
+  font-size: 11.5px;
+  letter-spacing: 0;
+  color: var(--screen-fg);
+}
+.s-big {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--screen-hi);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--g) 30%, transparent);
+}
+.s-big2 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: var(--screen-hi);
+}
+.s-spark {
+  width: 100%;
+  height: 22px;
+  display: block;
+}
+.s-spark polyline {
+  fill: none;
+  stroke: var(--g);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 3px var(--g));
+}
+.s-dots {
+  display: grid;
+  gap: 4px;
+  margin: 3px 1px;
+}
+.s-dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--screen-off);
+  justify-self: center;
+}
+.s-dots i.on {
+  background: var(--g);
+  box-shadow: 0 0 6px var(--g);
+}
+.s-hbar {
+  height: 6px;
+  border-radius: 2px;
+  background: var(--screen-off);
+  overflow: hidden;
+}
+.s-hbar.tall {
+  height: 16px;
+  background: repeating-linear-gradient(90deg, var(--screen-off) 0 5px, transparent 5px 7px);
+}
+.s-hbar i {
+  display: block;
+  height: 100%;
+  background: var(--g);
+  box-shadow: 0 0 6px var(--g);
+  transform-origin: left;
+  transform: scaleX(var(--v, 0));
+  transition: transform 400ms var(--ease-out);
+}
+.s-hbar.tall i {
+  background: repeating-linear-gradient(90deg, var(--g) 0 5px, transparent 5px 7px);
+  box-shadow: none;
+  filter: drop-shadow(0 0 3px var(--g));
+}
+.s-split {
+  display: flex;
+  gap: 10px;
+  height: 100%;
+}
+.s-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.s-eq {
+  display: flex;
+  gap: 7px;
+  align-items: flex-end;
+}
+.s-eq div {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  font-size: 8px;
+  color: var(--screen-dim);
+  letter-spacing: 0.06em;
+}
+.s-col {
+  width: 12px;
+  height: 46px;
+  border-radius: 2px;
+  background: var(--screen-off);
+  position: relative;
+  overflow: hidden;
+  display: block;
+}
+.s-col i {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(0deg, var(--g) 0 3px, transparent 3px 5px);
+  transform-origin: bottom;
+  transform: scaleY(var(--v, 0));
+  transition: transform 400ms var(--ease-out);
+  filter: drop-shadow(0 0 3px var(--g));
+}
+.r-leds {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  padding: 0 1px;
+}
+.r-leds i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 22%, var(--metal-bot));
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.2);
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+.r-leds .g {
+  color: var(--pass);
+}
+.r-leds .a {
+  color: var(--load);
+}
+.r-leds .r {
+  color: var(--fail);
+}
+.r-leds i.on {
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+.r-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 9px;
+  padding: 0 3px;
+  gap: 8px;
+}
+.r-vents {
+  display: flex;
+  gap: 3px;
+  flex: none;
+}
+.r-vents i {
+  width: 13px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--vent);
+  box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.18);
+}
+.r-io {
+  font: 500 9.5px var(--font-mono);
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.r-io.bad {
+  color: var(--fail);
+}
+/* Connections plug into jacks on a rack module. */
+.node-rack ~ .react-flow__handle,
+.react-flow__node:has(> .node-rack) > .react-flow__handle {
+  width: 14px;
+  height: 14px;
+  background: var(--metal-bot);
+  border: 1px solid var(--metal-edge);
+  box-shadow:
+    inset 0 0 0 3px var(--metal-top),
+    inset 0 0 0 6px var(--screen);
+}
+
+/* -------------------------------------------------------------- far away -- */
+
+.node.is-far {
+  display: grid;
+  place-items: center;
+}
+.far {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 4px 2px;
+}
+.far-ring {
+  width: 72px;
+  height: 72px;
+  flex: none;
+}
+.far-track {
+  fill: none;
+  stroke: var(--seg-off);
+  stroke-width: 9;
+}
+.far-val {
+  fill: none;
+  stroke: var(--h);
+  stroke-width: 9;
+  stroke-linecap: round;
+  transition: stroke-dasharray 400ms var(--ease-out);
+}
+.far-text {
+  min-width: 0;
+}
+.far-name {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.far-head {
+  font-size: 17px;
+  color: var(--h);
+  margin-top: 2px;
+}
+.node[data-health='idle'] .far-head {
+  color: var(--muted);
+}
+.node.is-far .screw {
+  display: none;
+}
+
+/* ----------------------------------------------------------------- around -- */
+
+.markup-pins {
+  position: absolute;
+  top: -9px;
+  right: -7px;
+  display: flex;
+  gap: 3px;
+  z-index: 2;
+}
+.pin {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: help;
+  border: 2px solid var(--surface);
+  color: var(--surface);
+  box-shadow: var(--shadow-float);
+}
+.pin.spof {
+  background: var(--fail);
+}
+.pin.bottleneck {
+  background: var(--load);
+}
+.pin.missing {
+  background: var(--plum);
+}
+.pin.good {
+  background: var(--pass);
+}
+.pin.question {
+  background: var(--accent);
+}
+
+.sticky-node {
+  background: var(--load-soft);
+  border: 1px solid var(--load-line);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  min-width: 160px;
+  min-height: 80px;
+  font-size: var(--t-13);
+  color: var(--fg);
+  box-shadow: var(--shadow-raised);
+}
+.sticky-node textarea {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-size: var(--t-13);
+  min-height: 60px;
+  box-shadow: none;
+}
+.sticky-node textarea:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.group-node {
+  border: 1.5px dashed var(--plum-line);
+  border-radius: var(--r-xl);
+  background: color-mix(in srgb, var(--plum) 4%, transparent);
+  min-width: 220px;
+  min-height: 160px;
+}
+.group-node .glabel {
+  position: absolute;
+  top: -11px;
+  left: 12px;
+  background: var(--bench);
+  padding: 0 6px;
+  font: 600 var(--t-12) / 1.6 var(--font);
+  color: var(--plum);
+  border-radius: var(--r-xs);
+}
+
+/* A pinned component is not selectable, so this badge is the only control on it. */
+.lock-badge {
+  position: absolute;
+  top: -11px;
+  right: -11px;
+  z-index: 5;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--accent-line);
+  color: var(--accent);
+  cursor: pointer;
+  pointer-events: all;
+  box-shadow: var(--shadow-float);
+}
+@media (hover: hover) and (pointer: fine) {
+  .lock-badge:hover:not(:disabled) {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+  }
+}
+
+/* Bend handles on a selected connection. */
+.edge-bend {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  cursor: grab;
+  pointer-events: all;
+}
+.edge-bend:hover {
+  background: var(--accent);
+}
+.edge-bend.add {
+  width: 12px;
+  height: 12px;
+  border-style: dashed;
+  opacity: 0.75;
+  cursor: copy;
+}
+.edge-bend.add:hover {
+  opacity: 1;
+}
+
+/* A boundary's handles sit quietly until you go near the frame. */
+.group-handle {
+  width: 10px;
+  height: 10px;
+  background: var(--surface);
+  border: 2px solid var(--plum);
+  opacity: 0.35;
+  transition: opacity 120ms ease;
+}
+.react-flow__node:hover > .group-handle,
+.react-flow__node.selected > .group-handle {
+  opacity: 1;
+}

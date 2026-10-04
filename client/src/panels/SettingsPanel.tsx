@@ -173,10 +173,7 @@ export function SettingsPanel() {
           If you would rather not store a key at all, set it in the environment before starting the
           server and it takes precedence over anything saved here:
         </p>
-        <pre
-          className="mono"
-          style={{ margin: '6px 0 0', padding: '7px 9px', background: '#0a0d12', border: '1px solid var(--rule)', fontSize: 11, overflowX: 'auto' }}
-        >
+        <pre className="config-block mono">
 {`LOADBEARING_PROVIDER=openai-compatible
 LOADBEARING_BASE_URL=https://api.groq.com/openai/v1
 LOADBEARING_MODEL=llama-3.3-70b-versatile

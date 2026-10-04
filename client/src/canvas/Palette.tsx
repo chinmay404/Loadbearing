@@ -77,7 +77,7 @@ export function Palette() {
                       e.dataTransfer.effectAllowed = 'move';
                     }}
                   >
-                    <span className="ico" style={{ color: spec.color }}>
+                    <span className="ico">
                       <Icon size={15} />
                     </span>
                     <span>{spec.label}</span>
@@ -161,7 +161,7 @@ function MyObjects() {
                 e.dataTransfer.effectAllowed = 'move';
               }}
             >
-              <span className="ico" style={{ color: spec.color }}>
+              <span className="ico">
                 <Icon size={15} />
               </span>
               <span>{o.name}</span>
@@ -169,7 +169,7 @@ function MyObjects() {
               <button
                 className="ghost"
                 title="Forget this object"
-                style={{ padding: '0 4px', fontSize: 10 }}
+                style={{ padding: '0 6px', fontSize: 11.5 }}
                 onClick={(e) => {
                   e.stopPropagation();
                   void api.deleteCustomObject(o.id).then(() => {

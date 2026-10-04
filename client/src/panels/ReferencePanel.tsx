@@ -68,7 +68,7 @@ export function ReferencePanel() {
               <div className="card ref-card" key={e.id}>
                 <div className="row">
                   <h4 className="grow">{e.title}</h4>
-                  <span className="chip" style={{ fontSize: 10 }}>
+                  <span className="chip">
                     {e.sourceKind}
                   </span>
                 </div>
@@ -83,18 +83,18 @@ export function ReferencePanel() {
                     </>
                   ) : null}
                   <dt>without it</dt>
-                  <dd style={{ color: '#fca5a5' }}>{e.failure}</dd>
+                  <dd style={{ color: 'var(--fail)' }}>{e.failure}</dd>
                   <dt>source</dt>
                   <dd>{e.source}</dd>
                 </dl>
                 <div className="row wrap" style={{ gap: 3, marginTop: 5 }}>
                   {e.concepts.map((c) => (
-                    <span className="chip" key={c} style={{ fontSize: 10 }}>
+                    <span className="chip" key={c}>
                       {c}
                     </span>
                   ))}
                 </div>
-                <div className="mono faint" style={{ fontSize: 10, marginTop: 6 }}>
+                <div className="mono faint" style={{ fontSize: 11.5, marginTop: 6 }}>
                   {e.id}
                 </div>
               </div>
@@ -156,7 +156,7 @@ function ConceptsTab({
           <div className="card ref-card" key={c.id}>
             <div className="row">
               <h4 className="grow">{c.name}</h4>
-              <span className="chip" style={{ fontSize: 10 }}>
+              <span className="chip">
                 {c.group}
               </span>
             </div>
@@ -169,9 +169,9 @@ function ConceptsTab({
               <dt>trade-off</dt>
               <dd>{c.tradeoffs}</dd>
               <dt>red flag</dt>
-              <dd style={{ color: '#fca5a5' }}>{c.redFlags}</dd>
+              <dd style={{ color: 'var(--fail)' }}>{c.redFlags}</dd>
             </dl>
-            <div className="mono faint" style={{ fontSize: 10, marginTop: 6 }}>
+            <div className="mono faint" style={{ fontSize: 11.5, marginTop: 6 }}>
               {c.id}
             </div>
           </div>

@@ -1,110 +1,287 @@
-import { useEffect, useRef, useState } from 'react';
-import { useNodes, useViewport, type Node } from '@xyflow/react';
-import { useCanvas } from '../state/canvasStore';
-
-const KIND_COLOR: Record<string, string> = {
-  read: '#cfa349',
-  write: '#c9703f',
-  async: '#7ba75f',
-  admin: '#e2913c',
-};
+import { useEffect, useRef } from 'react';
+import { useStoreApi } from '@xyflow/react';
+import { effectiveHitRate, familyOf, type Flow, type SimFlowResult } from '@loadbearing/shared';
+import { useCanvas, type ArchNodeData } from '../state/canvasStore';
 
 /**
- * Animated request particles travelling each declared flow. Speed and density
- * track the simulated load, so overload is something you SEE before you read it.
+ * Requests, as dots travelling each declared flow along the cables actually drawn.
+ *
+ * Where a cache answers, a dot ends in a small green pop; where a flow is losing
+ * traffic, that share of dots falls away in red at the part that dropped them. Both
+ * proportions come from the run, so the picture and the numbers cannot disagree.
+ *
+ * One canvas, one animation loop, and no React work per frame: this reads the flow
+ * library's store and the canvas store directly. It only runs while a load run is
+ * on, stops with the tab, and draws nothing for anyone who asked for less motion.
  */
+
+type Pt = [number, number];
+interface Leg {
+  pts: Pt[];
+  cum: number[];
+  len: number;
+}
+interface Dot {
+  legs: Leg[];
+  leg: number;
+  d: number;
+  speed: number;
+  end: 'serve' | 'hit' | 'drop';
+}
+interface Pop {
+  x: number;
+  y: number;
+  t: number;
+}
+interface Fall {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  t: number;
+}
+
+const MAX_DOTS = 260;
+const SPEED = 230; // flow units per second
+const SAMPLES = 40;
+
+function polyline(pts: Pt[]): Leg {
+  const cum = [0];
+  for (let i = 1; i < pts.length; i += 1) {
+    const [ax, ay] = pts[i - 1]!;
+    const [bx, by] = pts[i]!;
+    cum.push(cum[i - 1]! + Math.hypot(bx - ax, by - ay));
+  }
+  return { pts, cum, len: cum[cum.length - 1]! || 1 };
+}
+
+function at(leg: Leg, d: number): Pt {
+  const { pts, cum } = leg;
+  let i = 1;
+  while (i < cum.length - 1 && cum[i]! < d) i += 1;
+  const a = pts[i - 1]!;
+  const b = pts[i]!;
+  const span = cum[i]! - cum[i - 1]! || 1;
+  const k = Math.min(1, Math.max(0, (d - cum[i - 1]!) / span));
+  return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+}
+
 export function FlowParticles() {
-  const { x, y, zoom } = useViewport();
-  const nodes = useNodes();
-  const flows = useCanvas((s) => s.flows);
-  const sim = useCanvas((s) => s.simResult);
+  const ref = useRef<HTMLCanvasElement>(null);
+  const rf = useStoreApi();
   const running = useCanvas((s) => s.simRunning);
-  const [t, setT] = useState(0);
-  const raf = useRef(0);
 
   useEffect(() => {
-    if (!running) return;
-    let last = performance.now();
-    const tick = (now: number) => {
-      const dt = Math.min(now - last, 60);
-      last = now;
-      setT((prev) => prev + dt / 1000);
-      raf.current = requestAnimationFrame(tick);
+    const canvas = ref.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const clear = () => ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!running || reduce) {
+      clear();
+      return;
+    }
+
+    const host = canvas.parentElement!;
+    let dpr = 1;
+    const size = () => {
+      dpr = Math.min(2, devicePixelRatio || 1);
+      canvas.width = Math.round(host.clientWidth * dpr);
+      canvas.height = Math.round(host.clientHeight * dpr);
     };
-    raf.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf.current);
-  }, [running]);
+    size();
+    const ro = new ResizeObserver(size);
+    ro.observe(host);
 
-  if (!running || flows.length === 0) return null;
+    let colors = { dot: '', pass: '', fail: '' };
+    const readColors = () => {
+      const cs = getComputedStyle(document.documentElement);
+      colors = {
+        dot: cs.getPropertyValue('--dot').trim(),
+        pass: cs.getPropertyValue('--pass').trim(),
+        fail: cs.getPropertyValue('--fail').trim(),
+      };
+    };
+    readColors();
+    const themeWatch = new MutationObserver(readColors);
+    themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-  const center = (id: string): [number, number] | null => {
-    const n = nodes.find((nd: Node) => nd.id === id);
-    if (!n) return null;
-    const w = Number(n.measured?.width ?? n.width ?? 160);
-    const h = Number(n.measured?.height ?? n.height ?? 60);
-    return [n.position.x + w / 2, n.position.y + h / 2];
-  };
+    // A cable's drawn curve, sampled once per shape it takes.
+    const sampled = new Map<string, { d: string; pts: Pt[] }>();
+    const curveOf = (edgeId: string): Pt[] | null => {
+      const el = host.querySelector<SVGPathElement>(`path.react-flow__edge-path[id="${CSS.escape(edgeId)}"]`);
+      if (!el) return null;
+      const d = el.getAttribute('d') ?? '';
+      const hit = sampled.get(edgeId);
+      if (hit && hit.d === d) return hit.pts;
+      const total = el.getTotalLength();
+      const pts: Pt[] = [];
+      for (let i = 0; i <= SAMPLES; i += 1) {
+        const p = el.getPointAtLength((total * i) / SAMPLES);
+        pts.push([p.x, p.y]);
+      }
+      sampled.set(edgeId, { d, pts });
+      return pts;
+    };
+    const centreOf = (id: string): Pt | null => {
+      const n = rf.getState().nodeLookup.get(id);
+      if (!n) return null;
+      const p = n.internals.positionAbsolute;
+      return [p.x + (n.measured.width ?? 0) / 2, p.y + (n.measured.height ?? 0) / 2];
+    };
+    const legBetween = (a: string, b: string): Leg | null => {
+      const edges = useCanvas.getState().edges;
+      const fwd = edges.find((e) => e.source === a && e.target === b);
+      const back = fwd ? undefined : edges.find((e) => e.source === b && e.target === a);
+      const pts = fwd ? curveOf(fwd.id) : back ? curveOf(back.id)?.slice().reverse() : null;
+      if (pts && pts.length > 1) return polyline(pts);
+      const ca = centreOf(a);
+      const cb = centreOf(b);
+      return ca && cb ? polyline([ca, cb]) : null;
+    };
 
-  return (
-    <svg className="pen-layer" style={{ pointerEvents: 'none', zIndex: 4 }}>
-      <g transform={`translate(${x},${y}) scale(${zoom})`}>
-        {flows.map((flow) => {
-          const pts = flow.steps.map(center).filter((p): p is [number, number] => p !== null);
-          if (pts.length < 2) return null;
-          const fr = sim?.flows.find((f) => f.flowId === flow.id);
-          const broken = fr?.broken ?? false;
-          const health = fr && fr.offeredRps > 0 ? fr.completedRps / fr.offeredRps : 1;
-          const color = broken ? '#d9534b' : KIND_COLOR[flow.kind] ?? '#cfa349';
-          const count = Math.max(2, Math.min(9, Math.round(3 + health * 5)));
-          const speed = broken ? 0.25 : 0.35 + health * 0.35;
+    /** Where a dot on this flow ends, decided as it leaves so the proportions hold. */
+    const plan = (flow: Flow, result: SimFlowResult | undefined): Dot | null => {
+      const steps = flow.steps;
+      if (steps.length < 2) return null;
+      const nodes = useCanvas.getState().nodes;
+      let stop = steps.length - 1;
+      let end: Dot['end'] = 'serve';
 
-          const segLen = pts.slice(1).map(([px, py], i) => {
-            const prev = pts[i]!;
-            return Math.hypot(px - prev[0], py - prev[1]);
-          });
-          const total = segLen.reduce((a, b) => a + b, 0) || 1;
+      // A read can be answered early by a cache on the way.
+      if (flow.kind === 'read') {
+        for (let i = 1; i < steps.length - 1; i += 1) {
+          const n = nodes.find((x) => x.id === steps[i]);
+          const data = n?.data as ArchNodeData | undefined;
+          if (!data?.archType || familyOf(data.archType) !== 'cache') continue;
+          const hitRate = effectiveHitRate({ id: n!.id, type: data.archType, label: '', annotation: '', attrs: data.attrs });
+          if (Math.random() < hitRate) {
+            stop = i;
+            end = 'hit';
+          }
+          break;
+        }
+      }
+      // And some share never gets served, lost where the run says it was lost.
+      if (end === 'serve' && result && result.offeredRps > 0) {
+        const loss = Math.max(0, 1 - result.completedRps / result.offeredRps);
+        if (Math.random() < loss) {
+          const at = result.brokenAt ? steps.indexOf(result.brokenAt) : -1;
+          stop = at > 0 ? at : steps.length - 1;
+          end = 'drop';
+        }
+      }
 
-          const at = (frac: number): [number, number] => {
-            let d = frac * total;
-            for (let i = 0; i < segLen.length; i += 1) {
-              const len = segLen[i]!;
-              if (d <= len) {
-                const a = pts[i]!;
-                const b = pts[i + 1]!;
-                const k = len === 0 ? 0 : d / len;
-                return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
-              }
-              d -= len;
-            }
-            return pts[pts.length - 1]!;
-          };
+      const legs: Leg[] = [];
+      for (let i = 0; i < stop; i += 1) {
+        const leg = legBetween(steps[i]!, steps[i + 1]!);
+        if (!leg) return null;
+        legs.push(leg);
+      }
+      return legs.length ? { legs, leg: 0, d: 0, speed: SPEED * (0.88 + Math.random() * 0.24), end } : null;
+    };
 
-          const path = pts
-            .map(([px, py], i) => `${i === 0 ? 'M' : 'L'}${px.toFixed(1)},${py.toFixed(1)}`)
-            .join(' ');
+    const dots: Dot[] = [];
+    const pops: Pop[] = [];
+    const falls: Fall[] = [];
+    const owed = new Map<string, number>();
+    let raf = 0;
+    let last = performance.now();
 
-          return (
-            <g key={flow.id}>
-              <path d={path} stroke={color} strokeWidth={1.2 / zoom} opacity={0.22} fill="none" />
-              {Array.from({ length: count }, (_, i) => {
-                const raw = (t * speed + i / count) % 1;
-                const frac = broken ? Math.min(raw, 0.55) : raw;
-                const [cx, cy] = at(frac);
-                return (
-                  <circle
-                    key={i}
-                    cx={cx}
-                    cy={cy}
-                    r={3.2 / zoom}
-                    fill={color}
-                    opacity={broken && raw > 0.55 ? 0.12 : 0.9}
-                  />
-                );
-              })}
-            </g>
-          );
-        })}
-      </g>
-    </svg>
-  );
+    const frame = (now: number) => {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      const { flows, simResult } = useCanvas.getState();
+      const [tx, ty, zoom] = rf.getState().transform;
+
+      // Spawn in proportion to each flow's offered load, within a fixed budget.
+      for (const flow of flows) {
+        const result = simResult?.flows.find((f) => f.flowId === flow.id);
+        if (result && !result.measured) continue;
+        const rate = Math.max(1.5, Math.min(26, (result?.offeredRps ?? flow.rps ?? 50) / 40));
+        let due = (owed.get(flow.id) ?? 0) + rate * dt;
+        while (due >= 1 && dots.length < MAX_DOTS) {
+          due -= 1;
+          const dot = plan(flow, result);
+          if (dot) dots.push(dot);
+        }
+        owed.set(flow.id, Math.min(due, 3));
+      }
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+      const r = Math.max(1.8, 2.7 * Math.sqrt(zoom));
+      const toScreen = ([x, y]: Pt): Pt => [x * zoom + tx, y * zoom + ty];
+
+      ctx.fillStyle = colors.dot;
+      ctx.globalAlpha = 0.85;
+      for (let i = dots.length - 1; i >= 0; i -= 1) {
+        const dot = dots[i]!;
+        dot.d += dot.speed * dt;
+        let leg = dot.legs[dot.leg]!;
+        while (dot.d >= leg.len) {
+          dot.d -= leg.len;
+          dot.leg += 1;
+          if (dot.leg >= dot.legs.length) break;
+          leg = dot.legs[dot.leg]!;
+        }
+        if (dot.leg >= dot.legs.length) {
+          const lastLeg = dot.legs[dot.legs.length - 1]!;
+          const [ex, ey] = toScreen(lastLeg.pts[lastLeg.pts.length - 1]!);
+          if (dot.end === 'hit') pops.push({ x: ex, y: ey, t: 0 });
+          else if (dot.end === 'drop') falls.push({ x: ex, y: ey, vx: (Math.random() - 0.5) * 70, vy: -50 - Math.random() * 50, t: 0 });
+          dots.splice(i, 1);
+          continue;
+        }
+        const [x, y] = toScreen(at(leg, dot.d));
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.strokeStyle = colors.pass;
+      ctx.lineWidth = 1.5;
+      for (let i = pops.length - 1; i >= 0; i -= 1) {
+        const p = pops[i]!;
+        p.t += dt / 0.34;
+        if (p.t >= 1) {
+          pops.splice(i, 1);
+          continue;
+        }
+        ctx.globalAlpha = (1 - p.t) * 0.75;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r + p.t * 9, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = colors.fail;
+      for (let i = falls.length - 1; i >= 0; i -= 1) {
+        const f = falls[i]!;
+        f.t += dt;
+        f.vy += 900 * dt;
+        f.x += f.vx * dt;
+        f.y += f.vy * dt;
+        if (f.t > 0.8) {
+          falls.splice(i, 1);
+          continue;
+        }
+        ctx.globalAlpha = Math.max(0, 1 - f.t / 0.8);
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      themeWatch.disconnect();
+      clear();
+    };
+  }, [running, rf]);
+
+  return <canvas ref={ref} className="particles" aria-hidden="true" />;
 }

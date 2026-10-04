@@ -1,9 +1,11 @@
-import { memo, useState } from 'react';
-import { Handle, NodeResizer, Position, type NodeProps, type Node } from '@xyflow/react';
-import type { SimNodeResult } from '@loadbearing/shared';
+import { memo, useMemo, useState, type CSSProperties } from 'react';
+import { Handle, NodeResizer, Position, useStore, type NodeProps, type Node } from '@xyflow/react';
+import { familyOf, type Family } from '@loadbearing/shared';
 import { NODE_ICONS } from './icons';
-import { NODE_SPEC } from './nodeCatalog';
 import { useCanvas, type ArchNodeData } from '../state/canvasStore';
+import { usePrefs } from '../ui/prefs';
+import { fmtInt, fmtMs, gaugeModel, type GaugeModel } from './gauge';
+import { FarFace, InstrumentGauge, RackLeds, RackScreen } from './faces';
 
 const MARKER_GLYPH: Record<string, string> = {
   spof: '!',
@@ -13,22 +15,47 @@ const MARKER_GLYPH: Record<string, string> = {
   question: '?',
 };
 
-function attrChips(data: ArchNodeData): string[] {
+/** Below this zoom the detail is unreadable, so a part shows its far face instead. */
+export const FAR_ZOOM = 0.6;
+
+/** The stamp on a rack module's faceplate. */
+const MODEL_CODE: Record<Family, string> = {
+  origin: 'SRC',
+  routing: 'RTR',
+  compute: 'SVC',
+  datastore: 'DB',
+  cache: 'KV',
+  messaging: 'MQ',
+  external: 'EXT',
+  ai: 'AI',
+  control: 'CTL',
+  boundary: '',
+};
+
+/** The sizing that matters before anything has run. */
+function configLine(data: ArchNodeData): string {
   const a = data.attrs ?? {};
   const out: string[] = [];
-  // An autoscaling range says more than a replica count, and it is the floor that
-  // meets a spike — so show the range when there is one.
   if (a.autoscaleMax && a.autoscaleMax > 1) out.push(`×${a.autoscaleMin ?? a.replicas ?? 1}–${a.autoscaleMax}`);
   else if (a.replicas && a.replicas > 1) out.push(`×${a.replicas}`);
   if (a.capacityRps) out.push(`${a.capacityRps >= 1000 ? `${a.capacityRps / 1000}k` : a.capacityRps} rps`);
-  if (a.latencyMs !== undefined) out.push(`${a.latencyMs}ms`);
-  if (a.cacheHitRate !== undefined) out.push(`hit ${Math.round(a.cacheHitRate * 100)}%`);
+  if (a.latencyMs !== undefined) out.push(`${a.latencyMs} ms`);
   if (a.multiAz) out.push('multi-AZ');
-  return out;
+  return out.join(' · ');
+}
+
+function footFor(m: GaugeModel, data: ArchNodeData): { left: string; right: string; bad: boolean } {
+  if (m.health === 'down') return { left: 'Killed in this run', right: '', bad: true };
+  if (!m.live) return { left: configLine(data) || 'Not run yet', right: '', bad: false };
+  const left = `in ${fmtInt(m.inRps)}/s`;
+  if (m.shed > 0) {
+    return { left, right: `${m.hostLimited ? 'pool full · ' : ''}sheds ${Math.round(m.shed * 100)}%`, bad: true };
+  }
+  if (m.elastic) return { left, right: 'hosted', bad: false };
+  return { left, right: fmtMs(m.latencyMs), bad: false };
 }
 
 function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arch'>>) {
-  const spec = NODE_SPEC[data.archType];
   const Icon = NODE_ICONS[data.archType];
   const [editing, setEditing] = useState(false);
   const [annotating, setAnnotating] = useState(false);
@@ -38,13 +65,27 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
   const rejectGhost = useCanvas((s) => s.rejectGhost);
   // Filter outside the selector: a fresh array from a selector loops forever.
   const markup = useCanvas((s) => s.markup).filter((m) => m.nodeId === id);
-  const sim = useCanvas((s) => s.simResult)?.nodes.find((n) => n.nodeId === id);
+  const simResult = useCanvas((s) => s.simResult);
+  const sim = simResult?.nodes.find((n) => n.nodeId === id);
   const killed = useCanvas((s) => s.simConfig.killNodeIds.includes(id));
+  const running = useCanvas((s) => s.simRunning);
+  const outDegree = useCanvas((s) => s.edges.reduce((c, e) => c + (e.source === id ? 1 : 0), 0));
+  const skin = usePrefs((s) => s.nodeSkin);
+  // A boolean selector: nodes re-render when the zoom crosses the line, not on every wheel tick.
+  const far = useStore((s) => s.transform[2] < FAR_ZOOM);
+
+  const isOrigin = familyOf(data.archType) === 'origin';
+  const points = simResult?.timeline?.points;
+  const series = useMemo(() => (isOrigin && points ? points.map((p) => p.offeredRps) : undefined), [isOrigin, points]);
+  const m = useMemo(
+    () => gaugeModel({ type: data.archType, attrs: data.attrs, sim, killed, outDegree }),
+    [data.archType, data.attrs, sim, killed, outDegree],
+  );
 
   if (data.archType === 'group') {
     return (
       <>
-        <NodeResizer minWidth={180} minHeight={120} isVisible={selected} color="#b07ca8" />
+        <NodeResizer minWidth={180} minHeight={120} isVisible={selected} color="var(--plum)" />
         <div className="group-node" style={{ width: '100%', height: '100%' }}>
           <div className="glabel">
             {editing ? (
@@ -78,33 +119,81 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
     );
   }
 
-  const state = killed ? 'down' : (sim?.state ?? 'ok');
+  // How badly it is over its limit, 0 at the line and 1 by twice it. Drives how
+  // heavily the box reads, so a part at 105% is marked and one at 300% is unmissable.
+  const overload = Number.isFinite(sim?.utilization) ? Math.min(1, Math.max(0, (sim!.utilization - 1) / 1)) : 0;
+  const foot = footFor(m, data);
+
   const cls = [
-    'arch-node',
+    'node',
+    `node-${skin}`,
+    far ? 'is-far' : '',
     selected ? 'selected' : '',
     data.ghost ? 'ghost' : '',
     data.locked ? 'locked' : '',
-    sim || killed ? `state-${state}` : '',
   ]
     .filter(Boolean)
     .join(' ');
 
-  // How badly it is over its limit, 0 at the line and 1 by twice it. Drives how
-  // heavily the box reads, so a component at 105% is marked and one at 300% is
-  // unmissable. A percentage is a number you read; this is a thing you notice
-  // from across the room, which is the point of it.
-  const overload = Number.isFinite(sim?.utilization)
-    ? Math.min(1, Math.max(0, (sim!.utilization - 1) / 1))
-    : 0;
+  const name = editing ? (
+    <input
+      className="n-rename"
+      autoFocus
+      defaultValue={data.label}
+      onBlur={(e) => {
+        updateNodeData(id, { label: e.target.value });
+        setEditing(false);
+      }}
+      onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+    />
+  ) : (
+    <span className="n-name" onDoubleClick={() => setEditing(true)} title="Double-click to rename">
+      {data.label}
+    </span>
+  );
+
+  // The mechanism is what the grader reads, so it stays on the part rather than in a panel.
+  const annotation = annotating ? (
+    <textarea
+      className="n-annot-edit nodrag"
+      autoFocus
+      placeholder="The mechanism that matters: idempotency key = order_id, cache-aside TTL 60s, shard by tenant_id…"
+      defaultValue={data.annotation}
+      onBlur={(e) => {
+        updateNodeData(id, { annotation: e.target.value });
+        setAnnotating(false);
+      }}
+    />
+  ) : data.annotation ? (
+    <div className="n-annot" onDoubleClick={() => setAnnotating(true)} title={data.annotation}>
+      {data.annotation}
+    </div>
+  ) : !data.ghost ? (
+    <div className="n-annot empty" onDoubleClick={() => setAnnotating(true)} title="Double-click to explain your reasoning — the grader reads this">
+      + Explain this choice
+    </div>
+  ) : null;
+
+  const ghost = data.ghost ? (
+    <div className="n-ghost">
+      <div className="n-ghost-why">
+        <b>Suggested</b> {data.ghost.why}
+      </div>
+      <div className="ghost-actions">
+        <button className="primary" onClick={() => acceptGhost(id)}>
+          Accept
+        </button>
+        <button onClick={() => rejectGhost(id)}>Dismiss</button>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div
       className={cls}
-      style={{
-        ['--node-color' as string]: spec.color,
-        ['--stress' as string]: String(Math.round(overload * 100) / 100),
-        position: 'relative',
-      }}
+      data-health={m.health}
+      data-running={running && m.live ? 'true' : 'false'}
+      style={{ ['--stress' as string]: String(Math.round(overload * 100) / 100) } as CSSProperties}
     >
       {data.locked && <LockBadge onUnlock={() => unlockNode(id)} />}
       <Handle type="target" position={Position.Left} />
@@ -114,152 +203,76 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
 
       {markup.length > 0 && (
         <div className="markup-pins">
-          {markup.map((m, i) => (
-            <span key={i} className={`pin ${m.marker}`} title={`${m.marker.toUpperCase()}: ${m.comment}`}>
-              {MARKER_GLYPH[m.marker] ?? '•'}
+          {markup.map((mk, i) => (
+            <span key={i} className={`pin ${mk.marker}`} title={`${mk.marker}: ${mk.comment}`}>
+              {MARKER_GLYPH[mk.marker] ?? '•'}
             </span>
           ))}
         </div>
       )}
 
-      <div className="head">
-        <span className="ico">
-          <Icon size={16} />
-        </span>
-        {editing ? (
-          <input
-            autoFocus
-            defaultValue={data.label}
-            onBlur={(e) => {
-              updateNodeData(id, { label: e.target.value });
-              setEditing(false);
-            }}
-            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-          />
-        ) : (
-          <span className="label" onDoubleClick={() => setEditing(true)} title="Double-click to rename">
-            {data.label}
-          </span>
-        )}
-      </div>
-      <div className="kind">{data.archType.replace(/_/g, ' ')}</div>
-
-      {annotating ? (
-        <textarea
-          autoFocus
-          placeholder="The mechanism that matters: idempotency key = order_id, cache-aside TTL 60s, shard by tenant_id…"
-          defaultValue={data.annotation}
-          onBlur={(e) => {
-            updateNodeData(id, { annotation: e.target.value });
-            setAnnotating(false);
-          }}
-        />
-      ) : data.annotation ? (
-        <div className="annot" onDoubleClick={() => setAnnotating(true)}>
-          {data.annotation}
-        </div>
-      ) : (
-        !data.ghost && (
-          <div
-            className="annot faint"
-            onDoubleClick={() => setAnnotating(true)}
-            title="Double-click to explain your reasoning — the grader reads this"
-          >
-            + explain this choice
-          </div>
-        )
-      )}
-
-      {attrChips(data).length > 0 && (
-        <div className="attrs">
-          {attrChips(data).map((t) => (
-            <span className="chip" key={t}>
-              {t}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {sim && !data.ghost && <SimBadge sim={sim} />}
-
-      {data.ghost && (
+      {far ? (
+        <FarFace m={m} label={data.label} />
+      ) : skin === 'rack' ? (
         <>
-          <div className="annot" style={{ color: 'var(--violet)' }}>
-            AI suggests: {data.ghost.why}
+          <i className="screw tl" />
+          <i className="screw tr" />
+          <i className="screw bl" />
+          <i className="screw br" />
+          <div className="r-head">
+            {name}
+            <span className="r-model">
+              {MODEL_CODE[familyOf(data.archType)]}
+              {m.workers ? `·${m.workers.replicas}` : ''}
+            </span>
           </div>
-          <div className="ghost-actions">
-            <button className="primary" onClick={() => acceptGhost(id)}>
-              Accept
-            </button>
-            <button onClick={() => rejectGhost(id)}>Dismiss</button>
+          {annotation}
+          {ghost ?? (
+            <div className="r-panel">
+              <div className="r-screen">
+                <RackScreen m={m} attrs={data.attrs ?? {}} series={series} />
+              </div>
+              <RackLeds health={m.health} />
+            </div>
+          )}
+          <div className="r-foot">
+            <span className="r-vents" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+              <i />
+              <i />
+              <i />
+            </span>
+            <span className={`r-io${foot.bad ? ' bad' : ''}`}>{m.live ? `IN ${fmtInt(m.inRps)}/S` : foot.left.toUpperCase()}</span>
           </div>
         </>
+      ) : (
+        <>
+          <div className="n-head">
+            <span className="n-tile">
+              <Icon size={18} />
+            </span>
+            <span className="n-names">
+              {name}
+              <span className="n-kind">{data.archType.replace(/_/g, ' ')}</span>
+            </span>
+            <span className="n-led" aria-hidden="true" />
+          </div>
+          {annotation}
+          {ghost ?? (
+            <div className="n-gauge">
+              <InstrumentGauge m={m} attrs={data.attrs ?? {}} series={series} />
+            </div>
+          )}
+          {!data.ghost && (
+            <div className="n-foot">
+              <span>{foot.left}</span>
+              <span className={foot.bad ? 'bad' : ''}>{foot.right}</span>
+            </div>
+          )}
+        </>
       )}
-    </div>
-  );
-}
-
-/** Seconds once milliseconds stop being readable: 80000ms tells nobody anything. */
-function duration(ms: number): string {
-  if (!Number.isFinite(ms)) return '—';
-  if (ms >= 10_000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.round(ms)}ms`;
-}
-
-/**
- * What the replica count did. An autoscaler that went from one to five is the story;
- * a fixed count is barely worth the space.
- */
-function scaling(sim: SimNodeResult): string {
-  if (sim.replicasSettled > sim.replicas) return ` · ×${sim.replicas}→${sim.replicasSettled}`;
-  return sim.replicas > 1 ? ` · ×${sim.replicas}` : '';
-}
-
-function SimBadge({ sim }: { sim: SimNodeResult }) {
-  const bar = Number.isFinite(sim.utilization) ? Math.min(sim.utilization, 2) / 2 : 1;
-  const overloaded = sim.utilization > 1;
-  // How much of what arrived did not get served. This is the number that matters once
-  // a component is past its limit — "2000% utilised" is arithmetic, "sheds 95%" is the
-  // finding.
-  const shedPct = sim.incomingRps > 0 ? Math.round((sim.droppedRps / sim.incomingRps) * 100) : 0;
-
-  return (
-    <div className="util">
-      <div className="bar">
-        <span style={{ width: `${Math.max(2, bar * 100)}%` }} />
-      </div>
-      <div className="util-text">
-        <span
-          title={
-            sim.elastic
-              ? 'Runs on a provider’s capacity, so there is no utilisation to report — only their rate limit and their bill can stop it.'
-              : sim.unlimited
-                ? 'Nothing about this component limits traffic, so it has no utilisation.'
-                : `${Math.round(sim.incomingRps)} rps arriving against ${Math.round(sim.capacityRps)} rps of capacity${sim.replicas > 1 ? ` across ${sim.replicas} replicas` : ''}.`
-          }
-        >
-          {sim.elastic
-            ? `hosted · ${Math.round(sim.incomingRps)} rps`
-            : sim.unlimited
-              ? `passes ${Math.round(sim.incomingRps)} rps`
-              : `${Math.round(Math.min(sim.utilization, 9.99) * 100)}% · ${Math.round(sim.incomingRps)} rps`}
-        </span>
-        <span
-          title={
-            sim.hostLimited
-              ? 'Not its own limit: the pool it shares with its neighbours has run out of room.'
-              : overloaded
-                ? `Past its capacity, so its latency is at the ceiling the model reports rather than a number to plan against. ${Math.round(sim.droppedRps)} rps never got served.`
-                : 'Service time plus queue wait.'
-          }
-        >
-          {/* A component squeezed by its pool is not overloaded — its neighbours are
-              eating the machines, and saying "sheds 40%" without saying why sends you
-              to tune the wrong box. */}
-          {shedPct > 0 ? `${sim.hostLimited ? 'pool full · ' : ''}sheds ${shedPct}%` : duration(sim.latencyMs)}
-          {scaling(sim)}
-        </span>
-      </div>
     </div>
   );
 }
@@ -283,7 +296,7 @@ function LockBadge({ onUnlock }: { onUnlock: () => void }) {
         onUnlock();
       }}
     >
-      <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth={2}>
+      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth={2}>
         <rect x="5" y="11" width="14" height="10" rx="1.6" />
         <path d="M8 11V7.5a4 4 0 0 1 8 0V11" />
       </svg>

@@ -8,7 +8,7 @@ function StickyNodeInner({ id, data, selected }: NodeProps<Node<StickyData, 'sti
 
   return (
     <>
-      <NodeResizer minWidth={140} minHeight={70} isVisible={selected} color="#d0b64a" />
+      <NodeResizer minWidth={140} minHeight={70} isVisible={selected} color="var(--load)" />
       <div className="sticky-node" style={{ width: '100%', height: '100%' }}>
         {editing ? (
           <textarea

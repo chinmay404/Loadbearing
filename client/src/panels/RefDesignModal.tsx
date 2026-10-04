@@ -18,9 +18,9 @@ const MARGIN = 40;
 const ANCHOR_Y = 44;
 
 const EDGE_STROKE: Record<'sync' | 'async' | 'replication', { color: string; dash?: string }> = {
-  sync: { color: '#9c968b' },
-  async: { color: '#7ba75f', dash: '6 4' },
-  replication: { color: '#b07ca8', dash: '2 4' },
+  sync: { color: 'var(--cable)' },
+  async: { color: 'var(--plum)', dash: '7 5' },
+  replication: { color: 'var(--plum)', dash: '1.5 5' },
 };
 
 interface Layout {
@@ -117,7 +117,7 @@ function RefNode({ node, state }: { node: GraphNode; state?: string }) {
       ? 'var(--fail)'
       : state === 'warn'
         ? 'var(--load)'
-        : spec.color;
+        : 'var(--module-edge)';
   const chips: string[] = [];
   if (typeof node.attrs?.replicas === 'number') chips.push(`×${node.attrs.replicas}`);
   if (typeof node.attrs?.capacityRps === 'number') chips.push(`${node.attrs.capacityRps} rps`);
@@ -125,16 +125,16 @@ function RefNode({ node, state }: { node: GraphNode; state?: string }) {
     <div
       style={{
         width: NODE_W,
-        background: '#1c1a17',
-        border: '1px solid var(--rule)',
-        borderTop: `2px solid ${topColor}`,
-        borderRadius: 'var(--r)',
-        padding: '6px 8px',
-        fontSize: 11.5,
+        background: 'linear-gradient(var(--module-top), var(--module-bot))',
+        border: `1px solid ${topColor}`,
+        borderRadius: 'var(--r-lg)',
+        boxShadow: 'var(--shadow-raised)',
+        padding: '9px 11px',
+        fontSize: 12,
       }}
     >
       <div className="row" style={{ gap: 5, minWidth: 0 }}>
-        <span style={{ color: spec.color, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+        <span style={{ color: 'var(--fg)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
           <Icon size={16} />
         </span>
         <span
@@ -154,12 +154,12 @@ function RefNode({ node, state }: { node: GraphNode; state?: string }) {
         {node.type.replace(/_/g, ' ')}
       </div>
       {node.annotation && (
-        <div style={{ marginTop: 3, fontSize: 10.5, color: 'var(--graphite)' }}>{node.annotation}</div>
+        <div style={{ marginTop: 4, fontSize: 12, color: 'var(--fg-2)' }}>{node.annotation}</div>
       )}
       {chips.length > 0 && (
         <div className="row wrap" style={{ gap: 3, marginTop: 4 }}>
           {chips.map((t) => (
-            <span className="chip" key={t} style={{ fontSize: 9, padding: '0 4px' }}>
+            <span className="chip" key={t} style={{ padding: '0 6px' }}>
               {t}
             </span>
           ))}
@@ -229,7 +229,7 @@ export function RefDesignModal({ problem, onClose }: { problem: Problem; onClose
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgb(10 9 8 / 0.75)',
+        background: 'var(--scrim)',
         zIndex: 40,
         display: 'grid',
         placeItems: 'center',
@@ -240,22 +240,25 @@ export function RefDesignModal({ problem, onClose }: { problem: Problem; onClose
         style={{
           width: 'min(1180px, calc(100vw - 48px))',
           height: 'calc(100vh - 48px)',
-          background: 'var(--ink-2)',
-          border: '1px solid var(--rule)',
-          borderRadius: 'var(--r)',
+          background: 'var(--surface)',
+          border: '1px solid var(--line)',
+          borderRadius: 'var(--r-xl)',
+          boxShadow: 'var(--shadow-float)',
+          overflow: 'hidden',
+          animation: 'modal-in 260ms var(--ease-out)',
           display: 'flex',
           flexDirection: 'column',
           minHeight: 0,
         }}
       >
         <div className="pane-head">
-          <span className="stencil">reference design</span>
-          <h2 style={{ fontSize: 13, color: 'var(--chalk)', textTransform: 'none', letterSpacing: 0 }}>
+          <span className="chip spec">Reference design</span>
+          <h2 style={{ fontSize: 15, color: 'var(--fg)', letterSpacing: '-0.01em' }}>
             {problem.title}
           </h2>
           <span className="grow" />
           <button className="ghost" onClick={onClose} title="Close (Esc)">
-            esc ×
+            Close <kbd>Esc</kbd>
           </button>
         </div>
 
@@ -321,8 +324,8 @@ export function RefDesignModal({ problem, onClose }: { problem: Problem; onClose
                             y1={y1}
                             x2={x2}
                             y2={y2}
-                            stroke={stroke.color}
-                            strokeWidth={1}
+                            style={{ stroke: stroke.color }}
+                            strokeWidth={1.75}
                             strokeDasharray={stroke.dash}
                           />
                           {e.label && graph.edges.length <= 14 && (
@@ -330,7 +333,7 @@ export function RefDesignModal({ problem, onClose }: { problem: Problem; onClose
                               x={(x1 + x2) / 2}
                               y={(y1 + y2) / 2 - 4}
                               textAnchor="middle"
-                              style={{ fontFamily: 'var(--mono)', fontSize: 8, fill: '#6a6459' }}
+                              style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: 'var(--muted)' }}
                             >
                               {e.label}
                             </text>
@@ -368,13 +371,12 @@ export function RefDesignModal({ problem, onClose }: { problem: Problem; onClose
                     <div
                       key={i}
                       style={{
-                        background: '#2b2412',
-                        border: '1px solid #5c4d1e',
-                        borderTop: '2px solid #96802a',
-                        borderRadius: 'var(--r)',
-                        padding: '6px 7px',
-                        fontSize: 11,
-                        color: '#f2e2ab',
+                        background: 'var(--load-soft)',
+                        border: '1px solid var(--load-line)',
+                        borderRadius: 'var(--r-md)',
+                        padding: '8px 10px',
+                        fontSize: 12,
+                        color: 'var(--fg)',
                         marginBottom: 6,
                         whiteSpace: 'pre-wrap',
                         wordBreak: 'break-word',
@@ -397,8 +399,7 @@ export function RefDesignModal({ problem, onClose }: { problem: Problem; onClose
               borderTop: '1px solid var(--rule)',
               flexShrink: 0,
               lineHeight: 1.7,
-              textTransform: 'none',
-              letterSpacing: '0.04em',
+
             }}
           >
             One strong answer, not the only one — your design can beat it.{' '}

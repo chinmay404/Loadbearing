@@ -11,10 +11,14 @@ import {
 import type { EdgeGeometry, EdgeKind } from '@loadbearing/shared';
 import { useCanvas } from '../state/canvasStore';
 
+/**
+ * A cable for a call that waits, plum dashes for work handed off, plum dots for a
+ * copy being kept. Colours are tokens so the cable follows the theme.
+ */
 const STROKE: Record<EdgeKind, { stroke: string; dash?: string; width: number }> = {
-  sync: { stroke: '#9c968b', width: 1.8 },
-  async: { stroke: '#7ba75f', dash: '6 4', width: 1.8 },
-  replication: { stroke: '#b07ca8', dash: '2 4', width: 1.6 },
+  sync: { stroke: 'var(--cable)', width: 2.25 },
+  async: { stroke: 'var(--plum)', dash: '7 5', width: 2 },
+  replication: { stroke: 'var(--plum)', dash: '1.5 5', width: 2.25 },
 };
 
 type Point = { x: number; y: number };
@@ -190,8 +194,9 @@ function ArchEdgeInner({
         path={path}
         markerEnd={markerEnd}
         style={{
-          stroke: selected ? '#cfa349' : s.stroke,
-          strokeWidth: selected ? s.width + 0.7 : s.width,
+          stroke: selected ? 'var(--accent)' : s.stroke,
+          strokeWidth: selected ? s.width + 0.75 : s.width,
+          strokeLinecap: 'round',
           ...(s.dash ? { strokeDasharray: s.dash } : {}),
           ...style,
         }}
@@ -241,16 +246,10 @@ function ArchEdgeInner({
       {label && (
         <EdgeLabelRenderer>
           <div
+            className="edge-label"
             style={{
               position: 'absolute',
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - (selected ? 18 : 0)}px)`,
-              background: '#121110',
-              border: '1px solid #322e29',
-              borderRadius: 5,
-              padding: '1px 5px',
-              fontSize: 10,
-              color: '#a09a90',
-              pointerEvents: 'none',
             }}
           >
             {String(label)}

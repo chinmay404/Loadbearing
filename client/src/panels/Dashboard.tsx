@@ -93,7 +93,7 @@ export function Dashboard() {
                 m.ema === null
                   ? {}
                   : {
-                      background: `color-mix(in srgb, var(--pass) ${Math.round(m.ema * 100)}%, #2a1616)`,
+                      background: `color-mix(in srgb, var(--accent) ${Math.round(12 + m.ema * 88)}%, var(--seg-off))`,
                       borderColor: 'transparent',
                     }
               }
@@ -155,14 +155,14 @@ function Radar({ data }: { data: { group: string; value: number | null; covered:
           key={f}
           points={data.map((_, i) => pt(i, f)).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ')}
           fill="none"
-          stroke="#322e29"
+          style={{ stroke: 'var(--line-2)' }}
         />
       ))}
       {data.map((_, i) => {
         const [x, y] = pt(i, 1);
-        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="#322e29" />;
+        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} style={{ stroke: 'var(--line)' }} />;
       })}
-      <polygon points={poly} fill="rgb(207 163 73 / 0.18)" stroke="#cfa349" strokeWidth={1.5} />
+      <polygon points={poly} style={{ fill: 'color-mix(in srgb, var(--accent) 16%, transparent)', stroke: 'var(--accent)' }} strokeWidth={1.75} strokeLinejoin="round" />
       {data.map((d, i) => {
         const [x, y] = pt(i, 1.19);
         return (
@@ -170,8 +170,8 @@ function Radar({ data }: { data: { group: string; value: number | null; covered:
             key={d.group}
             x={x}
             y={y}
-            fontSize={7.5}
-            fill={d.value === null ? '#6b7488' : '#a09a90'}
+            fontSize={9}
+            style={{ fill: d.value === null ? 'var(--faint)' : 'var(--fg-2)', fontFamily: 'var(--font)' }}
             textAnchor={x < cx - 8 ? 'end' : x > cx + 8 ? 'start' : 'middle'}
             dominantBaseline="middle"
           >
@@ -193,10 +193,10 @@ function Trend({ points }: { points: number[] }) {
     .join(' ');
   return (
     <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%' }}>
-      <line x1={0} y1={h - (80 / max) * h} x2={w} y2={h - (80 / max) * h} stroke="#4a6b34" strokeDasharray="3 3" />
-      <path d={d} fill="none" stroke="#cfa349" strokeWidth={2} />
+      <line x1={0} y1={h - (80 / max) * h} x2={w} y2={h - (80 / max) * h} style={{ stroke: 'var(--pass)' }} strokeDasharray="3 4" opacity={0.6} />
+      <path d={d} fill="none" style={{ stroke: 'var(--accent)' }} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
       {points.map((p, i) => (
-        <circle key={i} cx={i * step} cy={h - (p / max) * h} r={2.5} fill="#cfa349" />
+        <circle key={i} cx={i * step} cy={h - (p / max) * h} r={3} style={{ fill: 'var(--surface)', stroke: 'var(--accent)' }} strokeWidth={1.75} />
       ))}
     </svg>
   );

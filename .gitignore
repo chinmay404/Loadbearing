@@ -7,3 +7,6 @@ dist/
 /data/
 .env
 *.local
+
+# Brainstorming mockups (visual companion)
+.superpowers/

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { SPREAD, spreadLayout } from '../canvas/layout';
 import {
   addEdge,
   applyEdgeChanges,
@@ -164,6 +165,8 @@ interface CanvasState extends Snapshot {
 
   /** Drops a prebuilt subsystem or saved template onto the sheet, fully editable. */
   insertBlueprint: (blueprint: BlueprintLike) => string[];
+  /** Spread the drawing about its centre so grown parts stop overlapping. One undo step. */
+  makeRoom: () => void;
   /** Turns the current selection (or the whole sheet) into a reusable template. */
   selectionAsTemplate: (name: string, summary: string) => BlueprintLike | null;
 
@@ -428,7 +431,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   bindings: [],
   tool: 'select',
   edgeKind: 'sync',
-  penColor: '#cfa349',
+  penColor: 'var(--accent)',
   simResult: null,
   simConfig: { rpsMultiplier: 1, killNodeIds: [], thirdPartyLatencyMs: 0 },
   simRunning: false,
@@ -909,6 +912,14 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     return { attached, detached };
   },
 
+  makeRoom: () =>
+    set((s) => ({
+      past: [...s.past.slice(-49), snap(s)],
+      future: [],
+      nodes: spreadLayout(s.nodes),
+      dirty: true,
+    })),
+
   insertBlueprint: (blueprint) => {
     const { viewportCenter, nodes: existing } = get();
     // Land clear of whatever is already drawn rather than on top of it: a
@@ -932,11 +943,14 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       return {
         id: idFor.get(n.key)!,
         type: 'arch',
-        position: inside ? { x: n.at.x, y: n.at.y } : { x: originX + n.at.x, y: originY + n.at.y },
+        // Authored for the old, smaller boxes; spread so the parts with gauges fit.
+        position: inside
+          ? { x: n.at.x * SPREAD.x, y: n.at.y * SPREAD.y }
+          : { x: originX + n.at.x * SPREAD.x, y: originY + n.at.y * SPREAD.y },
         selected: true,
         zIndex: n.type === 'group' ? GROUP_Z : 0,
         ...(inside ? { parentId: idFor.get(n.parent!)!, extent: 'parent' as const } : {}),
-        ...(n.size ? { width: n.size.w, height: n.size.h } : {}),
+        ...(n.size ? { width: Math.round(n.size.w * SPREAD.x), height: Math.round(n.size.h * SPREAD.y) } : {}),
         data: {
           archType: n.type,
           label: n.label,

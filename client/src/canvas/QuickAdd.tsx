@@ -214,11 +214,11 @@ export function QuickAdd() {
                   gap: 8,
                   padding: '7px 11px',
                   cursor: 'pointer',
-                  background: i === cursor ? 'var(--ink-3)' : 'transparent',
-                  borderLeft: `2px solid ${i === cursor ? spec.color : 'transparent'}`,
+                  background: i === cursor ? 'var(--surface-3)' : 'transparent',
+                  borderRadius: 8,
                 }}
               >
-                <span style={{ color: spec.color, display: 'grid', placeItems: 'center' }}>
+                <span style={{ color: 'var(--fg)', display: 'grid', placeItems: 'center' }}>
                   <Icon size={15} />
                 </span>
                 <span style={{ fontSize: 12.5 }}>{spec.label}</span>

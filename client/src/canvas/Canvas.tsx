@@ -31,6 +31,7 @@ import { AiBar } from './AiBar';
 import { EdgeTools } from './EdgeTools';
 import { NodeTools } from './NodeTools';
 import { PinBar } from './PinBar';
+import { MakeRoom } from './MakeRoom';
 import { useCanvas } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
 
@@ -351,19 +352,13 @@ function CanvasInner() {
         fitView
         proOptions={{ hideAttribution: true }}
       >
-        {/* Blueprint ruling: a fine grid inside a coarse one, like drafting paper. */}
-        <Background id="fine" variant={BackgroundVariant.Lines} gap={16} lineWidth={0.4} color="#1d1b18" />
-        <Background id="coarse" variant={BackgroundVariant.Lines} gap={96} lineWidth={0.6} color="#272320" />
+        {/* A pegboard: parts sit on it, and it stays out of the way of reading them. */}
+        <Background id="peg" variant={BackgroundVariant.Dots} gap={22} size={1.6} />
         <Controls showInteractive={false} position="top-right" />
-        <MiniMap
-          pannable
-          zoomable
-          style={{ background: '#1a1917', border: '1px solid #322e29', borderRadius: 2 }}
-          maskColor="rgb(18 17 16 / 0.72)"
-          nodeColor="#3a352f"
-        />
+        <MiniMap pannable zoomable />
       </ReactFlow>
       <FlowParticles />
+      <MakeRoom />
       <PenLayer />
       <CanvasToolbar />
       <TitleBlock />

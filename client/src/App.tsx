@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CanvasDoc } from '@loadbearing/shared';
 import { api, ApiError, setUnauthorizedHandler } from './lib/api';
-import { useApp, type LeftTab, type RightTab, type View } from './state/appStore';
+import { useApp, type LeftTab, type RightTab } from './state/appStore';
 import { useCanvas } from './state/canvasStore';
 import { Canvas } from './canvas/Canvas';
 import { Palette } from './canvas/Palette';
@@ -28,32 +28,11 @@ import { ProjectsPanel } from './panels/ProjectsPanel';
 import { ProjectPanel } from './panels/ProjectPanel';
 import { ProjectWorkspace } from './panels/ProjectWorkspace';
 import { ErrorBoundary } from './ui/ErrorBoundary';
-import {
-  IconBack,
-  IconCompose,
-  IconDrafting,
-  IconFolder,
-  IconGauge,
-  IconInstrument,
-  IconManual,
-  IconNote,
-  IconSheets,
-} from './ui/UiIcons';
-
-const RAIL: { view: View; Icon: (p: { size?: number }) => JSX.Element; title: string }[] = [
-  { view: 'problems', Icon: IconSheets, title: 'Problems' },
-  { view: 'compose', Icon: IconCompose, title: 'Compose a sheet' },
-  { view: 'projects', Icon: IconFolder, title: 'Projects — systems you own' },
-  { view: 'workspace', Icon: IconDrafting, title: 'Drawing board' },
-  { view: 'dashboard', Icon: IconGauge, title: 'Progress' },
-  { view: 'notebook', Icon: IconNote, title: 'Note library — everything you have written' },
-  { view: 'reference', Icon: IconManual, title: 'Design reference' },
-  { view: 'settings', Icon: IconInstrument, title: 'Grader model' },
-];
+import { IconBack } from './ui/UiIcons';
+import { TopBar } from './ui/TopBar';
 
 export function App() {
   const view = useApp((s) => s.view);
-  const setView = useApp((s) => s.setView);
   const problem = useApp((s) => s.problem);
   const serverUp = useApp((s) => s.serverUp);
   const setHealth = useApp((s) => s.setHealth);
@@ -61,8 +40,6 @@ export function App() {
   const setError = useApp((s) => s.setError);
   const notice = useApp((s) => s.notice);
   const setNotice = useApp((s) => s.setNotice);
-  const stubMode = useApp((s) => s.stubMode);
-  const llmConfigured = useApp((s) => s.llmConfigured);
   const username = useApp((s) => s.username);
   const authChecked = useApp((s) => s.authChecked);
   const signedOut = useApp((s) => s.signedOut);
@@ -135,7 +112,7 @@ export function App() {
         {authChecked ? (
           <SignInPanel />
         ) : (
-          <p className="faint" style={{ marginTop: '10vh' }}>
+          <p className="gate-connecting" style={{ gridColumn: '1 / -1' }}>
             Connecting…
           </p>
         )}
@@ -145,75 +122,19 @@ export function App() {
 
   return (
     <div className="shell">
-      <nav className="rail">
-        <div className="mark" title="Loadbearing">
-          LB
-        </div>
-        {RAIL.map(({ view: v, Icon, title }) => (
-          <button
-            key={v}
-            className={view === v ? 'active' : ''}
-            title={title}
-            aria-label={title}
-            disabled={v === 'workspace' && !problem}
-            onClick={() => setView(v)}
-          >
-            <Icon size={18} />
-          </button>
-        ))}
-        <span className="spacer" />
-        <button
-          title={`Signed in as ${username} — click to sign out`}
-          aria-label="Sign out"
-          onClick={() => {
-            void api.logout().catch(() => undefined);
-            signedOut();
-          }}
-          style={{ fontSize: 10, letterSpacing: '0.04em' }}
-        >
-          {username.slice(0, 2).toUpperCase()}
-        </button>
-        <span
-          className={`link-state ${serverUp ? 'up' : ''}`}
-          title={serverUp ? 'Server connected on port 8787' : 'Server unreachable on port 8787'}
-        >
-          {serverUp ? 'linked' : 'no link'}
-        </span>
-      </nav>
+      <TopBar />
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 
       <main className="main">
-        {/* A project canvas never calls a model, so warning about the grader there
-            is noise about a capability that view does not use. */}
-        {serverUp && !canvasId && (stubMode || !llmConfigured) && (
-          <div
-            className="banner warnb"
-            style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 35, maxWidth: 640, margin: 0 }}
-          >
-            {stubMode ? (
-              <>
-                <strong>Reviews are not real right now.</strong> The server was started with{' '}
-                <span className="mono">FAKE_LLM=1</span>, which forces the offline stub and ignores the model
-                in Settings. Restart it without that variable.
-              </>
-            ) : (
-              <>
-                <strong>No grader model configured.</strong> Open <em>Grader model</em> and point Loadbearing at a
-                provider, or reviews will not run.
-              </>
-            )}
-          </div>
-        )}
-
         {(error || notice) && (
-          <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 40, maxWidth: 620 }}>
+          <div className="notices">
             {error && (
               <div className="banner error" onClick={() => setError(null)} style={{ cursor: 'pointer' }}>
                 <strong>{error.message}</strong>
-                {error.hint ? <div style={{ fontSize: 12, marginTop: 3 }}>{error.hint}</div> : null}
-                <div className="stencil" style={{ marginTop: 4 }}>
-                  click to dismiss
+                {error.hint ? <div style={{ marginTop: 3 }}>{error.hint}</div> : null}
+                <div className="stencil" style={{ marginTop: 6 }}>
+                  Click to dismiss
                 </div>
               </div>
             )}

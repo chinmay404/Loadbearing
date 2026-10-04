@@ -1,0 +1,870 @@
+/* --------------------------------------------------------------- sheets ----
+ * A page of the app (problem index, progress, reference …). Roomy by default.
+ */
+
+.sheet {
+  padding: 32px 40px 48px;
+  overflow: auto;
+  height: 100%;
+  animation: rise 260ms var(--ease-out);
+}
+@media (max-width: 900px) {
+  .sheet {
+    padding: 24px 18px 40px;
+  }
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.sheet h1 {
+  font-size: var(--t-29);
+  line-height: 1.12;
+  letter-spacing: -0.028em;
+}
+.sheet .lede {
+  color: var(--fg-2);
+  font-size: var(--t-15);
+  line-height: 1.6;
+  max-width: 64ch;
+  margin: 8px 0 24px;
+  text-wrap: pretty;
+}
+
+.index-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+/* A problem card. Lifts a little under the pointer; the score sits top-right. */
+.plate {
+  text-align: left;
+  padding: 16px 16px 14px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  display: block;
+  width: 100%;
+  position: relative;
+  color: var(--fg);
+  font: inherit;
+  transition:
+    transform 220ms var(--ease-out),
+    box-shadow 220ms ease,
+    border-color var(--d-hover) ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .plate:hover:not(:disabled) {
+    transform: translateY(-2px);
+    border-color: var(--line-2);
+    background: var(--surface);
+    box-shadow: var(--shadow-lift);
+  }
+}
+.plate:active:not(:disabled) {
+  transform: scale(0.99);
+}
+.plate.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.plate.mine {
+  background: linear-gradient(var(--accent-soft), var(--surface) 46%);
+  border-color: var(--accent-line);
+}
+.plate .mine-tag,
+.plate .lab-tag,
+.chip.lab-chip {
+  font: 500 11px / 1.5 var(--font);
+  border-radius: var(--r-pill);
+  padding: 0 7px;
+  flex-shrink: 0;
+}
+.plate .mine-tag {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+}
+.plate.lab {
+  background: linear-gradient(var(--plum-soft), var(--surface) 46%);
+  border-color: var(--plum-line);
+}
+.plate .lab-tag,
+.chip.lab-chip {
+  color: var(--plum);
+  background: var(--plum-soft);
+  border: 1px solid var(--plum-line);
+}
+.plate .t {
+  font-weight: 600;
+  font-size: var(--t-15);
+  letter-spacing: -0.012em;
+  line-height: 1.3;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-right: 40px;
+}
+.plate .m {
+  font-family: var(--font-mono);
+  font-size: var(--t-12);
+  color: var(--muted);
+  margin-top: 4px;
+}
+.plate .best {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-17);
+  font-weight: 600;
+}
+.plate .best.hi {
+  color: var(--pass);
+}
+.plate .best.mid {
+  color: var(--load);
+}
+.plate .best.lo {
+  color: var(--fail);
+}
+
+.filter-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.filter-row button {
+  font-size: var(--t-13);
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+}
+.filter-gap {
+  width: 14px;
+}
+
+.tier {
+  margin-bottom: 32px;
+}
+.tier > .tier-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.tier > .tier-head h3 {
+  font-size: var(--t-17);
+  color: var(--fg);
+}
+.tier > .tier-head .count {
+  font-family: var(--font-mono);
+  font-size: var(--t-12);
+  color: var(--muted);
+  margin-left: auto;
+}
+
+/* ---------------------------------------------------------------- palette -- */
+
+.palette-group {
+  margin-bottom: 16px;
+}
+.palette-group > h5 {
+  font: 600 var(--t-12) / 1.4 var(--font);
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.palette-group > h5::first-letter {
+  text-transform: uppercase;
+}
+.palette-items {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 6px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: grab;
+  font-size: 12.5px;
+  font-weight: 500;
+  user-select: none;
+  min-width: 0;
+  transition:
+    border-color var(--d-hover) ease,
+    background-color var(--d-hover) ease,
+    transform var(--d-press) var(--ease-out),
+    box-shadow var(--d-hover) ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .palette-item:hover {
+    border-color: var(--line-2);
+    box-shadow: var(--shadow-raised);
+  }
+}
+.palette-item:active {
+  transform: scale(0.97);
+  cursor: grabbing;
+}
+.palette-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.palette-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-item .ico {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  color: var(--fg);
+}
+
+/* -------------------------------------------------------- command palette --
+ * Near the top rather than centred: the list grows downward. Opened by keyboard
+ * a hundred times a day, so it does not animate.
+ */
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--scrim);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+.palette {
+  width: min(640px, 92vw);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-float);
+  display: flex;
+  flex-direction: column;
+  max-height: 66vh;
+  overflow: hidden;
+}
+.palette > input {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--t-15);
+  padding: 15px 18px;
+}
+.palette > input:focus {
+  outline: none;
+  box-shadow: none;
+}
+.palette-list {
+  overflow-y: auto;
+  padding: 6px;
+}
+.palette-empty {
+  padding: 16px;
+  margin: 0;
+  font-size: var(--t-13);
+  color: var(--muted);
+}
+.palette-row {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  padding: 9px 12px;
+  transition: none;
+}
+.palette-row:active:not(:disabled) {
+  transform: none;
+}
+.palette-row.active {
+  background: var(--surface-3);
+}
+.palette-kind {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  text-align: right;
+}
+.palette-kind.goto {
+  color: var(--accent);
+}
+.palette-label {
+  font-size: var(--t-14);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-detail {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.palette-foot {
+  display: flex;
+  gap: 14px;
+  padding: 9px 16px;
+  border-top: 1px solid var(--line);
+  font-size: var(--t-12);
+  color: var(--muted);
+  background: var(--surface-2);
+}
+
+/* --------------------------------------------------------------- scoring --- */
+
+.verdict-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.verdict-head .n {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 44px;
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 0.9;
+}
+.verdict-head .n.hi {
+  color: var(--pass);
+}
+.verdict-head .n.mid {
+  color: var(--load);
+}
+.verdict-head .n.lo {
+  color: var(--fail);
+}
+.verdict-head .of {
+  font-family: var(--font-mono);
+  font-size: var(--t-12);
+  color: var(--muted);
+}
+
+.dim-row {
+  margin-bottom: 12px;
+}
+.dim-row .top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: var(--t-13);
+  font-weight: 500;
+  margin-bottom: 5px;
+}
+.dim-row .top .v {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-12);
+}
+.dim-row .notes {
+  font-size: 12.5px;
+  color: var(--fg-2);
+  margin-top: 6px;
+}
+
+/* ------------------------------------------------------------- dashboard --- */
+
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+}
+.tile .v {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+.heat {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16px, 1fr));
+  gap: 3px;
+}
+.heat i {
+  aspect-ratio: 1;
+  background: var(--seg-off);
+  border-radius: 3px;
+  cursor: help;
+}
+
+/* ------------------------------------------------------------- reference --- */
+
+.ref-card {
+  border-left: 3px solid var(--plum);
+}
+.ref-card dl {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+}
+.ref-card dt {
+  font: 600 var(--t-12) / 1.4 var(--font);
+  color: var(--muted);
+  margin-top: 8px;
+}
+.ref-card dt::first-letter {
+  text-transform: uppercase;
+}
+.ref-card dd {
+  margin: 2px 0 0;
+  color: var(--fg-2);
+}
+
+/* ------------------------------------------------------------------ chat --- */
+
+.chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.msg {
+  padding: 9px 12px;
+  border-radius: var(--r-lg);
+  font-size: var(--t-13);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg.me {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  align-self: flex-end;
+  max-width: 92%;
+  border-bottom-right-radius: var(--r-xs);
+}
+.msg.ai {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-bottom-left-radius: var(--r-xs);
+}
+
+/* ------------------------------------------------------- the arithmetic ---- */
+/* The simulator's numbers only teach if you can see the sum behind them. */
+
+table.mathwork {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+}
+table.mathwork td {
+  padding: 5px 6px;
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+}
+table.mathwork td.k {
+  font-family: var(--font);
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+  width: 1%;
+}
+table.mathwork td.w {
+  color: var(--fg-2);
+}
+table.mathwork td.r {
+  color: var(--fg);
+  text-align: right;
+  white-space: nowrap;
+  width: 1%;
+}
+
+/* --------------------------------------------------------- compatibility --- */
+
+.finding {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-2);
+  background: var(--surface);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.finding.error {
+  border-left-color: var(--fail);
+}
+.finding.warning {
+  border-left-color: var(--load);
+}
+.finding.info {
+  border-left-color: var(--accent);
+}
+.finding .msg {
+  font-size: var(--t-13);
+  padding: 0;
+}
+.finding .fix {
+  font-size: 12.5px;
+  color: var(--fg-2);
+  margin-top: 6px;
+}
+.finding .fix::before {
+  content: 'Instead';
+  font: 600 11px / 1 var(--font);
+  color: var(--muted);
+  margin-right: 6px;
+}
+
+/* ---------------------------------------------------------------- diagram -- */
+
+.arch-diagram {
+  margin: 0 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background-color: var(--bench);
+  background-image: radial-gradient(circle at center, var(--peg) 1px, transparent 1.2px);
+  background-size: 18px 18px;
+  overflow: hidden;
+}
+.arch-diagram svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.arch-diagram figcaption {
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  padding: 7px 10px;
+  font-size: var(--t-12);
+  line-height: 1.5;
+  color: var(--fg-2);
+  min-height: 28px;
+}
+.dg-box {
+  fill: var(--surface);
+  stroke: var(--module-edge);
+  stroke-width: 1;
+}
+.dg-node {
+  cursor: default;
+}
+.dg-node.hot .dg-box {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.dg-label {
+  fill: var(--fg);
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.dg-group {
+  fill: color-mix(in srgb, var(--plum) 5%, transparent);
+  stroke: var(--plum-line);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+.dg-group-label {
+  fill: var(--plum);
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 600;
+}
+.dg-edge-label {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-anchor: middle;
+}
+
+/* ----------------------------------------------------------- note library -- */
+
+.lib-search {
+  width: 100%;
+  margin-bottom: 14px;
+  font-size: var(--t-14);
+  padding: 10px 14px;
+}
+.lib-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lib-note {
+  margin-bottom: 0;
+}
+.lib-note.open {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+button.lib-title {
+  font-size: var(--t-14);
+  font-weight: 600;
+  text-align: left;
+  padding: 0;
+  color: var(--fg);
+  justify-content: flex-start;
+  background: none;
+  border: 0;
+}
+@media (hover: hover) and (pointer: fine) {
+  button.lib-title:hover:not(:disabled) {
+    color: var(--accent);
+    background: none;
+  }
+}
+.lib-peek {
+  font-size: var(--t-13);
+  color: var(--muted);
+  margin: 4px 0 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lib-body {
+  margin: 8px 0 2px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.chip.where {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip.where.problem {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+.chip.where.canvas,
+.chip.where.project {
+  color: var(--plum);
+  background: var(--plum-soft);
+  border-color: var(--plum-line);
+}
+.chip.where.unknown {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* ------------------------------------------------------------- API tokens -- */
+
+.token-secret {
+  margin: 10px 0;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  font-family: var(--font-mono);
+  font-size: var(--t-12);
+  word-break: break-all;
+  white-space: pre-wrap;
+  user-select: all;
+}
+table.tokens {
+  width: 100%;
+  margin-top: 12px;
+  border-collapse: collapse;
+  font-size: var(--t-13);
+}
+table.tokens td {
+  padding: 8px 8px;
+  border-top: 1px solid var(--line);
+  vertical-align: middle;
+}
+table.tokens td:first-child {
+  font-weight: 600;
+}
+.config-block {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  font-size: var(--t-12);
+  overflow-x: auto;
+}
+
+/* ------------------------------------------------------------- the primer -- */
+
+.primer-credit {
+  font-size: var(--t-13);
+  color: var(--fg-2);
+  border-left: 3px solid var(--plum);
+}
+.primer-credit strong {
+  color: var(--fg);
+}
+button.primer-hit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 8px;
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  padding: 12px 14px;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  button.primer-hit:hover:not(:disabled) {
+    border-color: var(--accent-line);
+    background: var(--surface);
+    box-shadow: var(--shadow-raised);
+  }
+}
+button.primer-hit h4 {
+  font-size: var(--t-14);
+}
+.primer-line {
+  font-size: var(--t-13);
+  color: var(--fg-2);
+  margin: 4px 0 0;
+  line-height: 1.55;
+}
+.primer-line mark {
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 0 2px;
+  border-radius: 3px;
+}
+.primer-read {
+  max-width: 760px;
+}
+.primer-body {
+  font-size: var(--t-15);
+  line-height: 1.7;
+  color: var(--fg-2);
+}
+.primer-body h3 {
+  margin-top: 26px;
+  font-size: var(--t-17);
+}
+.primer-body h4 {
+  margin-top: 18px;
+}
+.primer-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-13);
+  margin: 10px 0;
+}
+.primer-body th,
+.primer-body td {
+  border: 1px solid var(--line);
+  padding: 7px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+
+/* ------------------------------------------------- connecting a chatbot -- */
+
+.connect {
+  margin-top: 16px;
+}
+.connect-host {
+  display: block;
+  margin-bottom: 10px;
+}
+.connect-host input {
+  width: 100%;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--t-12);
+}
+ol.connect-steps {
+  counter-reset: step;
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+}
+ol.connect-steps > li {
+  counter-increment: step;
+  position: relative;
+  padding: 0 0 16px 28px;
+  border-left: 1px solid var(--line-2);
+  margin-left: 10px;
+}
+ol.connect-steps > li:last-child {
+  border-left-color: transparent;
+  padding-bottom: 0;
+}
+ol.connect-steps > li::before {
+  content: counter(step);
+  position: absolute;
+  left: -11px;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  display: grid;
+  place-items: center;
+}
+ol.connect-steps > li > p {
+  margin: 0 0 6px;
+  font-size: var(--t-13);
+  color: var(--fg-2);
+}
+.connect-code {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.connect-code pre {
+  flex: 1;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: all;
+}
+.connect-warn {
+  margin: 6px 0 0 !important;
+  font-size: 12.5px;
+  color: var(--load) !important;
+  line-height: 1.5;
+}
+
+/* An attack the coach devised, with what it predicted next to what happened. */
+.card.attack dl {
+  margin: 8px 0 8px;
+}
+.card.attack .chip {
+  cursor: default;
+}
+.card.attack button.chip {
+  cursor: pointer;
+}
+.dg-icon {
+  color: var(--fg-2);
+}
+
+/* A dialog: centred, because it is not anchored to anything. */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+}

@@ -65,7 +65,7 @@ export function NodeTools() {
           </div>
 
           <div>
-            <label style={{ fontSize: 9.5 }}>Name</label>
+            <label>Name</label>
             <input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
@@ -77,7 +77,7 @@ export function NodeTools() {
           </div>
 
           <div>
-            <label style={{ fontSize: 9.5 }}>Why it is here — the mechanism that matters</label>
+            <label>Why it is here — the mechanism that matters</label>
             <textarea
               rows={3}
               value={annotation}
@@ -195,7 +195,7 @@ function AttrField({
   }
   return (
     <span style={{ display: 'inline-grid', gap: 1 }} title={spec.hint}>
-      <label style={{ fontSize: 9 }}>{label}</label>
+      <label>{label}</label>
       <input
         type="number"
         value={value === undefined ? '' : Number(value)}

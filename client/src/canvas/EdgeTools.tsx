@@ -63,7 +63,7 @@ export function EdgeTools() {
       </div>
 
       <div>
-        <label style={{ fontSize: 9.5 }}>What travels over this connection</label>
+        <label>What travels over this connection</label>
         <input
           value={label}
           onChange={(e) => setLabel(e.target.value)}

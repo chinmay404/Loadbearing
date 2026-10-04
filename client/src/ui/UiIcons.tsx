@@ -180,3 +180,27 @@ export const IconBack = ({ size }: P) => (
     <path d="M3.5 12H20" />
   </S>
 );
+
+export const IconSun = ({ size }: P) => (
+  <S size={size}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2.8v2M12 19.2v2M2.8 12h2M19.2 12h2M5.5 5.5l1.4 1.4M17.1 17.1l1.4 1.4M5.5 18.5l1.4-1.4M17.1 6.9l1.4-1.4" />
+  </S>
+);
+export const IconMoon = ({ size }: P) => (
+  <S size={size}>
+    <path d="M19.5 14.6A8 8 0 0 1 9.4 4.5a8 8 0 1 0 10.1 10.1z" />
+  </S>
+);
+export const IconSignOut = ({ size }: P) => (
+  <S size={size}>
+    <path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10" />
+  </S>
+);
+
+/** The mark: an I-beam, the part of a building that carries the load. */
+export const IconMark = ({ size = 20 }: P) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+    <path d="M3.5 3.5h17v3.6h-6.6v9.8h6.6v3.6h-17v-3.6h6.6V7.1H3.5z" fill="currentColor" />
+  </svg>
+);

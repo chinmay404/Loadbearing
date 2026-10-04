@@ -53,7 +53,7 @@ export function ArchDiagram({
               markerHeight="7"
               orient="auto-start-reverse"
             >
-              <path d="M 0 0 L 8 4 L 0 8 z" fill={STROKE[kind]} />
+              <path d="M 0 0 L 8 4 L 0 8 z" style={{ fill: STROKE[kind] }} />
             </marker>
           ))}
         </defs>
@@ -90,11 +90,9 @@ export function ArchDiagram({
               className={`dg-node${hovered === box.key ? ' hot' : ''}`}
             >
               <title>{box.annotation || spec.hint}</title>
-              <rect x={box.x} y={box.y} width={box.w} height={box.h} rx={5} className="dg-box" />
-              {/* The accent bar is what the real node wears, and it is how you
-                  recognise a cache from a queue at this size. */}
-              <rect x={box.x} y={box.y} width={box.w} height={2.5} fill={spec.color} rx={1} />
-              <g transform={`translate(${box.x + 9}, ${box.y + box.h / 2 - 7})`} color={spec.color}>
+              <rect x={box.x} y={box.y} width={box.w} height={box.h} rx={8} className="dg-box" />
+              {/* The icon is how you tell a cache from a queue at this size; colour is kept for health. */}
+              <g transform={`translate(${box.x + 9}, ${box.y + box.h / 2 - 7})`} className="dg-icon">
                 <Icon size={14} />
               </g>
               <text x={box.x + 29} y={box.y + box.h / 2 + 4} className="dg-label">
@@ -122,10 +120,11 @@ export function ArchDiagram({
   );
 }
 
+/** Same conventions as the canvas: a cable for a call, plum for anything that does not wait. */
 const STROKE: Record<DiagramLink['kind'], string> = {
-  sync: '#8a8578',
-  async: '#7c9a86',
-  replication: '#8b7ca0',
+  sync: 'var(--cable)',
+  async: 'var(--plum)',
+  replication: 'var(--plum)',
 };
 
 function Link({ link, markerPrefix }: { link: DiagramLink; markerPrefix: string }) {
@@ -133,8 +132,8 @@ function Link({ link, markerPrefix }: { link: DiagramLink; markerPrefix: string 
     <path
       d={link.path}
       fill="none"
-      stroke={STROKE[link.kind]}
-      strokeWidth={1.2}
+      style={{ stroke: STROKE[link.kind] }}
+      strokeWidth={1.5}
       // Async is dashed and replication is dotted, matching the canvas — a diagram
       // that used different conventions than the sheet would teach the wrong thing.
       strokeDasharray={link.kind === 'async' ? '4 3' : link.kind === 'replication' ? '1.5 3' : undefined}

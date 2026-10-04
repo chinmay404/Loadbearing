@@ -77,7 +77,7 @@ export function BlueprintPanel() {
 
             <div className="row wrap" style={{ gap: 3, marginBottom: 6 }}>
               {b.nodes.slice(0, 6).map((n) => (
-                <span className="chip" key={n.key} style={{ fontSize: 10 }} title={n.annotation}>
+                <span className="chip" key={n.key} title={n.annotation}>
                   {NODE_SPEC[n.type]?.label ?? n.type}
                 </span>
               ))}
@@ -105,7 +105,7 @@ export function BlueprintPanel() {
                 </ul>
                 <div className="row wrap" style={{ gap: 3, marginTop: 5 }}>
                   {b.concepts.map((c) => (
-                    <span className="chip" key={c} style={{ fontSize: 10 }}>
+                    <span className="chip" key={c}>
                       {c}
                     </span>
                   ))}
