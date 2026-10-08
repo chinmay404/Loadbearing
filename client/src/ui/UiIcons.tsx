@@ -204,3 +204,12 @@ export const IconMark = ({ size = 20 }: P) => (
     <path d="M3.5 3.5h17v3.6h-6.6v9.8h6.6v3.6h-17v-3.6h6.6V7.1H3.5z" fill="currentColor" />
   </svg>
 );
+
+/** A path with a flag at the end of it. */
+export const IconLearn = ({ size }: P) => (
+  <S size={size}>
+    <path d="M4 19c4 0 4-5 8-5s4-5 8-5" />
+    <circle cx="4" cy="19" r="1.4" />
+    <path d="M18 9V3.5h3.5L20 5l1.5 1.5H18" />
+  </S>
+);

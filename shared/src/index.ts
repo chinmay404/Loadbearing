@@ -26,3 +26,5 @@ export * from './retrieve.js';
 // The repo scanner. Everything under scan/ is a pure function of a file list, so
 // it runs in a Vercel function, in a test, and (if it ever needs to) in a browser.
 export * from './scan/index.js';
+// The course: chapters of short steps on one growing product, judged by the simulator.
+export * from './course/index.js';

@@ -104,7 +104,8 @@ problemRoutes.get('/activity', requireUser, async (c) => {
     if (wasAttempt) seen.attempts += 1;
   };
 
-  for (const d of designs) touch(d.problemId, d.updatedAt, false);
+  // A lesson's canvas is saved like a sheet's, but it is not a problem to go back to.
+  for (const d of designs) if (!d.problemId.startsWith('course:')) touch(d.problemId, d.updatedAt, false);
   for (const a of attempts) touch(a.problemId, a.createdAt, true);
 
   const recent = [...latest.values()].sort((a, b) =>

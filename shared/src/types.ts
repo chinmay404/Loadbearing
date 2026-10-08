@@ -195,6 +195,12 @@ export interface NodeAttrs {
   /** How long a caller waits for this component before giving up, ms. */
   timeoutMs?: number;
   /**
+   * How often a load balancer checks that its backends are alive, seconds. A dead
+   * backend keeps getting its share of traffic until a check notices; after that,
+   * its copies take the load.
+   */
+  healthCheckS?: number;
+  /**
    * Marks this component as where traffic STARTS, at this many requests per
    * second. The slider multiplies it. Without a source, nothing is offered.
    */

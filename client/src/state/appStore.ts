@@ -3,6 +3,8 @@ import type { ChatTurn, Problem, ProblemSummary, ScoreResult, SimResult } from '
 import type { AttackRun } from '../lib/api';
 
 export type View =
+  | 'learn'
+  | 'lesson'
   | 'problems'
   | 'compose'
   | 'workspace'
@@ -103,7 +105,7 @@ interface AppState {
 }
 
 export const useApp = create<AppState>((set) => ({
-  view: 'problems',
+  view: 'learn',
   leftTab: 'brief',
   rightTab: 'feedback',
   problems: [],
@@ -208,7 +210,7 @@ export const useApp = create<AppState>((set) => ({
       ...(houseKey !== undefined ? { houseKey } : {}),
     }),
 
-  signedIn: (username) => set({ username, authChecked: true, view: 'problems', error: null }),
+  signedIn: (username) => set({ username, authChecked: true, view: 'learn', error: null }),
 
   // Signing out clears the work in progress too: the next person at this browser
   // must not inherit the last one's problem, score or drawing.

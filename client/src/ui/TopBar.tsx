@@ -8,6 +8,7 @@ import {
   IconFolder,
   IconGauge,
   IconInstrument,
+  IconLearn,
   IconManual,
   IconMark,
   IconMoon,
@@ -18,6 +19,7 @@ import {
 } from './UiIcons';
 
 const NAV: { view: View; label: string; Icon: (p: { size?: number }) => JSX.Element; also?: View[] }[] = [
+  { view: 'learn', label: 'Learn', Icon: IconLearn, also: ['lesson'] },
   { view: 'problems', label: 'Problems', Icon: IconSheets },
   { view: 'workspace', label: 'Drawing board', Icon: IconDrafting },
   { view: 'compose', label: 'Compose', Icon: IconCompose },
