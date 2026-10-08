@@ -16,6 +16,7 @@ import {
   type StepVerdict,
 } from '@loadbearing/shared';
 import { Canvas } from '../canvas/Canvas';
+import { GoalMark, type GoalState } from '../ui/GoalMark';
 import { NODE_ICONS } from '../canvas/icons';
 import { NODE_SPEC } from '../canvas/nodeCatalog';
 import { api } from '../lib/api';
@@ -40,7 +41,7 @@ export function Lesson() {
   return <LessonFor key={step.id} step={step} />;
 }
 
-type Mark = 'pending' | 'pass' | 'fail';
+type Mark = GoalState;
 
 function LessonFor({ step }: { step: Step }) {
   const setView = useApp((s) => s.setView);
@@ -338,23 +339,7 @@ function LessonFor({ step }: { step: Step }) {
 function Goal({ mark, label, detail }: { mark: Mark; label: string; detail?: string | undefined }) {
   return (
     <div className="goal-row" data-state={mark}>
-      <span className="goal-mark" aria-hidden="true">
-        {mark === 'pass' ? (
-          <svg viewBox="0 0 20 20">
-            <circle cx="10" cy="10" r="9" />
-            <path d="M6 10.4l2.7 2.7L14.2 7.6" />
-          </svg>
-        ) : mark === 'fail' ? (
-          <svg viewBox="0 0 20 20">
-            <circle cx="10" cy="10" r="8.2" />
-            <path d="M7.3 7.3l5.4 5.4M12.7 7.3l-5.4 5.4" />
-          </svg>
-        ) : (
-          <svg viewBox="0 0 20 20">
-            <circle cx="10" cy="10" r="8.2" />
-          </svg>
-        )}
-      </span>
+      <GoalMark state={mark} />
       <span className="goal-label">{label}</span>
       {detail && <span className={`goal-detail mono${detail.length > 14 ? ' long' : ''}`}>{detail}</span>}
     </div>

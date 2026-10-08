@@ -3,6 +3,7 @@ import { DESIGN_CHECKLIST, evaluateAllScenarios, type Problem } from '@loadbeari
 import { useApp } from '../state/appStore';
 import { useCanvas } from '../state/canvasStore';
 import { ArchDiagram } from '../ui/ArchDiagram';
+import { GoalMark, type GoalState } from '../ui/GoalMark';
 
 /**
  * The problem, in the order you need it while drawing: what has to pass, the numbers
@@ -84,22 +85,22 @@ export function BriefPanel() {
           <ul>
             {problem.scenarios.map((s) => {
               const g = gates.get(s.id);
-              const state = !checked || !g ? 'idle' : g.pass ? 'pass' : 'fail';
+              const state: GoalState = !checked || !g ? 'pending' : g.pass ? 'pass' : 'fail';
               const open = openGoal === s.id;
               return (
-                <li key={s.id} className={`goal ${state}${open ? ' open' : ''}`}>
-                  <button className="goal-row" onClick={() => setOpenGoal(open ? null : s.id)} aria-expanded={open}>
-                    <span className="goal-dot" aria-hidden="true" />
-                    <span className="goal-text">
+                <li key={s.id} className={`bgoal ${state}${open ? ' open' : ''}`}>
+                  <button className="bgoal-row" onClick={() => setOpenGoal(open ? null : s.id)} aria-expanded={open}>
+                    <GoalMark state={state} />
+                    <span className="bgoal-text">
                       <b>{s.name}</b>
                       <span>{s.passCriteria}</span>
                     </span>
                   </button>
-                  <div className="goal-more">
+                  <div className="bgoal-more">
                     <div>
                       <p>{s.description}</p>
                       {checked && g && !g.pass && (
-                        <ul className="goal-reasons">
+                        <ul className="bgoal-reasons">
                           {g.reasons
                             .filter((r) => !r.startsWith('PASS'))
                             .slice(0, 3)
@@ -108,7 +109,7 @@ export function BriefPanel() {
                             ))}
                         </ul>
                       )}
-                      <button className="goal-play" onClick={() => playScenario(s)}>
+                      <button className="bgoal-play" onClick={() => playScenario(s)}>
                         ▶ Try it on the canvas
                       </button>
                     </div>

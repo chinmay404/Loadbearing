@@ -405,15 +405,15 @@
   height: 20px;
   display: block;
 }
-.goal-row[data-state='pending'] .goal-mark circle {
+.goal-mark[data-state='pending'] circle {
   fill: none;
   stroke: var(--line-2);
   stroke-width: 1.6;
 }
-.goal-row[data-state='pass'] .goal-mark circle {
+.goal-mark[data-state='pass'] circle {
   fill: var(--pass);
 }
-.goal-row[data-state='pass'] .goal-mark path {
+.goal-mark[data-state='pass'] path {
   fill: none;
   stroke: var(--surface);
   stroke-width: 2;
@@ -428,12 +428,12 @@
     stroke-dashoffset: 0;
   }
 }
-.goal-row[data-state='fail'] .goal-mark circle {
+.goal-mark[data-state='fail'] circle {
   fill: none;
   stroke: var(--fail);
   stroke-width: 1.8;
 }
-.goal-row[data-state='fail'] .goal-mark path {
+.goal-mark[data-state='fail'] path {
   stroke: var(--fail);
   stroke-width: 1.8;
   stroke-linecap: round;
@@ -605,7 +605,7 @@
   .parts-tray {
     animation-name: fade-in !important;
   }
-  .goal-row[data-state='pass'] .goal-mark path {
+  .goal-mark[data-state='pass'] path {
     animation: none;
     stroke-dashoffset: 0;
   }
