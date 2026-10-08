@@ -39,6 +39,42 @@ describe('every step refers to things that exist', () => {
   });
 });
 
+describe('every wire a step starts with can be seen', () => {
+  // A wire drawn behind a part reads as two wires through it, which teaches the
+  // opposite of what is there. Wires leave a part's right side and enter the next
+  // one's left, stepping across halfway, so trace that and keep it off other parts.
+  const W = 220;
+  const H = 110;
+  it.each(steps.map((s) => [s.id, s] as const))('%s', (_id, step) => {
+    const at = new Map(step.start.nodes.map((n) => [n.key, n.at]));
+    for (const e of step.start.edges) {
+      const a = at.get(e.from)!;
+      const b = at.get(e.to)!;
+      const sx = a.x + W;
+      const sy = a.y + H / 2;
+      const tx = b.x;
+      const ty = b.y + H / 2;
+      const mx = (sx + tx) / 2;
+      const segments = [
+        { x1: sx, y1: sy, x2: mx, y2: sy },
+        { x1: mx, y1: sy, x2: mx, y2: ty },
+        { x1: mx, y1: ty, x2: tx, y2: ty },
+      ];
+      for (const n of step.start.nodes) {
+        if (n.key === e.from || n.key === e.to) continue;
+        const hit = segments.some(
+          (s) =>
+            Math.max(s.x1, s.x2) > n.at.x &&
+            Math.min(s.x1, s.x2) < n.at.x + W &&
+            Math.max(s.y1, s.y2) > n.at.y &&
+            Math.min(s.y1, s.y2) < n.at.y + H,
+        );
+        expect(hit, `${e.from} → ${e.to} runs behind ${n.key}`).toBe(false);
+      }
+    }
+  });
+});
+
 describe('the words stay short', () => {
   const sentences = (s: string) => s.split(/(?<=[.!?])\s+/).filter(Boolean).length;
   it.each(steps.map((s) => [s.id, s] as const))('%s', (_id, step) => {
@@ -59,6 +95,15 @@ describe('the judge', () => {
     const all = judgeGate(g, { ...gate, window: 'all' }).result;
     // The same loss spread over more seconds reads smaller.
     expect(parseFloat(all.detail)).toBeLessThan(parseFloat(after.detail));
+  });
+
+  it('does not pass a phone that is wired to nothing', () => {
+    // Parts placed but never connected: nothing is lost because nothing is sent.
+    const step = STEP_BY_ID['p-5']!;
+    const placed = applyPatch(startGraph(step), { add: step.solution.add ?? [] });
+    const verdict = judgeStep(step, placed);
+    expect(verdict.gates.map((g) => g.pass)).toEqual([false, false]);
+    expect(verdict.gates[1]!.detail).toBe('Her phone is not connected');
   });
 
   it('names the part that broke first', () => {

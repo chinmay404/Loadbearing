@@ -54,6 +54,10 @@ export function judgeGate(graph: GraphDSL, gate: Gate): { result: GateResult; ru
   const p99 = ticks.reduce((m, t) => Math.max(m, t.p99Ms), 0);
 
   const checks: { pass: boolean; detail: string }[] = [];
+  // A phone wired to nothing loses nothing only because it asks nothing of anyone.
+  // That is not a working shop, so no traffic goal can pass it.
+  const loose = graph.nodes.find((n) => familyOf(n.type) === 'origin' && !graph.edges.some((e) => e.from === n.id));
+  if (loose) checks.push({ pass: false, detail: `${loose.label} is not connected` });
   if (gate.maxLostPct !== undefined) checks.push({ pass: lostPct <= gate.maxLostPct + 1e-9, detail: `${pct(lostPct)} lost` });
   if (gate.maxP99Ms !== undefined) checks.push({ pass: p99 <= gate.maxP99Ms, detail: `p99 ${Math.round(p99)} ms` });
   if (gate.maxBusy) {

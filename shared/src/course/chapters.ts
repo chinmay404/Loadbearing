@@ -95,7 +95,8 @@ const prologue: Chapter = {
       title: 'The phone talks to the database',
       story: 'To save time, the phone was wired straight to the database. Now every phone holds the database password.',
       task: 'Rewire it so the phone only talks to the app.',
-      start: design('p-3', [phone(5), app({ concurrency: 8, latencyMs: 100 }), db()], [['phone', 'db']]),
+      // The app sits a row down, so the wire running past it to the database can be seen.
+      start: design('p-3', [phone(5), { ...app({ concurrency: 8, latencyMs: 100 }), at: { x: X, y: Y } }, db()], [['phone', 'db']]),
       parts: [],
       budget: 250,
       clears: ['client-direct-to-datastore'],
@@ -130,7 +131,7 @@ const prologue: Chapter = {
       predict: true,
       observe: true,
       budget: 250,
-      gates: [{ id: 'jump', label: '60 req/s', rps: 60, maxLostPct: 1 }],
+      gates: [{ id: 'jump', label: '60 req/s · at most 1% lost', rps: 60, maxLostPct: 1 }],
       hints: {
         question: 'Which part has the fewest workers for how long its requests take?',
         concept: 'The app has 4 workers and each request takes about 100 ms, so it tops out near 40 a second. The database can do far more.',
@@ -142,7 +143,7 @@ const prologue: Chapter = {
       id: 'p-5',
       chapter: 'prologue',
       type: 'checkpoint',
-      title: 'Her phone',
+      title: 'Build it yourself',
       story: 'Your friend wants to use the shop on her phone. Build the whole thing.',
       task: 'Add an app and a database so orders get saved.',
       start: design('p-5', [phone(10)], []),
@@ -211,10 +212,10 @@ const chapter1: Chapter = {
       predict: true,
       observe: true,
       budget: 400,
-      gates: [{ id: 'forum', label: '20 req/s', rps: 20, maxLostPct: 1 }],
+      gates: [{ id: 'forum', label: '20 req/s · at most 1% lost', rps: 20, maxLostPct: 1 }],
       hints: {
         question: 'Which part spends the longest on each request?',
-        concept: 'The app takes 400 ms a page. With 8 workers that is about 20 pages a second, and the forum sends just over that.',
+        concept: 'The app takes 400 ms a page. With 8 workers that is about 20 pages a second, so 20 leaves no room at all.',
       },
       lesson: 'A slow page uses up workers. Twenty a second is already too much for one small box.',
       solution: {},
@@ -286,8 +287,8 @@ const chapter1: Chapter = {
       start: design('1-5', shop(5, 1), shopWires),
       parts: [],
       dials: [
-        { key: 'app', attr: 'vcpu', label: 'App size', unit: 'vCPU', min: 1, max: 8, step: 1 },
-        { key: 'db', attr: 'vcpu', label: 'Database size', unit: 'vCPU', min: 1, max: 8, step: 1 },
+        { key: 'app', attr: 'vcpu', label: 'Size', unit: 'vCPU', min: 1, max: 8, step: 1 },
+        { key: 'db', attr: 'vcpu', label: 'Size', unit: 'vCPU', min: 1, max: 8, step: 1 },
       ],
       budget: 160,
       gates: [
@@ -446,12 +447,12 @@ const chapter2: Chapter = {
       predict: true,
       observe: true,
       budget: 500,
-      gates: [{ id: 'next', label: '120 req/s', rps: 120, maxLostPct: 1 }],
+      gates: [{ id: 'next', label: '120 req/s · at most 1% lost', rps: 120, maxLostPct: 1 }],
       hints: {
         question: 'Two boxes of 2 vCPU each: how many pages a second is that together?',
         concept: 'Each box does about 40 pages a second at 400 ms a page. Two boxes do about 80. The database has plenty of room.',
       },
-      lesson: 'More boxes behind a balancer is how apps grow. Next, the database becomes the wall.',
+      lesson: 'More boxes behind a balancer is how apps grow. Add them until something else fills up.',
       solution: {},
     },
     {
@@ -461,7 +462,8 @@ const chapter2: Chapter = {
       title: 'Deploy at lunch',
       story: 'You ship fixes at lunch, one box at a time. Shoppers should never notice.',
       task: 'Wire in both boxes, tune the health check, and stay under budget.',
-      start: design('2-5', pair(35, { healthCheckS: 30 }), [
+      // The balancer waits below the row, so the wire running past it can be seen.
+      start: design('2-5', pair(35, { healthCheckS: 30 }).map((n) => (n.key === 'lb' ? { ...n, at: { x: X, y: 1.75 * Y } } : n)), [
         ['users', 'a'],
         ['a', 'db'],
         ['b', 'db'],
