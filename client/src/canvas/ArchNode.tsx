@@ -6,6 +6,7 @@ import { useCanvas, type ArchNodeData } from '../state/canvasStore';
 import { usePrefs } from '../ui/prefs';
 import { fmtInt, fmtMs, gaugeModel, statusNote, type GaugeModel, type StatusNote } from './gauge';
 import { FarFace, InstrumentGauge, RackLeds, RackScreen } from './faces';
+import { UserView } from './UserView';
 
 const MARKER_GLYPH: Record<string, string> = {
   spof: '!',
@@ -206,6 +207,11 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
       <Handle type="target" position={Position.Top} id="t" />
       <Handle type="source" position={Position.Right} />
       <Handle type="source" position={Position.Bottom} id="b" />
+
+      {/* What a person on this client sees, while a run is on. */}
+      {running && m.live && !far && (data.archType === 'client' || data.archType === 'mobile_client') && (
+        <UserView nodeId={id} device={data.archType === 'mobile_client' ? 'phone' : 'browser'} />
+      )}
 
       {markup.length > 0 && (
         <div className="markup-pins">
