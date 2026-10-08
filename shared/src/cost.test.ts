@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { costOfNode, costReport, egressByNode, RATES, SECONDS_PER_MONTH } from './cost.js';
+import { LOOKUP_SHARE } from './components.js';
 import type { ArchNodeType, GraphEdge, GraphNode, NodeAttrs } from './types.js';
 
 const node = (id: string, type: ArchNodeType, attrs: NodeAttrs = {}): GraphNode => ({
@@ -219,5 +220,42 @@ describe('data leaving costs money', () => {
       [edge('cdn', 'client', { payloadKb: 1024, placement: 'internet' })],
     );
     expect(report.lines.find((l) => l.nodeId === 'cdn')!.totalUsd).toBe(500);
+  });
+});
+
+describe('name resolution is paid per lookup, not per request', () => {
+  // A browser that resolved the shop's name keeps the answer, and so does the
+  // resolver it asked, for the record's TTL. The authoritative server — the thing on
+  // the invoice — hears about one request in LOOKUP_SHARE of them.
+  it('bills a DNS record for the lookups its traffic causes', () => {
+    // 900 rps is 2.3 billion requests a month and about 2.3 million lookups.
+    const line = costOfNode(node('dns', 'dns'), 900, 1);
+    const lookups = (900 * LOOKUP_SHARE * SECONDS_PER_MONTH) / 1_000_000;
+    expect(line.totalUsd).toBeCloseTo(RATES.dnsZoneMonth + lookups * RATES.dnsPerMillion, 1);
+    expect(line.totalUsd).toBeLessThan(5);
+    expect(line.basis).toContain('lookups');
+  });
+
+  it('bills a geo-steered record at the dearer per-query rate, still per lookup', () => {
+    const plain = costOfNode(node('dns', 'dns'), 26_000, 1);
+    const geo = costOfNode(node('geo', 'geo_router'), 26_000, 2);
+    expect(geo.totalUsd).toBeGreaterThan(plain.totalUsd);
+    expect(geo.totalUsd).toBeLessThan(100);
+  });
+
+  it('still moves with the traffic, because more visitors do mean more lookups', () => {
+    const quiet = costOfNode(node('dns', 'dns'), 10_000, 1);
+    const busy = costOfNode(node('dns', 'dns'), 1_000_000, 1);
+    expect(busy.usageUsd).toBeCloseTo(quiet.usageUsd * 100, 0);
+  });
+
+  it('does not bill the record for bytes that never pass through it', () => {
+    // The client gets an address and talks to the box directly. A payload on the
+    // drawn DNS -> app edge is the app's response, not DNS traffic.
+    const nodes = [node('dns', 'dns'), node('app', 'service')];
+    const edges: GraphEdge[] = [
+      { id: 'e', from: 'dns', to: 'app', kind: 'sync', label: '', payloadKb: 200, placement: 'internet' },
+    ];
+    expect(egressByNode(edges, nodes, new Map([['app', 900]])).get('dns')).toBeUndefined();
   });
 });
