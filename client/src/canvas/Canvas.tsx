@@ -46,6 +46,9 @@ const edgeTypes: EdgeTypes = { arch: ArchEdge };
 const SELECTION_KEYS = ['Control', 'Meta'];
 const MULTI_SELECT_KEYS = ['Shift'];
 
+/** Fitting a bench of one or two parts should not blow them up to fill the screen. */
+const FIT = { padding: 0.2, maxZoom: 1.1 };
+
 /**
  * Which drawn connection passes under a point, in flow coordinates.
  *
@@ -77,9 +80,9 @@ function edgeUnderPoint(p: { x: number; y: number }): string | null {
   return null;
 }
 
-function CanvasInner() {
+function CanvasInner({ lesson = false, children }: CanvasProps) {
   const wrap = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition, setCenter, getZoom } = useReactFlow();
+  const { screenToFlowPosition, setCenter, getZoom, fitView } = useReactFlow();
   const setViewportCenter = useCanvas((s) => s.setViewportCenter);
   const edgeKind = useCanvas((s) => s.edgeKind);
   const toGraph = useCanvas((s) => s.toGraph);
@@ -105,6 +108,18 @@ function CanvasInner() {
   const redo = useCanvas((s) => s.redo);
   const tool = useCanvas((s) => s.tool);
   const setTool = useCanvas((s) => s.setTool);
+
+  // A lesson's last hint puts a suggested part to the right of the drawing, often
+  // past the edge of a small bench. Bring it into view rather than leave it unseen.
+  const ghosts = nodes.filter((n) => n.type === 'arch' && (n.data as { ghost?: unknown }).ghost).length;
+  const ghostsBefore = useRef(ghosts);
+  useEffect(() => {
+    const grew = ghosts > ghostsBefore.current;
+    ghostsBefore.current = ghosts;
+    if (!lesson || !grew) return;
+    const id = requestAnimationFrame(() => void fitView({ ...FIT, duration: 400 }));
+    return () => cancelAnimationFrame(id);
+  }, [ghosts, lesson, fitView]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -350,32 +365,48 @@ function CanvasInner() {
         minZoom={0.2}
         maxZoom={2.2}
         fitView
+        fitViewOptions={FIT}
         proOptions={{ hideAttribution: true }}
       >
         {/* A pegboard: parts sit on it, and it stays out of the way of reading them. */}
         <Background id="peg" variant={BackgroundVariant.Dots} gap={22} size={1.6} />
         <Controls showInteractive={false} position="top-right" />
-        <MiniMap pannable zoomable />
+        {!lesson && <MiniMap pannable zoomable />}
       </ReactFlow>
       <FlowParticles />
-      <MakeRoom />
-      <PenLayer />
-      <CanvasToolbar />
-      <TitleBlock />
-      <SimHud />
-      <AiBar />
-      <EdgeTools />
-      <NodeTools />
-      <PinBar />
-      <QuickAdd />
+      {lesson ? (
+        // A lesson brings its own run button, goals and parts; the drawing board's
+        // instruments would only be more to read.
+        children
+      ) : (
+        <>
+          <MakeRoom />
+          <PenLayer />
+          <CanvasToolbar />
+          <TitleBlock />
+          <SimHud />
+          <AiBar />
+          <EdgeTools />
+          <NodeTools />
+          <PinBar />
+          <QuickAdd />
+        </>
+      )}
     </div>
   );
 }
 
-export function Canvas() {
+interface CanvasProps {
+  /** A course step: no run HUD, no title block, no AI bar — the lesson supplies its own. */
+  lesson?: boolean;
+  /** Overlays a lesson puts on the bench, such as its parts tray. */
+  children?: React.ReactNode;
+}
+
+export function Canvas(props: CanvasProps) {
   return (
     <ReactFlowProvider>
-      <CanvasInner />
+      <CanvasInner {...props} />
     </ReactFlowProvider>
   );
 }

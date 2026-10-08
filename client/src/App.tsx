@@ -30,6 +30,8 @@ import { ProjectWorkspace } from './panels/ProjectWorkspace';
 import { ErrorBoundary } from './ui/ErrorBoundary';
 import { IconBack } from './ui/UiIcons';
 import { TopBar } from './ui/TopBar';
+import { LearnPath } from './course/LearnPath';
+import { Lesson } from './course/Lesson';
 
 export function App() {
   const view = useApp((s) => s.view);
@@ -146,6 +148,8 @@ export function App() {
           </div>
         )}
 
+        {view === 'learn' && <LearnPath />}
+        {view === 'lesson' && <Lesson />}
         {view === 'problems' && <ProblemBrowser />}
         {view === 'compose' && <ComposePanel />}
         {view === 'projects' && <ProjectsPanel />}

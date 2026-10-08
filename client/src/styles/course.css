@@ -1,0 +1,633 @@
+/* ------------------------------------------------------------------ course --
+ * The path and the lesson. Few words, big targets, one thing glowing: the next
+ * step. Cobalt is your progress; green and red only ever mark a goal.
+ */
+
+.learn {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+.learn-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 32px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+.learn-head h1 {
+  margin-top: 12px;
+  max-width: 18ch;
+  text-wrap: balance;
+}
+.learn-head .lede {
+  margin-bottom: 0;
+}
+.learn-cta {
+  display: grid;
+  gap: 8px;
+  min-width: 260px;
+}
+.learn-count {
+  font-size: var(--t-12);
+  color: var(--muted);
+}
+.learn-bar {
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--seg-off);
+  overflow: hidden;
+}
+.learn-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transform-origin: left;
+  transition: transform 600ms var(--ease-out);
+}
+.learn-go {
+  justify-content: center;
+  padding: 11px 16px;
+  font-size: var(--t-14);
+}
+
+.chapters {
+  display: grid;
+  gap: 16px;
+}
+.chapter-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  padding: 20px 22px 18px;
+  animation: rise 300ms var(--ease-out) both;
+}
+.chapter-card:nth-child(2) {
+  animation-delay: 50ms;
+}
+.chapter-card:nth-child(3) {
+  animation-delay: 100ms;
+}
+.chapter-card:nth-child(4) {
+  animation-delay: 150ms;
+}
+.chapter-card.locked {
+  background: var(--surface-2);
+}
+.chapter-card.locked .ch-head h2,
+.chapter-card.locked .ch-head p {
+  color: var(--muted);
+}
+.chapter-card.soon {
+  background: transparent;
+  border-style: dashed;
+}
+.ch-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.ch-head h2 {
+  font-size: var(--t-17);
+  letter-spacing: -0.015em;
+}
+.ch-head p {
+  margin: 2px 0 0;
+  color: var(--fg-2);
+  font-size: var(--t-13);
+}
+.ch-num {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--fg);
+  color: var(--surface);
+  display: grid;
+  place-items: center;
+  font-size: var(--t-14);
+  font-weight: 600;
+  flex: none;
+}
+.chapter-card.locked .ch-num,
+.chapter-card.soon .ch-num {
+  background: var(--surface-3);
+  color: var(--muted);
+}
+.ch-parts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ch-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-12);
+  padding: 3px 9px 3px 6px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--fg-2);
+}
+.ch-done {
+  font-size: var(--t-12);
+  color: var(--muted);
+  padding-top: 8px;
+}
+
+/* The track: dots joined by a line, a label under each. */
+.ch-steps {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 8px;
+  position: relative;
+}
+.ch-steps::before {
+  content: '';
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: 17px;
+  height: 2px;
+  background: var(--line);
+  border-radius: 2px;
+}
+.st button {
+  position: relative;
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 0 4px 6px;
+  background: none;
+  border: 0;
+  text-align: center;
+  color: var(--fg);
+}
+@media (hover: hover) and (pointer: fine) {
+  .st button:hover:not(:disabled) {
+    background: none;
+  }
+  .st button:hover:not(:disabled) .st-dot {
+    transform: scale(1.06);
+  }
+}
+.st button:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.st-dot {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  border: 2px solid var(--line-2);
+  color: var(--fg-2);
+  font-size: var(--t-13);
+  font-weight: 600;
+  transition: transform 180ms var(--ease-out);
+}
+.st-done .st-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.st-next .st-dot {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.st-next .st-dot::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  opacity: 0;
+  animation: ping 2.4s var(--ease-out) infinite;
+}
+@keyframes ping {
+  0% {
+    opacity: 0.4;
+    transform: scale(0.9);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.15);
+  }
+}
+.st-locked .st-dot {
+  border-style: dashed;
+  color: var(--faint);
+}
+.st-text {
+  display: grid;
+  gap: 1px;
+}
+.st-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-wrap: balance;
+}
+.st-locked .st-name {
+  color: var(--muted);
+  font-weight: 500;
+}
+.st-kind {
+  font-size: 11px;
+  color: var(--muted);
+}
+@media (max-width: 760px) {
+  .ch-steps {
+    grid-auto-flow: row;
+  }
+  .ch-steps::before {
+    display: none;
+  }
+  .st button {
+    grid-template-columns: 36px 1fr;
+    justify-items: start;
+    text-align: left;
+    align-items: center;
+  }
+}
+
+/* ------------------------------------------------------------------ lesson -- */
+
+.lesson-shell {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  height: 100%;
+  min-height: 0;
+}
+@media (max-width: 1100px) {
+  .lesson-shell {
+    grid-template-columns: 330px 1fr;
+  }
+}
+.lesson-card {
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  padding: 18px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lesson-card > * {
+  flex-shrink: 0;
+}
+.lesson-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 -8px;
+}
+.lesson-where {
+  font-size: var(--t-12);
+  color: var(--muted);
+}
+.lesson-pips {
+  display: flex;
+  gap: 4px;
+}
+.lesson-pips i {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--seg-off);
+}
+.lesson-pips i.done {
+  background: var(--accent);
+}
+.lesson-pips i.cur {
+  background: var(--accent-line);
+}
+.lesson-kind {
+  align-self: flex-start;
+  margin-top: 6px;
+}
+.lesson-card h1 {
+  font-size: 26px;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  margin-top: -4px;
+  text-wrap: balance;
+}
+.lesson-story {
+  margin: -4px 0 0;
+  font-size: var(--t-15);
+  line-height: 1.55;
+  color: var(--fg-2);
+  text-wrap: pretty;
+}
+.lesson-task {
+  margin: 0;
+  font-size: var(--t-14);
+  font-weight: 600;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  color: var(--fg);
+  border: 1px solid var(--accent-line);
+}
+
+.dial {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  margin: 0;
+}
+.dial::first-letter {
+  text-transform: none;
+}
+.dial-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--t-13);
+  color: var(--fg-2);
+}
+.dial-top b {
+  color: var(--fg);
+  font-size: var(--t-14);
+}
+
+.guess {
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  border: 1.5px dashed var(--line-2);
+  font-size: var(--t-13);
+  color: var(--muted);
+  display: grid;
+  gap: 2px;
+}
+.guess.set {
+  border-style: solid;
+  border-color: var(--accent-line);
+  color: var(--fg-2);
+}
+.guess b {
+  color: var(--fg);
+}
+
+.goals-list {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 4px 14px;
+}
+.goal-row {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+  font-size: var(--t-13);
+}
+.goal-row:first-child {
+  border-top: 0;
+}
+.goal-mark svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+.goal-row[data-state='pending'] .goal-mark circle {
+  fill: none;
+  stroke: var(--line-2);
+  stroke-width: 1.6;
+}
+.goal-row[data-state='pass'] .goal-mark circle {
+  fill: var(--pass);
+}
+.goal-row[data-state='pass'] .goal-mark path {
+  fill: none;
+  stroke: var(--surface);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 14;
+  stroke-dashoffset: 14;
+  animation: tick 320ms var(--ease-out) 80ms forwards;
+}
+@keyframes tick {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.goal-row[data-state='fail'] .goal-mark circle {
+  fill: none;
+  stroke: var(--fail);
+  stroke-width: 1.8;
+}
+.goal-row[data-state='fail'] .goal-mark path {
+  stroke: var(--fail);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+.goal-row[data-state='pass'],
+.goal-row[data-state='fail'] {
+  animation: goal-in 260ms var(--ease-out) both;
+}
+.goal-row:nth-child(2) {
+  animation-delay: 70ms;
+}
+.goal-row:nth-child(3) {
+  animation-delay: 140ms;
+}
+.goal-row:nth-child(4) {
+  animation-delay: 210ms;
+}
+@keyframes goal-in {
+  from {
+    opacity: 0.4;
+    transform: translateX(-3px);
+  }
+}
+.goal-detail {
+  font-size: var(--t-12);
+  color: var(--muted);
+}
+.goal-row[data-state='pass'] .goal-detail {
+  color: var(--pass);
+}
+.goal-row[data-state='fail'] .goal-detail {
+  color: var(--fail);
+}
+
+.lesson-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.lesson-run {
+  flex: 1;
+  justify-content: center;
+  padding: 11px 14px;
+  font-size: var(--t-14);
+}
+.hint-box {
+  border-radius: var(--r-lg);
+  background: var(--load-soft);
+  border: 1px solid var(--load-line);
+  padding: 12px 14px;
+  font-size: var(--t-13);
+  line-height: 1.55;
+  animation: rise 240ms var(--ease-out);
+}
+.hint-box p {
+  margin: 0;
+}
+.hint-box p + p {
+  margin-top: 8px;
+}
+.lesson-nudge {
+  margin: 0;
+  font-size: var(--t-13);
+  color: var(--fg-2);
+}
+
+.pass-card {
+  border-radius: var(--r-lg);
+  border: 1px solid var(--pass-line);
+  background: linear-gradient(var(--pass-soft), var(--surface) 80%);
+  padding: 14px 16px 16px;
+  display: grid;
+  gap: 10px;
+  animation: pass-in 360ms var(--ease-out);
+}
+@keyframes pass-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+.pass-card p {
+  margin: 0;
+  font-size: var(--t-14);
+  line-height: 1.55;
+}
+.pass-card .primary {
+  justify-content: center;
+}
+.pass-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--t-15);
+}
+.pass-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: var(--pass);
+  color: var(--surface);
+  display: grid;
+  place-items: center;
+}
+
+.lesson-bench {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.parts-tray {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px;
+  border-radius: var(--r-xl);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-float);
+  animation: tray-in 320ms var(--ease-out);
+}
+@keyframes tray-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+}
+.parts-label {
+  font-size: var(--t-12);
+  color: var(--muted);
+  padding: 0 8px 0 6px;
+}
+.part-btn {
+  border-color: transparent;
+  background: transparent;
+  padding: 6px 12px 6px 6px;
+  border-radius: 12px;
+  font-size: var(--t-13);
+}
+@media (hover: hover) and (pointer: fine) {
+  .part-btn:hover:not(:disabled) {
+    background: var(--surface-2);
+    border-color: var(--line);
+  }
+}
+.part-ico {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .st-next .st-dot::after {
+    display: none;
+  }
+  .chapter-card,
+  .pass-card,
+  .hint-box,
+  .parts-tray {
+    animation-name: fade-in !important;
+  }
+  .goal-row[data-state='pass'] .goal-mark path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+/* A sentence of detail ("nothing reaches the database") reads under its goal;
+   squeezed beside it, both would wrap into a column of single words. */
+.goal-detail.long {
+  grid-column: 2 / -1;
+  margin-top: -6px;
+}
+
+/* On a phone the words go on top and the bench gets the rest of the screen
+   below them; side by side, the bench would be a strip too thin to wire in. */
+@media (max-width: 760px) {
+  .lesson-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(420px, 1fr);
+    overflow-y: auto;
+  }
+  .lesson-card {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    overflow-y: visible;
+  }
+}

@@ -166,6 +166,10 @@ export interface PlaybookEntryView {
   because?: string[];
 }
 
+export interface CourseProgress {
+  steps: Record<string, { passedAt: string; hints: number }>;
+}
+
 export const api = {
   health: () =>
     req<{
@@ -384,6 +388,14 @@ export const api = {
     req<{ ok: true }>(`/designs/${encodeURIComponent(problemId)}`, {
       method: 'PUT',
       body: JSON.stringify(doc),
+    }),
+  /** Which course steps this account has passed. */
+  courseProgress: () => req<CourseProgress>('/course/progress'),
+  /** Record a pass. The server re-judges the design and refuses one that does not pass. */
+  passStep: (stepId: string, graph: GraphDSL, hints: number) =>
+    req<{ ok: true; progress: CourseProgress }>(`/course/steps/${encodeURIComponent(stepId)}/pass`, {
+      method: 'POST',
+      body: JSON.stringify({ graph, hints }),
     }),
 
   exportAttempt: (attemptId: number, format: 'review' | 'adr' = 'review') =>
