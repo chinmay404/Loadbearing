@@ -15,6 +15,7 @@ import {
   steadyScenario,
   type Scenario,
 } from './engine.js';
+import { LOOKUP_SHARE } from './components.js';
 import type { ArchNodeType, EdgeKind, GraphDSL, GraphEdge, GraphNode, NodeAttrs } from './types.js';
 
 const node = (id: string, type: ArchNodeType, attrs: NodeAttrs = {}): GraphNode => ({
@@ -1327,5 +1328,25 @@ describe('one request can become many calls', () => {
     const lastTick = last(runEngine(g, scenario()).ticks);
     // 0.75^80 is effectively zero: almost no document gets all its chunks embedded.
     expect(lastTick.successRate).toBeLessThan(0.01);
+  });
+});
+
+describe('name resolution is off the hot path once answered', () => {
+  it('loads a DNS record with lookups, not with every request behind it', () => {
+    // A record sized for 500 lookups a second fronting 2,000 rps is not saturated:
+    // the answer is cached, so it hears about one request in LOOKUP_SHARE.
+    const g = graph(
+      [
+        node('shoppers', 'client', { trafficRps: 2000 }),
+        node('dns', 'dns', { capacityRps: 500 }),
+        node('app', 'service', { capacityRps: 5000 }),
+      ],
+      [edge('shoppers', 'dns'), edge('dns', 'app')],
+    );
+    const result = runEngine(g, scenario());
+    const dns = hop(result, 'dns');
+    expect(dns.droppedRps).toBe(0);
+    expect(dns.utilization).toBeCloseTo((2000 * LOOKUP_SHARE) / 500, 3);
+    expect(hop(result, 'app').servedRps).toBeCloseTo(2000, 0);
   });
 });

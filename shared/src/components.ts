@@ -513,3 +513,38 @@ export const SHEDDING_TYPES: ReadonlySet<ArchNodeType> = new Set<ArchNodeType>([
   'budget_guard',
   'guardrail',
 ]);
+
+/**
+ * Components that hand back an address and are then out of the way: an authoritative
+ * DNS record, and a geo-steering record (GeoDNS, latency-based routing) that picks
+ * which address to hand back.
+ *
+ * A diagram draws them on the request path, and the engine routes every request
+ * through them so that the path reads left to right. But a browser that resolved the
+ * shop's name keeps the answer, and so does the shared resolver it asked, for the
+ * record's TTL. Billing and loading them per request priced a one-VM shop's A record
+ * at $1,400 a month — the dearest thing in the design, and a lesson that is backwards.
+ */
+export const RESOLVE_ONCE_TYPES: ReadonlySet<ArchNodeType> = new Set<ArchNodeType>([
+  'dns',
+  'geo_router',
+]);
+
+/**
+ * The fraction of requests through a resolve-once component that reach it as a lookup.
+ *
+ *   lookups/s = requests/s x LOOKUP_SHARE
+ *
+ * One in a thousand, as an order of magnitude rather than a measurement: a page view
+ * fans out into dozens of requests (the page, its images, its API calls) on one cached
+ * answer, and a shared recursive resolver answers hundreds of visitors from a single
+ * lookup per TTL. The real ratio depends on TTL, on how many resolvers your audience
+ * sits behind and on how long a visit lasts; what it does not depend on is the request
+ * rate, which is why the old per-request model was wrong by orders of magnitude.
+ */
+export const LOOKUP_SHARE = 0.001;
+
+/** Of the requests drawn through this component, the share it actually hears about. */
+export function lookupShare(type: ArchNodeType): number {
+  return RESOLVE_ONCE_TYPES.has(type) ? LOOKUP_SHARE : 1;
+}

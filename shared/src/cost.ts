@@ -14,6 +14,7 @@
 // magnitude for a major cloud in 2026 and are not a quote; anyone who knows their real
 // invoice can override a component outright.
 
+import { LOOKUP_SHARE, RESOLVE_ONCE_TYPES } from './components.js';
 import { familyOf, type Family } from './families.js';
 import { inferPlacement, type Placement } from './network.js';
 import type { GraphEdge, GraphNode } from './types.js';
@@ -36,6 +37,12 @@ export const RATES = {
   messagingPerMillion: 0.4,
   /** Per million requests through a managed router. */
   routingPerMillion: 0.6,
+  /** A hosted DNS zone, the flat part, before any lookups. */
+  dnsZoneMonth: 0.5,
+  /** Per million lookups that reach an authoritative DNS server. */
+  dnsPerMillion: 0.4,
+  /** Per million lookups answered by geo or latency steering, which is sold dearer. */
+  geoDnsPerMillion: 0.7,
   /** Managed datastores carry an operator premium over raw compute. */
   managedDatastoreMultiplier: 1.35,
 } as const;
@@ -173,6 +180,32 @@ export function costOfNode(
     };
   }
 
+  // Name resolution is billed per LOOKUP, and a lookup is answered once per TTL per
+  // resolver, not once per request:
+  //
+  //   lookups/month = served rps x LOOKUP_SHARE x seconds in a month
+  //   cost          = zone fee + lookups/month / 1M x per-million rate
+  //
+  // The 900 rps a one-VM shop pushes past its A record is 2.3 billion requests a
+  // month and about 2.3 million lookups, which is a dollar or two — not the $1,400 a
+  // router's per-request rate made it. One zone however many replicas are drawn,
+  // because the provider runs the name servers, not you.
+  if (RESOLVE_ONCE_TYPES.has(node.type)) {
+    const perMillion = node.type === 'geo_router' ? RATES.geoDnsPerMillion : RATES.dnsPerMillion;
+    const lookups = millions * LOOKUP_SHARE;
+    fixed = RATES.dnsZoneMonth;
+    usage = lookups * perMillion;
+    return {
+      nodeId: node.id,
+      label,
+      fixedUsd: round(fixed),
+      usageUsd: round(usage),
+      totalUsd: round(fixed + usage),
+      basis: `$${RATES.dnsZoneMonth}/month for the zone plus ${round(lookups)}M lookups at $${perMillion} per million — answers are cached, so about 1 request in ${Math.round(1 / LOOKUP_SHARE)} becomes a lookup`,
+      overridden: false,
+    };
+  }
+
   switch (family) {
     case 'compute': {
       // An elastic endpoint is billed for what you call, not for what you run.
@@ -302,6 +335,9 @@ export function egressByNode(
     const from = byId.get(e.from);
     const to = byId.get(e.to);
     if (!from || !to) continue;
+    // A resolver hands back an address and the client talks to it directly, so
+    // the bytes on a connection drawn out of one never pass through it.
+    if (RESOLVE_ONCE_TYPES.has(from.type)) continue;
 
     const rps = (served.get(e.to) ?? 0) / Math.max(1, inboundCount.get(e.to) ?? 1);
     if (rps <= 0) continue;

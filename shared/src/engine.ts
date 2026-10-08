@@ -31,6 +31,7 @@ import {
   SHEDDING_TYPES,
   WARN_UTILIZATION,
   canSubstitute,
+  lookupShare,
 } from './components.js';
 import { distributionOf, familyOf, PASSIVE_FAMILIES, type Family } from './families.js';
 import {
@@ -1276,7 +1277,11 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         if (typeof ov.latencyMultiple === 'number') serviceMs *= Math.max(0, ov.latencyMultiple);
       }
 
-      const perReplica = perReplicaCapacity(node, serviceMs) * capacityMultiple;
+      // A resolve-once component's capacity is in lookups, and it hears about one
+      // request in LOOKUP_SHARE — the rest were answered from a cache. Expressed as
+      // the requests it can front, so the traffic still reads straight through it.
+      const perReplica =
+        (perReplicaCapacity(node, serviceMs) * capacityMultiple) / lookupShare(node.type);
       const replicas = scaledReplicas.get(node.id) ?? 1;
       const passive = PASSIVE_FAMILIES.has(family);
       // Elastic means somebody else's capacity, so the only thing that can stop it is
