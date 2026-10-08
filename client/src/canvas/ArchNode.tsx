@@ -71,6 +71,7 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
   const running = useCanvas((s) => s.simRunning);
   const outDegree = useCanvas((s) => s.edges.reduce((c, e) => c + (e.source === id ? 1 : 0), 0));
   const skin = usePrefs((s) => s.nodeSkin);
+  const dropTarget = useCanvas((s) => s.dropTargetId === id);
   // A boolean selector: nodes re-render when the zoom crosses the line, not on every wheel tick.
   const far = useStore((s) => s.transform[2] < FAR_ZOOM);
 
@@ -87,9 +88,9 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
       <>
         <NodeResizer minWidth={180} minHeight={120} isVisible={selected} color="var(--plum)" />
         {data.attrs?.sharedHost ? (
-          <MachineFrame id={id} data={data} killed={killed} />
+          <MachineFrame id={id} data={data} killed={killed} dropTarget={dropTarget} />
         ) : (
-        <div className="group-node" style={{ width: '100%', height: '100%' }}>
+        <div className={`group-node${dropTarget ? ' drop-target' : ''}`} data-drop={dropTarget ? `Drop into ${data.label}` : undefined} style={{ width: '100%', height: '100%' }}>
           <div className="glabel">
             {editing ? (
               <input
@@ -310,8 +311,9 @@ function StatusTip({ note, health, children }: { note: StatusNote; health: Gauge
  * A machine: a frame whose contents run on it. Its header says how big it is and how
  * much of it is in use, and the light explains who is using it.
  */
-function MachineFrame({ id, data, killed }: { id: string; data: ArchNodeData; killed: boolean }) {
+function MachineFrame({ id, data, killed, dropTarget }: { id: string; data: ArchNodeData; killed: boolean; dropTarget: boolean }) {
   const host = useCanvas((s) => s.simResult?.hosts?.find((h) => h.hostId === id));
+  const empty = useCanvas((s) => !s.nodes.some((n) => n.parentId === id));
   const labels = useCanvas((s) => s.nodes);
   const Icon = NODE_ICONS.vm;
   const a = data.attrs ?? {};
@@ -344,7 +346,12 @@ function MachineFrame({ id, data, killed }: { id: string; data: ArchNodeData; ki
           };
 
   return (
-    <div className="group-node machine" data-health={health} style={{ width: '100%', height: '100%' }}>
+    <div
+      className={`group-node machine${dropTarget ? ' drop-target' : ''}`}
+      data-health={health}
+      data-drop={dropTarget ? `Drop to run on ${data.label}` : undefined}
+      style={{ width: '100%', height: '100%' }}
+    >
       <div className="m-head">
         <span className="m-tile">
           <Icon size={15} />
@@ -360,6 +367,12 @@ function MachineFrame({ id, data, killed }: { id: string; data: ArchNodeData; ki
       <div className="m-bar" aria-hidden="true">
         <i style={{ ['--fill' as string]: String(Math.min(1, share)) } as CSSProperties} />
       </div>
+      {empty && !dropTarget && (
+        <p className="m-empty">
+          Drag parts in here.
+          <span>They share this machine’s CPU, and go down with it.</span>
+        </p>
+      )}
     </div>
   );
 }

@@ -1249,3 +1249,60 @@
   transform: scaleX(var(--fill, 0));
   transition: transform 280ms var(--ease-out), background-color var(--d-small) ease;
 }
+
+/* Where a dragged part would land: the frame lights up and says what dropping does. */
+.group-node.drop-target {
+  border-color: var(--accent);
+  border-style: solid;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+.group-node.drop-target::after {
+  content: attr(data-drop);
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  padding: 4px 11px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font: 600 12px / 1.4 var(--font);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: drop-tag 180ms var(--ease-out) both;
+}
+@keyframes drop-tag {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 4px);
+  }
+}
+.m-empty {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 3px;
+  margin: 0;
+  padding: 10px;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--fg-2);
+  text-align: center;
+  pointer-events: none;
+}
+.m-empty span {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .group-node.drop-target::after {
+    animation: none;
+  }
+}

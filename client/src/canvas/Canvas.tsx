@@ -309,8 +309,13 @@ function CanvasInner({ lesson = false, children }: CanvasProps) {
       const moved = nodes.filter((n) => n.selected).map((n) => n.id);
       const { attached, detached } = reparent(moved.length > 0 ? moved : [node.id]);
       if (attached > 0) {
+        const all = useCanvas.getState().nodes;
+        const parent = all.find((n) => n.id === all.find((x) => x.id === node.id)?.parentId);
+        const pdata = parent?.data as { label?: string; attrs?: { sharedHost?: boolean } } | undefined;
         setNotice(
-          `Now inside that boundary — moving the boundary moves ${attached === 1 ? 'it' : 'them'} too.`,
+          pdata?.attrs?.sharedHost
+            ? `${(node.data as { label?: string }).label ?? 'It'} now runs on ${pdata.label ?? 'that machine'}: it shares its CPU and goes down with it.`
+            : `Now inside that boundary — moving the boundary moves ${attached === 1 ? 'it' : 'them'} too.`,
         );
       } else if (detached > 0) {
         setNotice('Taken out of the boundary.');
@@ -337,6 +342,19 @@ function CanvasInner({ lesson = false, children }: CanvasProps) {
     [edges, nodes, reparent, spliceNodeIntoEdge, setNotice],
   );
 
+  // While dragging, light up the boundary the part would drop into.
+  const previewDrop = useCanvas((s) => s.previewDrop);
+  const onNodeDrag = useCallback(
+    (_e: unknown, node: Node) => {
+      const moved = useCanvas
+        .getState()
+        .nodes.filter((n) => n.selected)
+        .map((n) => n.id);
+      previewDrop(moved.length > 0 ? moved : [node.id]);
+    },
+    [previewDrop],
+  );
+
   const onPaneClick = useCallback(
     (e: React.MouseEvent) => {
       if (tool !== 'sticky') return;
@@ -360,6 +378,7 @@ function CanvasInner({ lesson = false, children }: CanvasProps) {
         onReconnect={onReconnect}
         onReconnectStart={onReconnectStart}
         onReconnectEnd={onReconnectEnd}
+        onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
         onEdgeDoubleClick={(_e, edge) => setEdgeInsertTarget(edge.id)}
         onDrop={onDrop}

@@ -253,6 +253,38 @@ describe('boundaries', () => {
     expect(node(svc)!.position).toEqual({ x: 50, y: 50 });
   });
 
+  it('grows to fit a component that hangs out of it', () => {
+    // Centre inside, so it is adopted — but half of it was over the frame's edge,
+    // which reads as "not in there" even though it is.
+    const group = place('group', 100, 100);
+    resize(group, 300, 220);
+    const db = place('sql_db', 250, 150);
+    measure(db, 216, 300);
+    store().reparentDroppedNodes([db]);
+    expect(node(db)!.parentId).toBe(group);
+    const box = sizeOf(node(group)!);
+    expect(box.w).toBeGreaterThanOrEqual(150 + 216);
+    expect(box.h).toBeGreaterThanOrEqual(50 + 300);
+  });
+
+  it('says which boundary a dragged component would land in, before it is dropped', () => {
+    const group = place('group', 100, 100);
+    resize(group, 300, 220);
+    const svc = place('service', 900, 900);
+    measure(svc, 168, 64);
+    store().previewDrop([svc]);
+    expect(store().dropTargetId).toBeNull();
+
+    useCanvas.setState((s) => ({
+      nodes: s.nodes.map((n) => (n.id === svc ? { ...n, position: { x: 150, y: 150 } } : n)),
+    }));
+    store().previewDrop([svc]);
+    expect(store().dropTargetId).toBe(group);
+
+    store().reparentDroppedNodes([svc]);
+    expect(store().dropTargetId).toBeNull();
+  });
+
   it('releases a component dragged out of it', () => {
     const group = place('group', 100, 100);
     resize(group, 300, 220);

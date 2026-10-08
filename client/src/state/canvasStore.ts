@@ -159,6 +159,9 @@ interface CanvasState extends Snapshot {
    * dropped. Once inside, moving the boundary moves everything in it.
    */
   reparentDroppedNodes: (ids: string[]) => { attached: number; detached: number };
+  /** The boundary a drag in progress would drop into, so its frame can light up. */
+  dropTargetId: string | null;
+  previewDrop: (ids: string[]) => void;
   /** Set while the component picker is being used to fill a gap in an edge. */
   edgeInsertTarget: string | null;
   setEdgeInsertTarget: (edgeId: string | null) => void;
@@ -377,6 +380,39 @@ function groupContaining(
   return best;
 }
 
+/** Room given to a part pulled in over a boundary's edge; the top clears a machine's header. */
+const FIT_PAD = { side: 20, top: 52 };
+
+/**
+ * A component adopted by a boundary but hanging over its edge reads as "not in
+ * there". Pull it inside the frame's padding and grow the frame (right and down,
+ * so nothing else moves) until it fits.
+ */
+function growToFit(nodes: AnyNode[], ids: string[]): AnyNode[] {
+  let out = nodes;
+  for (const id of ids) {
+    const child = out.find((n) => n.id === id);
+    if (!child?.parentId) continue;
+    const parent = out.find((n) => n.id === child.parentId);
+    if (!parent) continue;
+    const { w, h } = sizeOf(child);
+    // Only a part hanging over the top or left edge moves; one already inside stays put.
+    const pos = {
+      x: child.position.x < 0 ? FIT_PAD.side : child.position.x,
+      y: child.position.y < 0 ? FIT_PAD.top : child.position.y,
+    };
+    const box = sizeOf(parent);
+    const width = Math.max(box.w, pos.x + w + FIT_PAD.side);
+    const height = Math.max(box.h, pos.y + h + FIT_PAD.side);
+    out = out.map((n) => {
+      if (n.id === child.id && (pos.x !== n.position.x || pos.y !== n.position.y)) return { ...n, position: pos } as AnyNode;
+      if (n.id === parent.id && (width !== box.w || height !== box.h)) return { ...n, width, height } as AnyNode;
+      return n;
+    });
+  }
+  return out;
+}
+
 /** Every descendant of a node, so a boundary is never dropped inside itself. */
 function descendantIds(all: AnyNode[], rootId: string): Set<string> {
   const out = new Set<string>([rootId]);
@@ -458,6 +494,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   aiAccepted: [],
   viewportCenter: { x: 300, y: 200 },
   focusNodeId: null,
+  dropTargetId: null,
   past: [],
   future: [],
   dirty: false,
@@ -604,7 +641,13 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       // A boundary starts at a usable size instead of collapsing to its label.
       // These are the fields a resize writes, so dragging the handle replaces them
       // rather than leaving a stale `style` behind.
-      ...(type === 'group' ? { width: 300, height: 220, zIndex: GROUP_Z } : {}),
+      // A machine starts with room for three or four parts; dropping one into a box
+      // barely bigger than itself left it hanging over the edge.
+      ...(type === 'group'
+        ? overrides?.attrs?.sharedHost
+          ? { width: 560, height: 400, zIndex: GROUP_Z }
+          : { width: 300, height: 220, zIndex: GROUP_Z }
+        : {}),
       data: {
         archType: type,
         label: overrides?.label ?? spec.label,
@@ -928,15 +971,34 @@ export const useCanvas = create<CanvasState>((set, get) => ({
             : n,
         );
       }
-      if (attached === 0 && detached === 0) return {};
+      if (attached === 0 && detached === 0) return { dropTargetId: null };
       return {
         past: [...s.past.slice(-49), snap(s)],
         future: [],
-        nodes: orderForParents(nodes),
+        nodes: orderForParents(growToFit(nodes, ids)),
         dirty: true,
+        dropTargetId: null,
       };
     });
     return { attached, detached };
+  },
+
+  previewDrop: (ids) => {
+    const s = get();
+    let target: string | null = null;
+    for (const id of ids) {
+      const node = s.nodes.find((n) => n.id === id);
+      if (!node) continue;
+      const at = absolutePosition(node, s.nodes);
+      const { w, h } = sizeOf(node);
+      const hit = groupContaining(s.nodes, { x: at.x + w / 2, y: at.y + h / 2 }, descendantIds(s.nodes, id));
+      // Only worth lighting up when the drop would change something.
+      if (hit && hit.id !== node.parentId) {
+        target = hit.id;
+        break;
+      }
+    }
+    if (target !== s.dropTargetId) set({ dropTargetId: target });
   },
 
   makeRoom: () =>
