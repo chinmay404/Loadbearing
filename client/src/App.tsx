@@ -23,6 +23,7 @@ import { NoteLibrary } from './panels/NoteLibrary';
 import { NotesPanel } from './panels/NotesPanel';
 import { Panes } from './ui/Panes';
 import { CommandPalette } from './ui/CommandPalette';
+import { BootLoader } from './ui/BootLoader';
 import { SignInPanel } from './panels/SignInPanel';
 import { ProjectsPanel } from './panels/ProjectsPanel';
 import { ProjectPanel } from './panels/ProjectPanel';
@@ -111,13 +112,7 @@ export function App() {
   if (!username) {
     return (
       <div className="gate">
-        {authChecked ? (
-          <SignInPanel />
-        ) : (
-          <p className="gate-connecting" style={{ gridColumn: '1 / -1' }}>
-            Connecting…
-          </p>
-        )}
+        {authChecked ? <SignInPanel /> : <BootLoader />}
       </div>
     );
   }

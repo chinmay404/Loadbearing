@@ -26,6 +26,7 @@ import type {
   CandidateFlow,
   TraceSummary,
 } from '@loadbearing/shared';
+import { trackLoading } from '../ui/loading';
 
 export class ApiError extends Error {
   constructor(
@@ -49,7 +50,23 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
   onUnauthorized = fn;
 }
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
+/**
+ * Requests nobody is waiting on: the health ping every fifteen seconds and the
+ * autosave after every edit. Showing the loading bar for those would make it flicker
+ * constantly and stop meaning anything.
+ */
+function isBackground(path: string, init?: RequestInit): boolean {
+  if (path === '/health') return true;
+  const method = (init?.method ?? 'GET').toUpperCase();
+  return method === 'PUT' && (path.startsWith('/designs/') || path.startsWith('/canvases/'));
+}
+
+function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const work = send<T>(path, init);
+  return isBackground(path, init) ? work : trackLoading(work);
+}
+
+async function send<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {

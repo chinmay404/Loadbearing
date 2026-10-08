@@ -17,9 +17,131 @@
         document.documentElement.dataset.theme = t;
       })();
     </script>
+    <!--
+      The boot screen. It lives here, not in the bundle, because it is what shows
+      while the bundle downloads. React reuses the same classes for its own
+      "connecting" state (ui/BootLoader.tsx), so the two are one animation.
+    -->
+    <style>
+      :root {
+        --boot-bg: #eeeee9;
+        --boot-surface: #ffffff;
+        --boot-fg: #121211;
+        --boot-muted: #6b6b65;
+        --boot-line: #d4d3ca;
+        --boot-accent: #3047f0;
+      }
+      :root[data-theme='dark'] {
+        --boot-bg: #111215;
+        --boot-surface: #15161a;
+        --boot-fg: #ededef;
+        --boot-muted: #9294a0;
+        --boot-line: #30323a;
+        --boot-accent: #8c9dff;
+      }
+      .boot {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 14px;
+        background: var(--boot-bg);
+        color: var(--boot-fg);
+        font-family: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+        animation: boot-in 320ms ease 160ms both;
+      }
+      .boot-rig {
+        position: relative;
+        display: flex;
+        align-items: center;
+      }
+      .boot-rig .bp {
+        width: 20px;
+        height: 20px;
+        border-radius: 6px;
+        border: 1.5px solid var(--boot-line);
+        background: var(--boot-surface);
+        box-sizing: border-box;
+        animation: boot-lit 1.8s ease-in-out infinite;
+      }
+      .boot-rig .bp:nth-of-type(2) { animation-name: boot-lit-2; }
+      .boot-rig .bp:nth-of-type(3) { animation-name: boot-lit-3; }
+      .boot-rig .bw {
+        width: 38px;
+        height: 1.5px;
+        background: var(--boot-line);
+      }
+      .boot-rig .bd {
+        position: absolute;
+        left: 0;
+        top: 50%;
+        width: 6px;
+        height: 6px;
+        margin: -3px 0 0 -3px;
+        border-radius: 50%;
+        background: var(--boot-accent);
+        box-shadow: 0 0 10px var(--boot-accent);
+        animation: boot-dot 1.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+      }
+      .boot-word {
+        margin: 6px 0 0;
+        font-size: 15px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+      }
+      .boot-sub {
+        position: relative;
+        margin: 0;
+        height: 18px;
+        width: 320px;
+        font-size: 12.5px;
+        color: var(--boot-muted);
+        text-align: center;
+      }
+      .boot-sub span {
+        position: absolute;
+        inset: 0;
+        animation: boot-swap 400ms ease 4s both reverse;
+      }
+      .boot-sub span + span {
+        animation-direction: normal;
+      }
+      @keyframes boot-in { from { opacity: 0; } }
+      @keyframes boot-dot {
+        0% { transform: translateX(10px); }
+        100% { transform: translateX(126px); }
+      }
+      @keyframes boot-lit {
+        0%, 14% { border-color: var(--boot-accent); }
+        30%, 100% { border-color: var(--boot-line); }
+      }
+      @keyframes boot-lit-2 {
+        0%, 36% { border-color: var(--boot-line); }
+        48%, 58% { border-color: var(--boot-accent); }
+        74%, 100% { border-color: var(--boot-line); }
+      }
+      @keyframes boot-lit-3 {
+        0%, 80% { border-color: var(--boot-line); }
+        94%, 100% { border-color: var(--boot-accent); }
+      }
+      @keyframes boot-swap { from { opacity: 0; transform: translateY(4px); } }
+      @media (prefers-reduced-motion: reduce) {
+        .boot, .boot-rig .bp, .boot-rig .bd { animation: none; }
+        .boot-rig .bd { display: none; }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot" role="status" aria-label="Loading Loadbearing">
+        <div class="boot-rig" aria-hidden="true">
+          <i class="bp"></i><i class="bw"></i><i class="bp"></i><i class="bw"></i><i class="bp"></i><b class="bd"></b>
+        </div>
+        <p class="boot-word">Loadbearing</p>
+        <p class="boot-sub"><span>Warming up the bench…</span><span>Still waking the server. The first visit of the day takes a few seconds.</span></p>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
