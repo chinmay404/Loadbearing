@@ -112,7 +112,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         keywords: 'traffic simulate test',
         run: () => setSimRunning(!simRunning),
       },
-      tab('palette', 'components'),
+      // A problem sheet keeps its parts on the right, beside the brief; a project view on the left.
+      problem ? rightTab('parts', 'components') : tab('palette', 'components'),
       tab('flows', 'flows'),
       tab('inspect', 'inspector'),
       tab('checks', 'checks'),
@@ -187,6 +188,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     selectAll,
     unlockAll,
     setNotice,
+    problem,
   ]);
 
   const results = useMemo(() => {

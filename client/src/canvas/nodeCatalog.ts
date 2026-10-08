@@ -923,3 +923,14 @@ if (CATALOG.length !== ARCH_NODE_TYPES.length) {
     `NODE_CATALOG has ${CATALOG.length} entries but ARCH_NODE_TYPES has ${ARCH_NODE_TYPES.length}`,
   );
 }
+
+/**
+ * A machine is a boundary declared a shared host: the parts dropped inside it run on
+ * its CPU and its bill, and losing it loses all of them. It is the honest way to draw
+ * "the app, the images and Postgres all on one VM".
+ */
+export const MACHINE_PRESET = {
+  label: 'Machine',
+  hint: 'One server. Drop parts inside it and they share its CPU and its bill — and go down together when it does.',
+  attrs: { sharedHost: true, vcpu: 4, memoryGb: 16 },
+} as const;

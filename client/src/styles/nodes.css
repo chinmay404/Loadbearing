@@ -1072,3 +1072,180 @@
 .react-flow__node.selected > .group-handle {
   opacity: 1;
 }
+
+/* -------------------------------------------------------------- status tip --
+ * Hover (or focus) the light to read why it is that colour. The node is lifted
+ * above its neighbours while the card is open so the card is never underneath one.
+ */
+.n-status {
+  position: relative;
+  align-self: flex-start;
+  display: grid;
+  place-items: center;
+  padding: 6px;
+  margin: -2px -6px -6px;
+  border-radius: var(--r-sm);
+  cursor: help;
+  outline: none;
+}
+.n-status .n-led {
+  margin-top: 0;
+}
+.r-panel > .n-status {
+  align-self: stretch;
+  margin: 0;
+  padding: 0 2px;
+}
+.n-status:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-line);
+}
+.n-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: -6px;
+  width: 236px;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px 11px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  color: var(--fg-2);
+  font: 400 12px / 1.45 var(--font);
+  text-align: left;
+  white-space: normal;
+  cursor: default;
+  pointer-events: none;
+  opacity: 0;
+  /* Counter the canvas zoom, so the card reads the same at 60% as at 150%. */
+  --tip-scale: calc(1 / var(--zoom, 1));
+  transform: translateY(4px) scale(calc(var(--tip-scale) * 0.97));
+  transform-origin: bottom right;
+  transition:
+    opacity 120ms ease,
+    transform 120ms var(--ease-out);
+}
+.n-tip b {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+}
+.n-tip b::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--h);
+}
+.n-tip em {
+  font-style: normal;
+  color: var(--fg);
+  padding-top: 6px;
+  margin-top: 2px;
+  border-top: 1px solid var(--line);
+}
+.n-status:hover .n-tip,
+.n-status:focus-visible .n-tip {
+  opacity: 1;
+  transform: scale(var(--tip-scale));
+  transition:
+    opacity 180ms ease 120ms,
+    transform 180ms var(--ease-out) 120ms;
+}
+.react-flow__node:has(.n-status:hover),
+.react-flow__node:has(.n-status:focus-visible) {
+  z-index: 1000 !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .n-tip {
+    transform: scale(var(--tip-scale));
+  }
+}
+
+/* ---------------------------------------------------------------- machine --
+ * A frame the parts inside run on. Solid rather than dashed: it is a real thing
+ * with a CPU and a bill, not a line drawn round an idea.
+ */
+.group-node.machine {
+  --h: var(--faint);
+  border: 1.5px solid var(--module-edge);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  box-shadow: var(--shadow-raised);
+  display: flex;
+  flex-direction: column;
+}
+.group-node.machine[data-health='pass'] {
+  --h: var(--pass);
+}
+.group-node.machine[data-health='load'] {
+  --h: var(--load);
+  border-color: color-mix(in srgb, var(--load) 55%, var(--module-edge));
+}
+.group-node.machine[data-health='fail'] {
+  --h: var(--fail);
+  border-color: color-mix(in srgb, var(--fail) 65%, var(--module-edge));
+}
+.group-node.machine[data-health='down'] {
+  opacity: 0.55;
+  filter: grayscale(1);
+}
+.m-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 6px;
+  font-size: var(--t-12);
+}
+.m-tile {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  flex: none;
+}
+.m-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.m-size,
+.m-pct {
+  font: 500 11px / 1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.m-pct {
+  color: var(--fg);
+}
+.m-head .grow {
+  flex: 1;
+}
+.m-head .n-status {
+  align-self: center;
+  margin: -6px;
+}
+.m-bar {
+  height: 4px;
+  margin: 0 10px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.m-bar i {
+  display: block;
+  height: 100%;
+  background: var(--h);
+  transform-origin: left;
+  transform: scaleX(var(--fill, 0));
+  transition: transform 280ms var(--ease-out), background-color var(--d-small) ease;
+}

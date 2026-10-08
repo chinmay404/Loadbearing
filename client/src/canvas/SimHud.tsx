@@ -3,7 +3,7 @@ import { simulate } from '@loadbearing/shared';
 import { useCanvas } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
 import { api, ApiError } from '../lib/api';
-import { IconPlay, IconStop } from '../ui/UiIcons';
+import { IconStop } from '../ui/UiIcons';
 import { TimelineStrip } from './TimelineStrip';
 
 /**
@@ -63,28 +63,8 @@ export function SimHud() {
     return () => window.clearTimeout(timer.current);
   }, [running, run, nodes, edges, flows, setSimResult]);
 
-  if (!running) {
-    // No longer gated on declaring a flow. Traffic starts at whatever is marked as a
-    // source — or, failing that, at whatever nothing points into — and follows the
-    // connections that were actually drawn, so there is always something to run.
-    const archNodes = nodes.filter((n) => n.type === 'arch');
-    return (
-      <div className="toolbar" style={{ left: 'auto', right: 12, top: 10, transform: 'none' }}>
-        <button
-          onClick={() => setRunning(true)}
-          disabled={archNodes.length === 0}
-          title="Push traffic from the entry points through the connections you drew"
-        >
-          <IconPlay size={13} /> Run load
-        </button>
-        {archNodes.length === 0 && (
-          <span className="stencil" style={{ alignSelf: 'center', padding: '0 6px' }}>
-            draw something first
-          </span>
-        )}
-      </div>
-    );
-  }
+  // Idle, the corner carries Run load beside the bill (CostMeter.tsx).
+  if (!running) return null;
 
   const worst = result?.flows.reduce(
     (acc, f) => (acc === null || f.p99Ms > acc.p99Ms ? f : acc),
@@ -153,23 +133,6 @@ export function SimHud() {
                 <b style={{ color: worst.p99Ms > 1000 ? 'var(--load)' : undefined }}>{Math.round(worst.p99Ms)}ms</b>
               </div>
             )}
-            {/* Provisioned and per-request shown apart, because they respond to
-                different decisions: sizing moves one, the load slider moves the other. */}
-            <div
-              className="readout"
-              title={result.cost.lines
-                .filter((l) => l.totalUsd > 0)
-                .sort((a, b) => b.totalUsd - a.totalUsd)
-                .slice(0, 8)
-                .map((l) => `${l.label}: $${Math.round(l.totalUsd)} — ${l.basis}`)
-                .join('\n')}
-            >
-              <span className="stencil">cost</span>
-              <b>${Math.round(result.cost.totalUsd)}/mo</b>
-              <span className="stencil">
-                ${Math.round(result.cost.fixedUsd)} run · ${Math.round(result.cost.usageUsd)} traffic
-              </span>
-            </div>
           </>
         )}
 

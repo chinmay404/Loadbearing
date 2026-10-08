@@ -735,8 +735,23 @@ export interface SimTimeline {
   recoveredAtS: number | null;
 }
 
+/**
+ * A machine several components run on. Slots are concurrent requests in flight
+ * (vCPU × requests per vCPU × replicas); each member uses arrivals × holding time.
+ */
+export interface SimHostResult {
+  hostId: string;
+  /** What the machine can hold at once; null when nobody sized it. */
+  slots: number | null;
+  used: number;
+  down: boolean;
+  members: { nodeId: string; used: number }[];
+}
+
 export interface SimResult {
   nodes: SimNodeResult[];
+  /** Shared machines at the worst moment. Absent on results stored before this existed. */
+  hosts?: SimHostResult[];
   flows: SimFlowResult[];
   bottleneckNodeId: string | null;
   totalDroppedRps: number;

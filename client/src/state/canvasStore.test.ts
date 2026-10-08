@@ -201,6 +201,31 @@ describe('reshaping a connection', () => {
     expect(reloaded.points).toEqual([{ x: 300, y: 90 }]);
   });
 
+  it('round-trips what the simulator reads on a connection', () => {
+    // Saved, then dropped on reload: four queries per page became one after a refresh.
+    const { edgeId } = connect();
+    store().setEdgeAttrs(edgeId, { share: 4, retries: 2, payloadKb: 12 });
+    store().loadProblem('test', store().toDoc());
+    const edge = store().toGraph().edges[0]!;
+    expect(edge.share).toBe(4);
+    expect(edge.retries).toBe(2);
+    expect(edge.payloadKb).toBe(12);
+  });
+
+  it('carries calls per request from a blueprint onto the canvas', () => {
+    store().insertBlueprint({
+      name: 'x',
+      summary: '',
+      nodes: [
+        { key: 'a', type: 'service', label: 'A', at: { x: 0, y: 0 }, annotation: '' },
+        { key: 'b', type: 'sql_db', label: 'B', at: { x: 300, y: 0 }, annotation: '' },
+      ],
+      edges: [{ from: 'a', to: 'b', kind: 'sync', share: 4 }],
+      flows: [],
+    } as never);
+    expect(store().toGraph().edges[0]!.share).toBe(4);
+  });
+
   it('keeps geometry out of what the grader is shown', () => {
     const { edgeId } = connect();
     store().setEdgeShape(edgeId, 'curved');

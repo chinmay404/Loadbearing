@@ -31,6 +31,8 @@ export interface BlueprintEdge {
   to: string;
   kind: EdgeKind;
   label?: string;
+  /** Calls per request down this connection (a service) or its share (a router). */
+  share?: number;
 }
 
 export interface BlueprintFlow {

@@ -101,6 +101,7 @@ export function docFromBlueprint(source: BlueprintLike): CanvasDoc {
       to: id(e.to),
       kind: e.kind,
       label: e.label ?? '',
+      ...(e.share !== undefined ? { share: e.share } : {}),
     })),
     stickies: [],
     strokes: [],

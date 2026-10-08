@@ -40,13 +40,14 @@ import {
   TAIL_MULTIPLE_IDLE,
 } from './queueing.js';
 import { inferPlacement, rttMs } from './network.js';
-import { admit, shareOut, slotsNeeded } from './pools.js';
+import { shareOut, slotsNeeded } from './pools.js';
 import type {
   ArchNodeType,
   GraphDSL,
   GraphEdge,
   GraphNode,
   NodeState,
+  SimHostResult,
 } from './types.js';
 
 // ------------------------------------------------------------------ inputs ---
@@ -240,9 +241,14 @@ export interface EngineResult {
   cycleNodeIds: string[];
   /** Which shared pool each component runs on, by node id. Empty when nothing shares. */
   hostedBy: Record<string, string>;
+  /** How full each shared machine was at the worst moment, and who was using it. */
+  hosts: HostState[];
   findings: string[];
   assumptions: string[];
 }
+
+/** A machine several components run on — see SimHostResult. */
+export type HostState = SimHostResult;
 
 // --------------------------------------------------------------- constants ---
 
@@ -1238,7 +1244,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
 
   const ticks: TickState[] = [];
   const failures = new Map<string, Failure>();
-  let worstTick: { score: number; states: HopState[] } | null = null;
+  let worstTick: { score: number; states: HopState[]; hosts: HostState[] } | null = null;
   let finalStates: HopState[] = [];
   let peakOffered = 0;
   let peakRetry = 1;
@@ -1257,8 +1263,10 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
 
     for (const node of prep.nodes) {
       const family = familyOf(node.type);
+      // A machine going away takes everything running on it.
+      const hostId = prep.hostOf.get(node.id)?.id;
       const down = (scenario.outages ?? []).some(
-        (o) => o.nodeId === node.id && activeAt(t, o.atS, o.forS),
+        (o) => (o.nodeId === node.id || o.nodeId === hostId) && activeAt(t, o.atS, o.forS),
       );
 
       let serviceMs = serviceMsOf(node);
@@ -1542,9 +1550,11 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         const r = runtime.get(node.id)!;
         const ceiling = r.node.attrs?.maxConnections ?? r.node.attrs?.poolSize;
         if (typeof ceiling !== 'number' || ceiling <= 0 || r.down) continue;
-        const needed = slotsNeeded({ arrivingRps: r.arriving, occupancyMs: r.occupancyMs });
-        const { admittedRps } = admit(r.arriving, needed, ceiling);
-        r.capacity = Math.min(r.capacity, admittedRps);
+        // What the ceiling sustains (Little's law turned round), not what it admitted
+        // this round: clamping to admitted made every part with a stated limit read
+        // as exactly full, red at 1% of its connections.
+        if (r.occupancyMs <= 0) continue;
+        r.capacity = Math.min(r.capacity, ceiling * (1000 / r.occupancyMs));
       }
 
       // Serve what arrived, shed the rest, and remember how badly each failed so
@@ -1752,7 +1762,9 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
       0,
     );
     const score = (1 - successRate) * 1_000_000 + stress * 1_000 + p99;
-    if (!worstTick || score > worstTick.score) worstTick = { score, states };
+    if (!worstTick || score > worstTick.score) {
+      worstTick = { score, states, hosts: hostStates(prep, runtime, scaledReplicas, scenario, t) };
+    }
     finalStates = states;
   }
 
@@ -1782,9 +1794,38 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
     retryAmplification: round(peakRetry, 3),
     cycleNodeIds: prep.cycleNodeIds,
     hostedBy: Object.fromEntries([...prep.hostOf].map(([child, host]) => [child, host.id])),
+    hosts: worstTick?.hosts ?? [],
     findings: [],
     assumptions: assumptionsFor(prep, scenario),
   };
+}
+
+function hostStates(
+  prep: Prepared,
+  runtime: Map<string, NodeRuntime>,
+  scaledReplicas: Map<string, number>,
+  scenario: Scenario,
+  t: number,
+): HostState[] {
+  const out: HostState[] = [];
+  for (const [hostId, memberIds] of prep.hosted) {
+    const host = prep.hostOf.get(memberIds[0] ?? '');
+    if (!host) continue;
+    const supply = hostSlots(host, scaledReplicas.get(hostId));
+    const members = memberIds.map((id) => {
+      const r = runtime.get(id);
+      const used = r && !r.down ? slotsNeeded({ arrivingRps: r.arriving, occupancyMs: r.occupancyMs }) : 0;
+      return { nodeId: id, used: round(used, 2) };
+    });
+    out.push({
+      hostId,
+      slots: Number.isFinite(supply) ? round(supply, 2) : null,
+      used: round(members.reduce((sum, m) => sum + m.used, 0), 2),
+      down: (scenario.outages ?? []).some((o) => o.nodeId === hostId && activeAt(t, o.atS, o.forS)),
+      members,
+    });
+  }
+  return out;
 }
 
 function reasonFor(r: NodeRuntime): string {

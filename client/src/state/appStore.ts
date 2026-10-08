@@ -13,7 +13,7 @@ export type View =
   | 'reference'
   | 'settings';
 export type LeftTab = 'brief' | 'palette' | 'flows' | 'inspect' | 'checks' | 'code' | 'notes';
-export type RightTab = 'feedback' | 'ask' | 'attack' | 'history';
+export type RightTab = 'parts' | 'feedback' | 'ask' | 'attack' | 'history';
 
 interface AppState {
   view: View;
@@ -144,7 +144,8 @@ export const useApp = create<AppState>((set) => ({
       canvasId: null,
       view: 'workspace',
       leftTab: 'brief',
-      rightTab: 'feedback',
+      // The brief on the left and the parts on the right: you read the problem while you build.
+      rightTab: 'parts',
       round: 1,
       activeTwist: null,
       score: null,

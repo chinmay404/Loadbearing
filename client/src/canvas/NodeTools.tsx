@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react';
-import { paramsFor, type ParamSpec } from '@loadbearing/shared';
-import type { ArchNodeType, NodeAttrs } from '@loadbearing/shared';
+import {
+  GROUP_LABEL,
+  GROUP_ORDER,
+  defaultFor,
+  paramsFor,
+  placeholderFor,
+  type ArchNodeType,
+  type NodeAttrs,
+  type ParamGroup,
+  type ParamSpec,
+} from '@loadbearing/shared';
 import { api, ApiError } from '../lib/api';
 import { useApp } from '../state/appStore';
 import { useCanvas } from '../state/canvasStore';
-import { NODE_SPEC } from './nodeCatalog';
+import { MACHINE_PRESET, NODE_SPEC } from './nodeCatalog';
+import { NODE_ICONS } from './icons';
+import { gaugeModel, statusNote } from './gauge';
 
 /**
  * The selected component, editable in place: name, reasoning, and the numbers the
@@ -12,9 +23,10 @@ import { NODE_SPEC } from './nodeCatalog';
  * you make constantly — renaming a box, writing why it is there, changing a
  * replica count — should not require crossing the workspace to a different panel.
  *
- * Stacking sits here too, and matters more than on a general-purpose canvas:
- * boundaries are large rectangles drawn behind their contents, so once one is
- * nested in another the stacking order decides which one catches a click.
+ * It reads top to bottom as: what this is, how it is doing, why you put it here,
+ * and the few numbers that size it. Everything else is folded under More settings,
+ * and every setting is named in words with its unit and the real default shown —
+ * a grid of "In flight / Their limit / $ / M calls" boxes told nobody anything.
  */
 export function NodeTools() {
   const nodes = useCanvas((s) => s.nodes);
@@ -22,6 +34,9 @@ export function NodeTools() {
   const setLocked = useCanvas((s) => s.setLocked);
   const updateNodeData = useCanvas((s) => s.updateNodeData);
   const updateNodeAttrs = useCanvas((s) => s.updateNodeAttrs);
+  const deselectAll = useCanvas((s) => s.deselectAll);
+  const simResult = useCanvas((s) => s.simResult);
+  const killedIds = useCanvas((s) => s.simConfig.killNodeIds);
 
   const chosen = nodes.filter((n) => n.selected);
   const single = chosen.length === 1 && chosen[0]!.type === 'arch' ? chosen[0]! : null;
@@ -38,101 +53,98 @@ export function NodeTools() {
 
   const allLocked = chosen.every((n) => n.draggable === false);
   const spec = archData ? NODE_SPEC[archData.archType] : null;
+  const isMachine = !!archData?.attrs.sharedHost;
   // Same schema as the inspector, so a component offers the same knobs in both places.
   const fields = archData ? paramsFor(archData.archType) : [];
+  const main = fields.filter((f) => MAIN_GROUPS.includes(f.group));
+  const more = fields.filter((f) => !MAIN_GROUPS.includes(f.group));
+  const moreSet = archData ? more.filter((f) => archData.attrs[f.key] !== undefined).length : 0;
+  const Icon = archData ? NODE_ICONS[isMachine ? 'vm' : archData.archType] : null;
+
+  const sim = single ? simResult?.nodes.find((n) => n.nodeId === single.id) : undefined;
+  const model =
+    archData && single && sim
+      ? gaugeModel({ type: archData.archType, attrs: archData.attrs, sim, killed: killedIds.includes(single.id), outDegree: 0 })
+      : null;
+  const status = model && archData ? statusNote(model, sim, archData.attrs) : null;
+  const setAttr = (key: ParamSpec['key'], v: number | boolean | undefined) =>
+    single && updateNodeAttrs(single.id, { [key]: v } as NodeAttrs);
 
   return (
-    <div
-      className="card"
-      style={{
-        position: 'absolute',
-        left: 12,
-        bottom: single ? 12 : 132,
-        zIndex: 13,
-        padding: '7px 9px',
-        width: 340,
-        display: 'grid',
-        gap: 6,
-        maxHeight: '58vh',
-        overflowY: 'auto',
-      }}
-    >
+    <div className="part-sheet">
       {single && archData ? (
         <>
-          <div className="row" style={{ alignItems: 'baseline' }}>
-            <span className="stencil grow">{archData.archType.replace(/_/g, ' ')}</span>
-            {allLocked && <span className="chip">pinned</span>}
+          <div className="ps-head">
+            <span className="ps-tile">{Icon && <Icon size={17} />}</span>
+            <div className="ps-title">
+              <input
+                className="ps-name"
+                aria-label="Name"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                onBlur={() => updateNodeData(single.id, { label: label.trim() || 'Untitled' })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                }}
+              />
+              <span className="ps-kind">
+                {isMachine ? 'machine' : (spec?.label ?? archData.archType.replace(/_/g, ' '))}
+                {allLocked && ' · pinned'}
+              </span>
+            </div>
+            <button className="ps-close" onClick={deselectAll} aria-label="Close" title="Close">
+              ×
+            </button>
           </div>
 
-          <div>
-            <label>Name</label>
-            <input
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              onBlur={() => updateNodeData(single.id, { label: label.trim() || 'Untitled' })}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-              }}
-            />
-          </div>
+          {spec && <p className="ps-what">{firstSentence(isMachine ? MACHINE_PRESET.hint : spec.hint)}</p>}
 
-          <div>
-            <label>Why it is here — the mechanism that matters</label>
-            <textarea
-              rows={3}
-              value={annotation}
-              onChange={(e) => setAnnotation(e.target.value)}
-              onBlur={() => updateNodeData(single.id, { annotation })}
-              placeholder={spec?.hint ?? 'What this does, and what breaks without it.'}
-            />
-          </div>
-
-          {fields.length > 0 && (
-            <div className="row wrap" style={{ gap: 4 }}>
-              {fields.map((spec) => (
-                <AttrField
-                  key={spec.key}
-                  spec={spec}
-                  value={archData.attrs[spec.key]}
-                  onChange={(v) => updateNodeAttrs(single.id, { [spec.key]: v } as NodeAttrs)}
-                />
-              ))}
+          {status && model && (
+            <div className="ps-status" data-health={model.health}>
+              <b>{status.title}</b>
+              <span>{status.body}</span>
+              {status.limit && <em>{status.limit}</em>}
             </div>
           )}
 
-          <SaveAsObject
-            name={label}
-            baseType={archData.archType}
-            note={annotation}
-            attrs={archData.attrs}
+          <label className="ps-label" htmlFor="ps-why">
+            Why it is here
+          </label>
+          <textarea
+            id="ps-why"
+            className="ps-why"
+            rows={2}
+            value={annotation}
+            onChange={(e) => setAnnotation(e.target.value)}
+            onBlur={() => updateNodeData(single.id, { annotation })}
+            placeholder="What it does here, and what breaks without it."
           />
+
+          {main.length > 0 && <FieldGroups specs={main} type={archData.archType} attrs={archData.attrs} onChange={setAttr} />}
+
+          {more.length > 0 && (
+            <details className="ps-more">
+              <summary>
+                More settings
+                <span>{moreSet > 0 ? `${moreSet} changed` : more.length}</span>
+              </summary>
+              <FieldGroups specs={more} type={archData.archType} attrs={archData.attrs} onChange={setAttr} />
+            </details>
+          )}
         </>
       ) : (
-        <div style={{ fontSize: 12 }}>
-          <strong>{chosen.length} selected</strong>
-          {allLocked && (
-            <span className="chip" style={{ marginLeft: 5 }}>
-              pinned
-            </span>
-          )}
+        <div className="ps-head">
+          <div className="ps-title">
+            <strong>{chosen.length} selected</strong>
+            {allLocked && <span className="ps-kind">pinned</span>}
+          </div>
+          <button className="ps-close" onClick={deselectAll} aria-label="Close" title="Close">
+            ×
+          </button>
         </div>
       )}
 
-      <div className="row wrap" style={{ gap: 3 }}>
-        <span className="stencil">order</span>
-        <button title="Bring to front (Ctrl+Shift+])" onClick={() => restack('front')}>
-          front
-        </button>
-        <button title="Bring forward (Ctrl+])" onClick={() => restack('forward')}>
-          forward
-        </button>
-        <button title="Send backward (Ctrl+[)" onClick={() => restack('backward')}>
-          backward
-        </button>
-        <button title="Send to back (Ctrl+Shift+[)" onClick={() => restack('back')}>
-          back
-        </button>
-        <span className="grow" />
+      <div className="ps-foot">
         <button
           className={allLocked ? 'on' : ''}
           title="Pinned components cannot be dragged or deleted (L)"
@@ -140,75 +152,127 @@ export function NodeTools() {
         >
           {allLocked ? 'Unpin' : 'Pin'}
         </button>
+        <span className="ps-order" role="group" aria-label="Stacking order">
+          <button title="Send to back (Ctrl+Shift+[)" aria-label="Send to back" onClick={() => restack('back')}>
+            ⤓
+          </button>
+          <button title="Send backward (Ctrl+[)" aria-label="Send backward" onClick={() => restack('backward')}>
+            ↓
+          </button>
+          <button title="Bring forward (Ctrl+])" aria-label="Bring forward" onClick={() => restack('forward')}>
+            ↑
+          </button>
+          <button title="Bring to front (Ctrl+Shift+])" aria-label="Bring to front" onClick={() => restack('front')}>
+            ⤒
+          </button>
+        </span>
+        <span className="grow" />
+        {single && archData && (
+          <SaveAsObject name={label} baseType={archData.archType} note={annotation} attrs={archData.attrs} />
+        )}
       </div>
     </div>
   );
 }
 
-/**
- * Short forms for the cramped on-canvas panel, where the inspector's full sentence
- * does not fit. Anything without one falls back to the shared label rather than to the
- * raw key, which is what briefly turned this panel into a list reading AUTOSCALEMIN and
- * TIMEOUTMS.
- */
-const SHORT: Partial<Record<keyof NodeAttrs, string>> = {
-  capacityRps: 'rps / instance',
-  replicas: 'instances',
-  latencyMs: 'latency ms',
-  cacheHitRate: 'hit rate',
-  queueDepthMax: 'max depth',
-  multiAz: 'multi-AZ',
-  monthlyCost: '$ / month',
-  autoscaleMin: 'scale from',
-  autoscaleMax: 'scale to',
-  concurrency: 'in flight',
-  timeoutMs: 'timeout ms',
-  trafficRps: 'starts at rps',
-  vcpu: 'vCPU',
-  memoryGb: 'memory GB',
-  storageGb: 'storage GB',
-  shards: 'shards',
-  rateLimitRps: 'their limit',
-  pricePerMillion: '$ / M calls',
-  tokensPerRequest: 'tokens / req',
-  pricePer1kTokens: '$ / 1k tok',
-  elastic: 'hosted',
-  sharedHost: 'shared pool',
-};
+/** Sizing first; how it behaves, failure and money are a click away. */
+const MAIN_GROUPS: ParamGroup[] = ['traffic', 'size', 'scaling'];
 
+function firstSentence(s: string): string {
+  const i = s.search(/[.!?](\s|$)/);
+  return i > 0 ? s.slice(0, i + 1) : s;
+}
+
+function FieldGroups({
+  specs,
+  type,
+  attrs,
+  onChange,
+}: {
+  specs: ParamSpec[];
+  type: ArchNodeType;
+  attrs: NodeAttrs;
+  onChange: (key: ParamSpec['key'], v: number | boolean | undefined) => void;
+}) {
+  return (
+    <>
+      {GROUP_ORDER.filter((g) => specs.some((s) => s.group === g)).map((g) => (
+        <section className="ps-group" key={g}>
+          <h6>{GROUP_LABEL[g]}</h6>
+          {specs
+            .filter((s) => s.group === g)
+            .map((s) => (
+              <AttrField key={s.key} spec={s} type={type} attrs={attrs} onChange={(v) => onChange(s.key, v)} />
+            ))}
+        </section>
+      ))}
+    </>
+  );
+}
+
+/**
+ * One setting as a row: its plain name, the value (blank shows the real default the
+ * engine will use), and its unit. What it means appears under it while you edit it,
+ * not in a tooltip nobody finds.
+ */
 function AttrField({
   spec,
-  value,
+  type,
+  attrs,
   onChange,
 }: {
   spec: ParamSpec;
-  value: number | boolean | undefined;
-  onChange: (v: number | boolean) => void;
+  type: ArchNodeType;
+  attrs: NodeAttrs;
+  onChange: (v: number | boolean | undefined) => void;
 }) {
-  const label = SHORT[spec.key] ?? spec.label;
+  const id = `ps-${spec.key}`;
+  const value = attrs[spec.key];
   if (spec.kind === 'toggle') {
     return (
-      <button className={value ? 'on' : ''} onClick={() => onChange(!value)} title={spec.hint}>
-        {label}
-      </button>
+      <div className="ps-row">
+        <label htmlFor={id}>{spec.label}</label>
+        <button
+          id={id}
+          role="switch"
+          aria-checked={!!value}
+          className={`ps-switch${value ? ' on' : ''}`}
+          onClick={() => onChange(!value)}
+        >
+          <i />
+        </button>
+        <p className="ps-hint">{spec.hint}</p>
+      </div>
     );
   }
+  // Fractions are edited as percentages: "hit rate 85%" is how people say it.
+  const fraction = spec.kind === 'fraction';
+  const fallback = defaultFor(type, spec.key, attrs);
+  const placeholder =
+    fraction && typeof fallback === 'number' ? String(Math.round(fallback * 100)) : placeholderFor(type, spec.key, attrs);
+  const shown = typeof value === 'number' ? (fraction ? Math.round(value * 100) : value) : '';
   return (
-    <span style={{ display: 'inline-grid', gap: 1 }} title={spec.hint}>
-      <label>{label}</label>
-      <input
-        type="number"
-        value={value === undefined ? '' : Number(value)}
-        min={spec.min ?? 0}
-        step={spec.step ?? (spec.kind === 'fraction' ? 0.05 : 1)}
-        placeholder="default"
-        onChange={(e) => {
-          const n = Number(e.target.value);
-          if (Number.isFinite(n)) onChange(n);
-        }}
-        style={{ width: 78, padding: '2px 4px', fontSize: 11 }}
-      />
-    </span>
+    <div className="ps-row">
+      <label htmlFor={id}>{spec.label}</label>
+      <span className="ps-input">
+        <input
+          id={id}
+          type="number"
+          value={shown}
+          min={fraction ? 0 : (spec.min ?? 0)}
+          max={fraction ? 100 : spec.max}
+          step={fraction ? 1 : (spec.step ?? 1)}
+          placeholder={placeholder}
+          onChange={(e) => {
+            if (e.target.value === '') return onChange(undefined);
+            const n = Number(e.target.value);
+            if (Number.isFinite(n)) onChange(fraction ? n / 100 : n);
+          }}
+        />
+        {(fraction || spec.unit) && <span className="ps-unit">{fraction ? '%' : spec.unit}</span>}
+      </span>
+      <p className="ps-hint">{spec.hint}</p>
+    </div>
   );
 }
 
@@ -252,7 +316,7 @@ function SaveAsObject({
           .finally(() => setBusy(false));
       }}
     >
-      {busy ? <span className="spinner" /> : null} Save as my own object
+      {busy ? <span className="spinner" /> : null} Save as my type
     </button>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CustomObject } from '@loadbearing/shared';
-import { CATEGORY_ORDER, NODE_CATALOG, NODE_SPEC } from './nodeCatalog';
+import { CATEGORY_ORDER, MACHINE_PRESET, NODE_CATALOG, NODE_SPEC } from './nodeCatalog';
 import { api } from '../lib/api';
 import { useApp } from '../state/appStore';
 import { NODE_ICONS } from './icons';
@@ -55,6 +55,7 @@ export function Palette() {
           <div className="palette-group" key={cat}>
             <h5>{cat}</h5>
             <div className="palette-items">
+              {cat === 'Compute' && !q.trim() && <MachineItem />}
               {items.map((spec) => {
                 const Icon = NODE_ICONS[spec.type];
                 return (
@@ -89,13 +90,45 @@ export function Palette() {
         );
       })}
       <p className="faint" style={{ fontSize: 11, marginTop: 12 }}>
-        Click to place a component, or drag it where you want it. Double-click a node to rename,
-        double-click its body to explain your reasoning — the grader reads annotations. Drag from a
-        node's edge handle to another node to connect them — boundaries have handles too, so one
-        group can connect to another.
+        Click or drag to place. Drag between handles to connect.
       </p>
       </>
       )}
+    </div>
+  );
+}
+
+/** A machine: a boundary the parts inside it run on. */
+function MachineItem() {
+  const addAtCenter = useCanvas((s) => s.addArchNodeAtCenter);
+  const Icon = NODE_ICONS.vm;
+  const place = () => addAtCenter('group', { label: MACHINE_PRESET.label, attrs: { ...MACHINE_PRESET.attrs } });
+  return (
+    <div
+      className="palette-item"
+      title={`${MACHINE_PRESET.hint}
+
+Click to place, or drag onto the canvas.`}
+      role="button"
+      tabIndex={0}
+      onClick={place}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          place();
+        }
+      }}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('application/loadbearing-node', 'group');
+        e.dataTransfer.setData('application/loadbearing-preset', 'machine');
+        e.dataTransfer.effectAllowed = 'move';
+      }}
+    >
+      <span className="ico">
+        <Icon size={15} />
+      </span>
+      <span>Machine</span>
     </div>
   );
 }

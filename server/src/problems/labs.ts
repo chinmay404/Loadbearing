@@ -33,8 +33,8 @@ export const LABS: Problem[] = [
       'Admin edits product copy, price and stock',
     ],
     nonFunctional: {
-      peakRps: 900,
-      writeRps: 25,
+      peakRps: 300,
+      writeRps: 6,
       p99Ms: 300,
       availability: '99.9% — currently nowhere near it',
       imageEgress: '1.2TB/month',
@@ -48,7 +48,7 @@ export const LABS: Problem[] = [
     concepts: ['spof', 'load-balancing', 'caching', 'cdn', 'capacity-estimation', 'blob-storage'],
     expectedFlows: ['product browse', 'checkout', 'image read'],
     rubricHints:
-      'The three defects are drawn: the application, the images and the database share one host, so a reboot takes all three; there is no load balancer, so there is nowhere to add a second instance even if you wanted one; and image bytes are served by the same process that renders pages, so a spike in browsing starves checkout. Watch for an answer that adds replicas without a load balancer, or a CDN in front of a host whose disk is still the origin of record. A strong answer separates the three concerns onto their own failure domains, states what the database failover actually costs in downtime, and notices that checkout at 25 writes/sec never needed to scale at all — the read path did.',
+      'The three defects are drawn: the application, the images and the database share one host, so a reboot takes all three; there is no load balancer, so there is nowhere to add a second instance even if you wanted one; and image bytes are served by the same process that renders pages, so a spike in browsing starves checkout. Watch for an answer that adds replicas without a load balancer, or a CDN in front of a host whose disk is still the origin of record. A strong answer separates the three concerns onto their own failure domains, states what the database failover actually costs in downtime, and notices that checkout at 6 writes/sec never needed to scale at all — the read path did.',
     twists: [
       'The TV slot moves to tonight, so anything requiring a data migration is off the table.',
       'The payment provider announces it will start rejecting duplicate order ids, which the retry the load balancer now performs is quietly generating.',
@@ -65,9 +65,9 @@ export const LABS: Problem[] = [
       {
         id: 'host-lost',
         name: 'The box reboots',
-        description: 'The single application host disappears for four minutes, as it did last Tuesday.',
+        description: 'The one machine disappears for four minutes, as it did last Tuesday — app, images and database with it.',
         rpsMultiplier: 1,
-        killNodes: ['app vm', 'monolith'],
+        killNodes: ['the box', 'rails app', 'monolith'],
         passCriteria: 'The shop stays up. Losing one machine is not allowed to be an outage.',
         pass: { noBrokenFlows: true, maxDroppedPct: 5 },
       },
@@ -76,24 +76,27 @@ export const LABS: Problem[] = [
       'What is running today. Three different jobs on one machine, which is also the only machine.',
       {
         nodes: [
-          { key: 'shopper', type: 'client', label: 'Shoppers', at: { x: 0, y: 0 }, attrs: { trafficRps: 900 }, annotation: 'Browse-heavy: roughly 35 page views per order.' },
+          { key: 'shopper', type: 'client', label: 'Shoppers', at: { x: 0, y: 0 }, attrs: { trafficRps: 300 }, annotation: 'Browse-heavy: roughly 35 page views per order. 300 pages a second at the evening peak.' },
           { key: 'dns', type: 'dns', label: 'DNS', at: { x: COL, y: 0 }, annotation: 'An A record pointing at one elastic IP. This is the whole traffic layer.' },
-          { key: 'vm', type: 'vm', label: 'App VM', at: { x: COL * 2, y: 0 }, attrs: { replicas: 1, vcpu: 4, memoryGb: 16, latencyMs: 120, monthlyCost: 140 }, annotation: 'Rails monolith, Puma with 16 workers. Also nginx serving /images from local disk.' },
-          { key: 'disk', type: 'blob_store', label: 'Local Disk', at: { x: COL * 2, y: ROW }, attrs: { storageGb: 420 }, annotation: 'Product images, on the same disk as the database. 88% full, never backed up.' },
-          { key: 'db', type: 'sql_db', label: 'Postgres', at: { x: COL * 3, y: 0 }, attrs: { replicas: 1, vcpu: 4, memoryGb: 16, latencyMs: 9, storageGb: 60 }, annotation: 'Same host as the application. Fights it for page cache under load.' },
-          { key: 'pay', type: 'payment_gateway', label: 'Stripe', at: { x: COL * 3, y: -ROW }, attrs: { latencyMs: 320, elastic: true }, annotation: 'Charged synchronously inside the checkout request.' },
+          // One machine, drawn as one: the three jobs inside share its 4 vCPU and its
+          // $140 bill, and a reboot takes all three at once.
+          { key: 'box', type: 'group', label: 'The box', at: { x: COL * 2 - 20, y: -60 }, size: { w: 490, h: 410 }, attrs: { sharedHost: true, vcpu: 4, memoryGb: 16, monthlyCost: 140 }, annotation: 'One VM, 4 vCPU and 16 GB. Everything inside it shares that, and goes down with it.' },
+          { key: 'vm', type: 'monolith', label: 'Rails app', parent: 'box', at: { x: 20, y: 56 }, attrs: { latencyMs: 40 }, annotation: 'Rails monolith behind nginx. Renders every page, and nginx serves /images from the local disk.' },
+          { key: 'db', type: 'sql_db', label: 'Postgres', parent: 'box', at: { x: 254, y: 56 }, attrs: { latencyMs: 3, storageGb: 60 }, annotation: 'Same machine as the app. Fights it for CPU and page cache under load.' },
+          { key: 'disk', type: 'blob_store', label: 'Local Disk', parent: 'box', at: { x: 20, y: 226 }, attrs: { latencyMs: 2, storageGb: 420 }, annotation: 'Product images, on the same disk as the database. 88% full, never backed up.' },
+          { key: 'pay', type: 'payment_gateway', label: 'Stripe', at: { x: COL * 4, y: 0 }, attrs: { latencyMs: 320, elastic: true }, annotation: 'Charged synchronously inside the checkout request.' },
         ],
         edges: [
           { from: 'shopper', to: 'dns', kind: 'sync' },
           { from: 'dns', to: 'vm', kind: 'sync', label: 'all traffic' },
-          { from: 'vm', to: 'disk', kind: 'sync', label: 'image bytes' },
-          { from: 'vm', to: 'db', kind: 'sync', label: 'every page' },
-          { from: 'vm', to: 'pay', kind: 'sync', label: 'charge' },
+          { from: 'vm', to: 'disk', kind: 'sync', label: '6 images a page', share: 6 },
+          { from: 'vm', to: 'db', kind: 'sync', label: '4 queries a page', share: 4 },
+          { from: 'vm', to: 'pay', kind: 'sync', label: 'charge, 1 page in 50', share: 0.02 },
         ],
         flows: [
-          { name: 'product browse', kind: 'read', steps: ['shopper', 'dns', 'vm', 'db'], rps: 850, description: 'A product page: one render, four queries, no cache anywhere.' },
-          { name: 'checkout', kind: 'write', steps: ['shopper', 'dns', 'vm', 'db', 'pay'], rps: 25, description: 'Order written, then the card charged inline while the shopper waits.' },
-          { name: 'image read', kind: 'read', steps: ['shopper', 'dns', 'vm', 'disk'], rps: 2400, description: 'Every product page pulls six images through the application process.' },
+          { name: 'product browse', kind: 'read', steps: ['shopper', 'dns', 'vm', 'db'], rps: 200, description: 'A product page: one render, four queries, no cache anywhere.' },
+          { name: 'checkout', kind: 'write', steps: ['shopper', 'dns', 'vm', 'db', 'pay'], rps: 6, description: 'Order written, then the card charged inline while the shopper waits.' },
+          { name: 'image read', kind: 'read', steps: ['shopper', 'dns', 'vm', 'disk'], rps: 94, description: 'Six images a page, read off the same disk the database lives on.' },
         ],
       },
     ),

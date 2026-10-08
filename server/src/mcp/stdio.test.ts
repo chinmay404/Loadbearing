@@ -181,7 +181,7 @@ describe('reading the bank', () => {
     const text = await tool('get_sheet', { id: 'l1-lab-one-box-storefront' });
     expect(text).toContain('Lab · level 1');
     expect(text).toContain('## Starting architecture');
-    expect(text).toContain('App VM');
+    expect(text).toContain('Rails app');
     expect(text).toContain('Scenarios it must survive');
     // The marking scheme is not handed over.
     expect(text).not.toContain('Watch for');
@@ -315,11 +315,11 @@ describe('a lab through the API alone', () => {
   it('places it, and the drawing matches the picture in the brief', async () => {
     const placed = await tool('place_starting_architecture', { sheetId: lab });
     expect(placed).toContain('Placed the starting architecture');
-    expect(placed).toContain('App VM');
+    expect(placed).toContain('Rails app');
     expect(placed).toContain('Shoppers → DNS');
 
     const read = await tool('read_canvas', { sheetId: lab });
-    expect(read).toContain('SOURCE of 900 rps');
+    expect(read).toContain('SOURCE of 300 rps');
     expect(read).toContain('**product browse**');
   });
 

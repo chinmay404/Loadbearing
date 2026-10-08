@@ -253,3 +253,41 @@ export function fmtMs(ms: number | null): string {
 }
 
 export { fmtInt };
+
+/** What the status light means right now, in words — shown when you hover it. */
+export interface StatusNote {
+  title: string;
+  body: string;
+  /** What is setting the ceiling, when it is not the part's own speed. */
+  limit?: string;
+}
+
+export function statusNote(m: GaugeModel, sim: SimNodeResult | undefined, attrs: NodeAttrs = {}): StatusNote {
+  if (m.health === 'down') return { title: 'Killed', body: 'Switched off for this run. Revive it from the scenario bar.' };
+  if (!m.live || !sim) return { title: 'Not running', body: 'Press Run load to send traffic through it.' };
+  if (m.elastic) return { title: 'Healthy', body: `Carrying ${fmtInt(m.inRps)} rps on the provider’s capacity, so it has no ceiling of its own.` };
+  if (m.unlimited) return { title: 'Healthy', body: `Carrying ${fmtInt(m.inRps)} rps. Nothing about this part limits traffic.` };
+
+  const cap = finite(sim.capacityRps, Number.POSITIVE_INFINITY);
+  const capText = Number.isFinite(cap) ? fmtInt(cap) : '∞';
+  const pct = Math.round(m.utilization * 100);
+  const load = `${fmtInt(m.inRps)} of ${capText} rps it can serve`;
+
+  let limit: string | undefined;
+  if (m.hostLimited) limit = 'The machine pool it shares with its neighbours is full.';
+  else {
+    const ceiling = attrs.maxConnections ?? attrs.poolSize;
+    const own = finite(attrs.capacityRps, Number.POSITIVE_INFINITY) * Math.max(1, sim.replicas);
+    if (typeof ceiling === 'number' && ceiling > 0 && cap < own - 1) {
+      limit = `Its ceiling is the ${fmtInt(ceiling)} connections it holds open, not its speed.`;
+    }
+  }
+  const out = (title: string, body: string): StatusNote => (limit ? { title, body, limit } : { title, body });
+
+  if (m.droppedRps > 0) {
+    return out('Overloaded', `Turning away ${fmtInt(m.droppedRps)} of ${fmtInt(m.inRps)} rps — it can serve ${capText}.`);
+  }
+  if (m.health === 'fail') return out('At its limit', `${load} — 100%. Any more traffic will be turned away.`);
+  if (m.health === 'load') return out('Busy', `${pct}% used: ${load}. Past 70% requests start waiting in line.`);
+  return out('Healthy', `${pct}% used: ${load}.`);
+}

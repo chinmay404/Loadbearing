@@ -502,6 +502,26 @@ describe('components that share a machine', () => {
     expect(runEngine(nested, scenario()).hostedBy).toEqual({ parser: 'pool' });
   });
 
+  it('takes everything on a machine down when the machine goes', () => {
+    // The whole point of drawing three jobs on one box: a reboot is all three.
+    const result = runEngine(pipeline({ sharedHost: true, vcpu: 4 }), scenario({ outages: [{ nodeId: 'pool', atS: 0 }] }));
+    expect(hop(result, 'parser').down).toBe(true);
+    expect(hop(result, 'chunker').down).toBe(true);
+    expect(hop(result, 'parser').servedRps).toBe(0);
+  });
+
+  it('says how full each machine is, and who is using it', () => {
+    // 4 vCPU = 32 slots. The parser holds its slot while it waits on the chunker, so
+    // 100 rps x ~120ms ≈ 12; the chunker 100 x 20ms = 2 → about 14 in use.
+    const result = runEngine(pipeline({ sharedHost: true, vcpu: 4 }), scenario());
+    const pool = result.hosts.find((h) => h.hostId === 'pool')!;
+    expect(pool.slots).toBe(32);
+    expect(pool.used).toBeGreaterThan(13);
+    expect(pool.used).toBeLessThan(15);
+    expect(pool.members.map((m) => m.nodeId).sort()).toEqual(['chunker', 'parser']);
+    expect(pool.members.find((m) => m.nodeId === 'chunker')!.used).toBeCloseTo(2, 0);
+  });
+
   it('leaves an unsized pool alone rather than inventing a limit for it', () => {
     const result = runEngine(pipeline({ sharedHost: true }), scenario());
     expect(hop(result, 'parser').hostLimited).toBe(false);
@@ -1121,6 +1141,16 @@ describe('connection pools run out', () => {
 
   it('leaves a store alone when nobody stated a limit', () => {
     expect(hop(runEngine(withCeiling(), scenario()), 'db').droppedRps).toBe(0);
+  });
+
+  it('a limit with room to spare is not a limit reached', () => {
+    // 500 rps × 50ms needs 25 connections; 100 are allowed, so the ceiling sustains
+    // 2000 rps and the store sits at a quarter of it — healthy, not saturated.
+    const db = hop(runEngine(withCeiling(100), scenario()), 'db');
+    expect(db.droppedRps).toBe(0);
+    expect(db.capacityRps).toBeCloseTo(2000, -1);
+    expect(db.utilization).toBeCloseTo(0.25, 2);
+    expect(db.state).toBe('ok');
   });
 
   it('says the connections ran out, not that the store was too slow', () => {

@@ -317,3 +317,514 @@ button.chaos-slow.on {
   pointer-events: none;
   z-index: 4;
 }
+
+/* ------------------------------------------------------------ the corner --
+ * Run load and the bill, top right beside the zoom controls. The bill is always
+ * there: budget is the tension in every exercise, so it is never behind a run.
+ */
+.canvas-corner {
+  position: absolute;
+  top: 12px;
+  right: 58px;
+  z-index: 7;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.corner-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 13px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  color: var(--fg);
+  font-size: 12.5px;
+  font-weight: 550;
+}
+.cost-meter {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 13px 8px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  cursor: default;
+  outline: none;
+}
+.cost-meter:focus-visible {
+  box-shadow: var(--shadow-float), 0 0 0 2px var(--accent-line);
+}
+.cm-label {
+  font: 500 10.5px / 1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.cm-value {
+  font: 600 17px / 1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  letter-spacing: -0.02em;
+}
+.cm-value small {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-left: 1px;
+}
+/* What the last edit cost, floating up and away. Cobalt: it was your decision. */
+.cm-delta {
+  position: absolute;
+  right: 10px;
+  top: 100%;
+  margin-top: 6px;
+  padding: 2px 7px;
+  border-radius: var(--r-pill, 999px);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 600 11.5px / 1.4 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  animation: cm-delta 1800ms var(--ease-out) both;
+}
+@keyframes cm-delta {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.92);
+  }
+  14% {
+    opacity: 1;
+    transform: none;
+  }
+  75% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.cm-card {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 272px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  font-size: 12px;
+  color: var(--fg-2);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-4px) scale(0.97);
+  transform-origin: top right;
+  transition:
+    opacity 120ms ease,
+    transform 120ms var(--ease-out);
+}
+.cost-meter:hover .cm-card,
+.cost-meter:focus-visible .cm-card {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  transition:
+    opacity 180ms ease 100ms,
+    transform 180ms var(--ease-out) 100ms;
+}
+.cost-meter:hover .cm-delta {
+  visibility: hidden;
+}
+.cm-split {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 9px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+}
+.cm-split b {
+  color: var(--fg);
+  font: 600 12.5px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.cm-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+}
+.cm-lines li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  row-gap: 3px;
+}
+.cm-name {
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cm-amt {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+.cm-lines i {
+  grid-column: 1 / -1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+  position: relative;
+}
+.cm-lines i::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--fg-2);
+  transform-origin: left;
+  transform: scaleX(var(--w, 0));
+  transition: transform 280ms var(--ease-out);
+}
+.cm-empty,
+.cm-foot {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.cm-foot {
+  margin-top: 10px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-delta {
+    animation: cm-fade 1800ms ease both;
+  }
+  .cm-card {
+    transform: none;
+  }
+}
+@keyframes cm-fade {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  15%,
+  75% {
+    opacity: 1;
+  }
+}
+
+/* ------------------------------------------------------------ part sheet --
+ * The selected part, edited in place. Reads top to bottom: what it is, how it is
+ * doing, why it is here, the few numbers that size it.
+ */
+.part-sheet {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 13;
+  width: 320px;
+  max-height: 64vh;
+  overflow-y: auto;
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  animation: ps-in 220ms var(--ease-out) both;
+}
+@keyframes ps-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+.ps-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ps-tile {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--fg);
+}
+.ps-title {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+.ps-name {
+  all: unset;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  border-radius: var(--r-xs);
+  padding: 1px 4px;
+  margin: -1px -4px;
+}
+.ps-name:hover {
+  background: var(--surface-2);
+}
+.ps-name:focus-visible {
+  background: var(--surface-2);
+  box-shadow: 0 0 0 2px var(--accent-line);
+}
+.ps-kind {
+  font: 11px / 1.4 var(--font-mono);
+  color: var(--muted);
+}
+.ps-close {
+  all: unset;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  color: var(--muted);
+  cursor: pointer;
+  align-self: flex-start;
+}
+.ps-close:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+.ps-what {
+  margin: -2px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-2);
+}
+.ps-status {
+  --h: var(--faint);
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px 8px 12px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--h) 9%, var(--surface));
+  border-left: 3px solid var(--h);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg-2);
+}
+.ps-status[data-health='pass'] {
+  --h: var(--pass);
+}
+.ps-status[data-health='load'] {
+  --h: var(--load);
+}
+.ps-status[data-health='fail'] {
+  --h: var(--fail);
+}
+.ps-status b {
+  color: var(--fg);
+  font-size: 12.5px;
+}
+.ps-status em {
+  font-style: normal;
+  color: var(--fg);
+}
+.ps-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: -6px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.ps-why {
+  font-size: 12.5px;
+  line-height: 1.45;
+  resize: vertical;
+  min-height: 44px;
+}
+.ps-group {
+  display: grid;
+  gap: 2px;
+}
+.ps-group h6 {
+  margin: 4px 0 4px;
+  font: 600 10.5px / 1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ps-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 10px;
+  padding: 4px 0;
+}
+.ps-row + .ps-row {
+  border-top: 1px solid var(--line);
+}
+.ps-row > label {
+  font-size: 12.5px;
+  font-weight: 450;
+  color: var(--fg);
+  text-transform: none;
+  letter-spacing: 0;
+  margin: 0;
+}
+.ps-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ps-input input {
+  width: 84px;
+  padding: 4px 7px;
+  text-align: right;
+  font: 500 12.5px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.ps-input input::placeholder {
+  color: var(--faint);
+}
+.ps-unit {
+  min-width: 22px;
+  font: 11px var(--font-mono);
+  color: var(--muted);
+}
+/* The meaning of a setting, shown only while you are working on it. */
+.ps-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition:
+    max-height 220ms var(--ease-out),
+    opacity 160ms ease,
+    margin 220ms var(--ease-out);
+}
+.ps-row:focus-within .ps-hint {
+  max-height: 80px;
+  opacity: 1;
+  margin-top: 5px;
+}
+.ps-switch {
+  all: unset;
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--line-2);
+  position: relative;
+  cursor: pointer;
+  transition: background-color var(--d-small) ease;
+}
+.ps-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  transition: transform var(--d-small) var(--ease-out);
+}
+.ps-switch.on {
+  background: var(--accent);
+}
+.ps-switch.on i {
+  transform: translateX(14px);
+}
+.ps-switch:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-line);
+}
+.ps-more summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--fg-2);
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+.ps-more summary::-webkit-details-marker {
+  display: none;
+}
+.ps-more summary span {
+  font: 11px var(--font-mono);
+  color: var(--muted);
+}
+.ps-more summary::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  margin-left: 8px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 200ms var(--ease-out);
+}
+.ps-more[open] summary::after {
+  transform: rotate(225deg);
+}
+.ps-more summary span {
+  margin-left: auto;
+}
+.ps-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.ps-foot button {
+  padding: 4px 9px;
+  font-size: 12px;
+}
+.ps-order {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.ps-order button {
+  border: none;
+  border-radius: 0;
+  padding: 4px 7px;
+  background: transparent;
+  color: var(--fg-2);
+}
+.ps-order button + button {
+  border-left: 1px solid var(--line);
+}
+@media (prefers-reduced-motion: reduce) {
+  .part-sheet {
+    animation: none;
+  }
+  .ps-hint {
+    transition: opacity 160ms ease;
+  }
+}

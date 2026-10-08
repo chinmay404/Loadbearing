@@ -1,10 +1,10 @@
-import { memo, useMemo, useState, type CSSProperties } from 'react';
+import { memo, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Handle, NodeResizer, Position, useStore, type NodeProps, type Node } from '@xyflow/react';
 import { familyOf, type Family } from '@loadbearing/shared';
 import { NODE_ICONS } from './icons';
 import { useCanvas, type ArchNodeData } from '../state/canvasStore';
 import { usePrefs } from '../ui/prefs';
-import { fmtInt, fmtMs, gaugeModel, type GaugeModel } from './gauge';
+import { fmtInt, fmtMs, gaugeModel, statusNote, type GaugeModel, type StatusNote } from './gauge';
 import { FarFace, InstrumentGauge, RackLeds, RackScreen } from './faces';
 
 const MARKER_GLYPH: Record<string, string> = {
@@ -86,6 +86,9 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
     return (
       <>
         <NodeResizer minWidth={180} minHeight={120} isVisible={selected} color="var(--plum)" />
+        {data.attrs?.sharedHost ? (
+          <MachineFrame id={id} data={data} killed={killed} />
+        ) : (
         <div className="group-node" style={{ width: '100%', height: '100%' }}>
           <div className="glabel">
             {editing ? (
@@ -103,6 +106,7 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
             )}
           </div>
         </div>
+        )}
         {data.locked && <LockBadge onUnlock={() => unlockNode(id)} />}
         {/*
           A boundary is a thing you connect. "This VPC peers with that one", "this
@@ -123,6 +127,7 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
   // heavily the box reads, so a part at 105% is marked and one at 300% is unmissable.
   const overload = Number.isFinite(sim?.utilization) ? Math.min(1, Math.max(0, (sim!.utilization - 1) / 1)) : 0;
   const foot = footFor(m, data);
+  const note = statusNote(m, sim, data.attrs ?? {});
 
   const cls = [
     'node',
@@ -232,7 +237,9 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
               <div className="r-screen">
                 <RackScreen m={m} attrs={data.attrs ?? {}} series={series} />
               </div>
-              <RackLeds health={m.health} />
+              <StatusTip note={note} health={m.health}>
+                <RackLeds health={m.health} />
+              </StatusTip>
             </div>
           )}
           <div className="r-foot">
@@ -257,7 +264,9 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
               {name}
               <span className="n-kind">{data.archType.replace(/_/g, ' ')}</span>
             </span>
-            <span className="n-led" aria-hidden="true" />
+            <StatusTip note={note} health={m.health}>
+              <span className="n-led" aria-hidden="true" />
+            </StatusTip>
           </div>
           {annotation}
           {ghost ?? (
@@ -278,6 +287,82 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
 }
 
 export const ArchNode = memo(ArchNodeInner);
+
+/**
+ * The light, and on hover what it means. A red dot with no reason is an accusation;
+ * this says which number put it there and, when it is not the part's own speed,
+ * what is setting the ceiling.
+ */
+function StatusTip({ note, health, children }: { note: StatusNote; health: GaugeModel['health']; children: ReactNode }) {
+  return (
+    <span className="n-status nodrag" tabIndex={0} aria-label={`${note.title}. ${note.body}${note.limit ? ` ${note.limit}` : ''}`}>
+      {children}
+      <span className="n-tip" role="tooltip" data-health={health}>
+        <b>{note.title}</b>
+        <span>{note.body}</span>
+        {note.limit && <em>{note.limit}</em>}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * A machine: a frame whose contents run on it. Its header says how big it is and how
+ * much of it is in use, and the light explains who is using it.
+ */
+function MachineFrame({ id, data, killed }: { id: string; data: ArchNodeData; killed: boolean }) {
+  const host = useCanvas((s) => s.simResult?.hosts?.find((h) => h.hostId === id));
+  const labels = useCanvas((s) => s.nodes);
+  const Icon = NODE_ICONS.vm;
+  const a = data.attrs ?? {};
+  const size = [a.vcpu ? `${a.vcpu} vCPU` : null, a.memoryGb ? `${a.memoryGb} GB` : null, (a.replicas ?? 1) > 1 ? `×${a.replicas}` : null]
+    .filter(Boolean)
+    .join(' · ');
+  const used = host?.used ?? 0;
+  const slots = host?.slots ?? null;
+  const share = slots ? used / slots : 0;
+  const health: GaugeModel['health'] =
+    killed || host?.down ? 'down' : !host ? 'idle' : share >= 1 ? 'fail' : share >= 0.7 ? 'load' : 'pass';
+  const nameOf = (nid: string) =>
+    (labels.find((n) => n.id === nid)?.data as { label?: string } | undefined)?.label ?? nid;
+  const who = (host?.members ?? [])
+    .filter((m) => m.used > 0.05)
+    .sort((x, y) => y.used - x.used)
+    .map((m) => `${nameOf(m.nodeId)} ${fmtInt(m.used)}`)
+    .join(' · ');
+  const note: StatusNote =
+    health === 'down'
+      ? { title: 'Machine down', body: 'Everything inside it is down with it.' }
+      : health === 'idle'
+        ? { title: 'Not running', body: 'Press Run load to see how much of this machine is used.' }
+        : {
+            title: health === 'fail' ? 'Machine full' : health === 'load' ? 'Machine busy' : 'Machine healthy',
+            body: slots
+              ? `${fmtInt(used)} of ${fmtInt(slots)} request slots in use (${Math.round(share * 100)}%).`
+              : `${fmtInt(used)} requests in flight. Give it a vCPU count to set a limit.`,
+            ...(who ? { limit: `Using it: ${who}` } : {}),
+          };
+
+  return (
+    <div className="group-node machine" data-health={health} style={{ width: '100%', height: '100%' }}>
+      <div className="m-head">
+        <span className="m-tile">
+          <Icon size={15} />
+        </span>
+        <span className="m-name">{data.label}</span>
+        <span className="m-size">{size || 'unsized'}</span>
+        <span className="grow" />
+        {slots !== null && host && <span className="m-pct">{Math.round(share * 100)}%</span>}
+        <StatusTip note={note} health={health}>
+          <span className="n-led" aria-hidden="true" />
+        </StatusTip>
+      </div>
+      <div className="m-bar" aria-hidden="true">
+        <i style={{ ['--fill' as string]: String(Math.min(1, share)) } as CSSProperties} />
+      </div>
+    </div>
+  );
+}
 
 /**
  * The way back out of a pin. A pinned component is not selectable, so no panel can

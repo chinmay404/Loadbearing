@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FAMILY, type SimNodeResult } from '@loadbearing/shared';
-import { GAUGE_OF, MAX_CELLS, fmtMs, gaugeModel, healthOf } from './gauge';
+import { GAUGE_OF, MAX_CELLS, fmtMs, gaugeModel, healthOf, statusNote } from './gauge';
 
 function sim(over: Partial<SimNodeResult> = {}): SimNodeResult {
   return {
@@ -143,5 +143,37 @@ describe('milliseconds', () => {
     expect(fmtMs(42)).toBe('42 ms');
     expect(fmtMs(80_000)).toBe('80.0 s');
     expect(fmtMs(null)).toBe('—');
+  });
+});
+
+describe('the status light explains itself', () => {
+  const note = (s: SimNodeResult | undefined, attrs = {}, killed = false) =>
+    statusNote(gaugeModel({ type: 'service', attrs, sim: s, killed, outDegree: 0 }), s, attrs);
+
+  it('says how to get numbers before a run', () => {
+    expect(note(undefined).title).toBe('Not running');
+  });
+  it('a healthy part says how much room it has', () => {
+    const n = note(sim({ incomingRps: 100, capacityRps: 1000, utilization: 0.1 }));
+    expect(n.title).toBe('Healthy');
+    expect(n.body).toContain('10%');
+    expect(n.body).toContain('100 of 1,000');
+  });
+  it('a part exactly at its limit is told apart from one dropping traffic', () => {
+    const at = note(sim({ incomingRps: 100, capacityRps: 100, utilization: 1, state: 'saturated' }));
+    expect(at.title).toBe('At its limit');
+    const over = note(sim({ incomingRps: 300, capacityRps: 100, utilization: 3, droppedRps: 200, state: 'saturated' }));
+    expect(over.title).toBe('Overloaded');
+    expect(over.body).toContain('200 of 300');
+  });
+  it('names a connection ceiling when that is what binds', () => {
+    const n = note(
+      sim({ incomingRps: 500, capacityRps: 200, utilization: 2.5, droppedRps: 300, state: 'saturated' }),
+      { capacityRps: 50_000, poolSize: 10 },
+    );
+    expect(n.limit).toContain('10 connections');
+  });
+  it('a killed part says so', () => {
+    expect(note(sim(), {}, true).title).toBe('Killed');
   });
 });

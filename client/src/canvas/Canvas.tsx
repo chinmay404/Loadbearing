@@ -8,6 +8,7 @@ import {
   ReactFlowProvider,
   SelectionMode,
   useReactFlow,
+  useStoreApi,
   type Connection,
   type Edge,
   type EdgeTypes,
@@ -25,6 +26,8 @@ import { PenLayer } from './PenLayer';
 import { FlowParticles } from './FlowParticles';
 import { CanvasToolbar } from './CanvasToolbar';
 import { SimHud } from './SimHud';
+import { CanvasCorner } from './CostMeter';
+import { MACHINE_PRESET } from './nodeCatalog';
 import { TitleBlock } from './TitleBlock';
 import { QuickAdd } from './QuickAdd';
 import { AiBar } from './AiBar';
@@ -80,6 +83,15 @@ function edgeUnderPoint(p: { x: number; y: number }): string | null {
 function CanvasInner() {
   const wrap = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, setCenter, getZoom } = useReactFlow();
+  const flowStore = useStoreApi();
+
+  // The zoom as a CSS variable, written straight to the wrapper: hover cards on parts
+  // divide by it so they stay readable at any zoom, without re-rendering a node per tick.
+  useEffect(() => {
+    const write = (z: number) => wrap.current?.style.setProperty('--zoom', String(z));
+    write(flowStore.getState().transform[2]);
+    return flowStore.subscribe((s) => write(s.transform[2]));
+  }, [flowStore]);
   const setViewportCenter = useCanvas((s) => s.setViewportCenter);
   const edgeKind = useCanvas((s) => s.edgeKind);
   const toGraph = useCanvas((s) => s.toGraph);
@@ -149,7 +161,12 @@ function CanvasInner() {
       const type = e.dataTransfer.getData('application/loadbearing-node') as ArchNodeType;
       if (!type) return;
       const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      const id = addArchNode(type, { x: position.x - 80, y: position.y - 30 });
+      const machine = e.dataTransfer.getData('application/loadbearing-preset') === 'machine';
+      const id = addArchNode(
+        type,
+        { x: position.x - 80, y: position.y - 30 },
+        machine ? { label: MACHINE_PRESET.label, attrs: { ...MACHINE_PRESET.attrs } } : undefined,
+      );
       // Dropped inside a boundary means inside it, not merely on top of it.
       reparent([id]);
     },
@@ -363,6 +380,7 @@ function CanvasInner() {
       <CanvasToolbar />
       <TitleBlock />
       <SimHud />
+      <CanvasCorner />
       <AiBar />
       <EdgeTools />
       <NodeTools />

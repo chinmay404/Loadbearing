@@ -331,6 +331,24 @@ export function absolutePosition(node: AnyNode, all: AnyNode[]): { x: number; y:
   return { x, y };
 }
 
+/** What the simulator reads off a connection, from where the canvas keeps it. */
+function edgeSimOf(e: Edge): EdgeSimAttrs {
+  const sim = (e.data ?? {}) as EdgeSimAttrs;
+  return {
+    ...(sim.share !== undefined ? { share: sim.share } : {}),
+    ...(sim.retries !== undefined ? { retries: sim.retries } : {}),
+    ...(sim.carries !== undefined ? { carries: sim.carries } : {}),
+    ...(sim.placement !== undefined ? { placement: sim.placement } : {}),
+    ...(sim.payloadKb !== undefined ? { payloadKb: sim.payloadKb } : {}),
+  };
+}
+
+/** A blueprint's calls-per-request rides in the edge data, where the inspector edits it. */
+function withShare<T extends { data?: unknown }>(style: T, share: number | undefined): T {
+  if (share === undefined) return style;
+  return { ...style, data: { ...((style.data as Record<string, unknown> | undefined) ?? {}), share } };
+}
+
 const isGroup = (n: AnyNode): boolean => n.type === 'arch' && n.data.archType === 'group';
 
 /**
@@ -498,7 +516,16 @@ export const useCanvas = create<CanvasState>((set, get) => ({
         target: e.to,
         label: e.label || undefined,
         ...edgeStyle(e.kind),
-        data: { kind: e.kind, ...(e.shape ? { shape: e.shape } : {}), ...(e.points ? { points: e.points } : {}) },
+        data: {
+          kind: e.kind,
+          ...(e.shape ? { shape: e.shape } : {}),
+          ...(e.points ? { points: e.points } : {}),
+          ...(e.share !== undefined ? { share: e.share } : {}),
+          ...(e.retries !== undefined ? { retries: e.retries } : {}),
+          ...(e.carries !== undefined ? { carries: e.carries } : {}),
+          ...(e.placement !== undefined ? { placement: e.placement } : {}),
+          ...(e.payloadKb !== undefined ? { payloadKb: e.payloadKb } : {}),
+        },
       }));
     set({
       problemId,
@@ -970,7 +997,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
           source: from,
           target: to,
           ...(e.label ? { label: e.label } : {}),
-          ...edgeStyle(e.kind),
+          ...withShare(edgeStyle(e.kind), e.share),
         },
       ];
     });
@@ -1455,6 +1482,8 @@ export const useCanvas = create<CanvasState>((set, get) => ({
           to: e.target,
           kind: ((e.data as { kind?: EdgeKind } | undefined)?.kind ?? 'sync') as EdgeKind,
           label: typeof e.label === 'string' ? e.label : '',
+          // The knobs on a connection are only worth having if the engine sees them.
+          ...edgeSimOf(e),
         })),
       stickies: s.nodes
         .filter((n): n is Node<StickyData, 'sticky'> => n.type === 'sticky')

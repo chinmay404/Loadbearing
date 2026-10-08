@@ -217,6 +217,7 @@ export function report(graph: GraphDSL, engine: EngineResult): SimResult {
 
   return {
     nodes,
+    hosts: engine.hosts,
     flows,
     cost,
     bottleneckNodeId: engine.bottleneckNodeId,

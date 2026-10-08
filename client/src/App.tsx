@@ -163,7 +163,6 @@ export function App() {
 
 const LEFT_TABS: { id: LeftTab; label: string }[] = [
   { id: 'brief', label: 'Brief' },
-  { id: 'palette', label: 'Components' },
   { id: 'flows', label: 'Flows' },
   { id: 'inspect', label: 'Inspect' },
   { id: 'checks', label: 'Checks' },
@@ -172,6 +171,7 @@ const LEFT_TABS: { id: LeftTab; label: string }[] = [
 ];
 
 const RIGHT_TABS: { id: RightTab; label: string }[] = [
+  { id: 'parts', label: 'Components' },
   { id: 'feedback', label: 'Review' },
   { id: 'ask', label: 'Ask' },
   { id: 'attack', label: 'Attack' },
@@ -180,7 +180,9 @@ const RIGHT_TABS: { id: RightTab; label: string }[] = [
 
 function Workspace() {
   const problem = useApp((s) => s.problem)!;
-  const leftTab = useApp((s) => s.leftTab);
+  // Components live on the right here; a 'palette' left over from a project view means the brief.
+  const storedLeftTab = useApp((s) => s.leftTab);
+  const leftTab = storedLeftTab === 'palette' ? 'brief' : storedLeftTab;
   const setLeftTab = useApp((s) => s.setLeftTab);
   const rightTab = useApp((s) => s.rightTab);
   const setRightTab = useApp((s) => s.setRightTab);
@@ -270,7 +272,7 @@ function Workspace() {
   return (
     <Panes
       leftLabel="brief"
-      rightLabel="review"
+      rightLabel="components"
       left={
         <>
           <div className="pane-tabs">
@@ -283,7 +285,6 @@ function Workspace() {
         <div className="pane-body">
           <ErrorBoundary area={leftTab}>
             {leftTab === 'brief' && <BriefPanel />}
-            {leftTab === 'palette' && <Palette />}
             {leftTab === 'flows' && <FlowPanel />}
             {leftTab === 'inspect' && <InspectorPanel />}
             {leftTab === 'checks' && <ChecksPanel />}
@@ -320,6 +321,7 @@ function Workspace() {
           </div>
           <div className="pane-body">
             <ErrorBoundary area={rightTab === 'feedback' ? 'review' : rightTab}>
+              {rightTab === 'parts' && <Palette />}
               {rightTab === 'feedback' && <FeedbackPanel />}
               {rightTab === 'ask' && <AskPanel />}
               {rightTab === 'attack' && <AttackPanel />}
