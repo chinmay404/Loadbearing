@@ -704,7 +704,9 @@ button.chaos-slow.on {
   color: var(--faint);
 }
 .ps-unit {
-  min-width: 22px;
+  /* Fixed, not a minimum: "$/mo" must not push its box left of the "rps" one. */
+  width: 30px;
+  flex: none;
   font: 11px var(--font-mono);
   color: var(--muted);
 }
@@ -827,4 +829,39 @@ button.chaos-slow.on {
   .ps-hint {
     transition: opacity 160ms ease;
   }
+}
+
+/* Docked in the right pane: the same sheet, without the floating card around it. */
+.part-sheet {
+  overflow-x: hidden;
+}
+.part-sheet.docked {
+  position: static;
+  width: auto;
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: ps-docked-in 200ms var(--ease-out) both;
+}
+@keyframes ps-docked-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+}
+.part-sheet.docked .ps-input input {
+  width: 96px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .part-sheet.docked {
+    animation: none;
+  }
+}
+/* Setting names are written in sentence case already; "vCPU" must not become "VCPU". */
+.ps-row > label::first-letter {
+  text-transform: none;
 }

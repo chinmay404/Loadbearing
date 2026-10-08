@@ -5,6 +5,7 @@ import { useApp, type LeftTab, type RightTab } from './state/appStore';
 import { useCanvas } from './state/canvasStore';
 import { Canvas } from './canvas/Canvas';
 import { Palette } from './canvas/Palette';
+import { NodeTools } from './canvas/NodeTools';
 import { BriefPanel } from './panels/BriefPanel';
 import { FlowPanel } from './panels/FlowPanel';
 import { InspectorPanel } from './panels/InspectorPanel';
@@ -205,7 +206,15 @@ function Workspace() {
   const nodeCount = useCanvas((s) => s.nodes.filter((n) => n.type === 'arch').length);
   const dirty = useCanvas((s) => s.dirty);
   const markClean = useCanvas((s) => s.markClean);
+  const hasSelection = useCanvas((s) => s.nodes.some((n) => n.selected));
   const loadedFor = useRef<string | null>(null);
+
+  // Select a part and its details take the right pane, the way a design tool's
+  // inspector does: beside the drawing, never over it. Deselect and the parts list
+  // comes back.
+  useEffect(() => {
+    if (hasSelection) setRightTab('parts');
+  }, [hasSelection, setRightTab]);
   const saveTimer = useRef(0);
 
   // Load the saved design once per problem.
@@ -314,13 +323,13 @@ function Workspace() {
           <div className="pane-tabs">
             {RIGHT_TABS.map((t) => (
               <button key={t.id} className={rightTab === t.id ? 'active' : ''} onClick={() => setRightTab(t.id)}>
-                {t.label}
+                {t.id === 'parts' && hasSelection ? 'Selected' : t.label}
               </button>
             ))}
           </div>
           <div className="pane-body">
             <ErrorBoundary area={rightTab === 'feedback' ? 'review' : rightTab}>
-              {rightTab === 'parts' && <Palette />}
+              {rightTab === 'parts' && (hasSelection ? <NodeTools docked /> : <Palette />)}
               {rightTab === 'feedback' && <FeedbackPanel />}
               {rightTab === 'ask' && <AskPanel />}
               {rightTab === 'attack' && <AttackPanel />}
@@ -330,7 +339,7 @@ function Workspace() {
         </>
       }
     >
-      <Canvas />
+      <Canvas dockedDetails />
     </Panes>
   );
 }

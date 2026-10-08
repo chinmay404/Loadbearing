@@ -28,7 +28,7 @@ import { gaugeModel, statusNote } from './gauge';
  * and every setting is named in words with its unit and the real default shown —
  * a grid of "In flight / Their limit / $ / M calls" boxes told nobody anything.
  */
-export function NodeTools() {
+export function NodeTools({ docked = false }: { docked?: boolean }) {
   const nodes = useCanvas((s) => s.nodes);
   const restack = useCanvas((s) => s.restack);
   const setLocked = useCanvas((s) => s.setLocked);
@@ -71,7 +71,7 @@ export function NodeTools() {
     single && updateNodeAttrs(single.id, { [key]: v } as NodeAttrs);
 
   return (
-    <div className="part-sheet">
+    <div className={`part-sheet${docked ? ' docked' : ''}`}>
       {single && archData ? (
         <>
           <div className="ps-head">
@@ -88,11 +88,12 @@ export function NodeTools() {
                 }}
               />
               <span className="ps-kind">
-                {isMachine ? 'machine' : (spec?.label ?? archData.archType.replace(/_/g, ' '))}
+                {/* The same short type the part shows on the canvas, not its default name again. */}
+                {isMachine ? 'machine' : archData.archType.replace(/_/g, ' ')}
                 {allLocked && ' · pinned'}
               </span>
             </div>
-            <button className="ps-close" onClick={deselectAll} aria-label="Close" title="Close">
+            <button className="ps-close" onClick={deselectAll} aria-label={docked ? 'Back to components' : 'Close'} title={docked ? 'Back to components' : 'Close'}>
               ×
             </button>
           </div>
@@ -269,7 +270,8 @@ function AttrField({
             if (Number.isFinite(n)) onChange(fraction ? n / 100 : n);
           }}
         />
-        {(fraction || spec.unit) && <span className="ps-unit">{fraction ? '%' : spec.unit}</span>}
+        {/* Always present, so every box lines up whether or not it has a unit. */}
+        <span className="ps-unit">{fraction ? '%' : (spec.unit ?? '')}</span>
       </span>
       <p className="ps-hint">{spec.hint}</p>
     </div>

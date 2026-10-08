@@ -83,7 +83,7 @@ function edgeUnderPoint(p: { x: number; y: number }): string | null {
   return null;
 }
 
-function CanvasInner({ lesson = false, children }: CanvasProps) {
+function CanvasInner({ lesson = false, dockedDetails = false, children }: CanvasProps) {
   const wrap = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, setCenter, getZoom, fitView } = useReactFlow();
   const flowStore = useStoreApi();
@@ -424,7 +424,7 @@ function CanvasInner({ lesson = false, children }: CanvasProps) {
           <CanvasCorner />
           <AiBar />
           <EdgeTools />
-          <NodeTools />
+          {!dockedDetails && <NodeTools />}
           <PinBar />
           <QuickAdd />
         </>
@@ -438,6 +438,8 @@ interface CanvasProps {
   lesson?: boolean;
   /** Overlays a lesson puts on the bench, such as its parts tray. */
   children?: React.ReactNode;
+  /** The selected part's details live in a side pane, so the canvas does not float its own. */
+  dockedDetails?: boolean;
 }
 
 export function Canvas(props: CanvasProps) {
