@@ -1315,9 +1315,11 @@
 .uv {
   --uv-bezel: color-mix(in srgb, var(--fg) 82%, var(--surface));
   position: absolute;
-  left: 50%;
-  bottom: calc(100% + 18px);
-  transform: translateX(-50%);
+  /* To the left of the part: clients sit at the left edge of a diagram, where
+     there is room, and stacked clients would cover each other from above. */
+  right: calc(100% + 22px);
+  top: 50%;
+  transform: translateY(-50%);
   display: grid;
   justify-items: center;
   gap: 6px;
@@ -1328,17 +1330,17 @@
 @keyframes uv-in {
   from {
     opacity: 0;
-    transform: translate(-50%, 8px) scale(0.96);
+    transform: translate(8px, -50%) scale(0.96);
   }
 }
-/* A short stem down to the part it belongs to. */
+/* A short dashed lead across to the part it belongs to. */
 .uv::after {
   content: '';
   position: absolute;
-  left: 50%;
-  bottom: -18px;
-  height: 14px;
-  border-left: 1.5px dashed var(--line-2);
+  top: 50%;
+  right: -22px;
+  width: 18px;
+  border-top: 1.5px dashed var(--line-2);
 }
 .uv-device {
   background: var(--surface);
