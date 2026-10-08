@@ -303,6 +303,25 @@ const MIN_RELAX_ROUNDS = 8;
 const MAX_RELAX_ROUNDS = 80;
 /** A round that moves no component's throughput by more than this has reached the fixpoint. */
 const SETTLED_RPS = 0.01;
+/** How often a balancer checks its backends when nobody has said, seconds. */
+export const DEFAULT_HEALTH_CHECK_S = 10;
+
+/**
+ * The service a component is a copy of: its type and its name without an instance
+ * marker, so "Orders A" and "Orders B", or "api1" and "api2", are two copies of one
+ * thing a balancer may fail over between — and "Catalog API" and "Search API" are
+ * two different services, which it may not.
+ */
+export function roleOf(node: GraphNode): string {
+  const name = node.label
+    .trim()
+    .toLowerCase()
+    .replace(/[\s\-_#]*\d+$/, '')
+    .replace(/[\s\-_#]+[a-z]$/, '')
+    .trim();
+  return `${node.type}:${name}`;
+}
+
 /** Extra rounds past the deepest hop, for capacity and pools to settle. */
 const SETTLE_ROUNDS = 4;
 /** Headroom on top of the worst congestion the model will report. */
@@ -890,6 +909,8 @@ interface NodeRuntime {
   occDelta: number;
   /** End to end, as its callers see it: own latency plus what it waits for, ms. */
   responseMs: number;
+  /** Seconds since it went down, 0 while it is up. */
+  downForS: number;
   /**
    * Share of calls to it that do not come back — its own drops, failures anywhere
    * below it, and running past a stated timeout. What a retrying caller reacts to.
@@ -1257,9 +1278,9 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
 
     for (const node of prep.nodes) {
       const family = familyOf(node.type);
-      const down = (scenario.outages ?? []).some(
-        (o) => o.nodeId === node.id && activeAt(t, o.atS, o.forS),
-      );
+      const active = (scenario.outages ?? []).filter((o) => o.nodeId === node.id && activeAt(t, o.atS, o.forS));
+      const down = active.length > 0;
+      const downForS = active.reduce((longest, o) => Math.max(longest, t - o.atS), 0);
 
       let serviceMs = serviceMsOf(node);
       for (const inj of scenario.latency ?? []) {
@@ -1320,6 +1341,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         occStep: 1,
         occDelta: 0,
         responseMs: serviceMs,
+        downForS,
         callFail: 0,
         capacityMultiple,
       });
@@ -1360,7 +1382,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
       ...[...offeredBySource.values()].map((v) => v.toFixed(6)),
       ...prep.nodes.map((n) => {
         const r = runtime.get(n.id)!;
-        return `${r.down ? 1 : 0}/${r.serviceMs}/${r.capacityMultiple}/${r.absorb}/${r.replicas}/${r.backlog.toFixed(6)}`;
+        return `${r.down ? `d${Math.floor(r.downForS)}` : 0}/${r.serviceMs}/${r.capacityMultiple}/${r.absorb}/${r.replicas}/${r.backlog.toFixed(6)}`;
       }),
     ].join('|');
     const repeat = last !== null && signature === lastSignature;
@@ -1412,7 +1434,26 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         // control plane as a side call. Without this, a strangler facade sent a third
         // of production traffic to the flag store.
         const mode = distributionOf(node.type);
-        const routable = outs.filter((e) => familyOf(runtime.get(e.to)?.node.type ?? 'custom') !== 'control');
+        // A balancer stops sending to a dead backend once a health check has noticed —
+        // but only when a live copy of the same service is there to take its share.
+        // Until then the dead one keeps getting traffic, which is lost.
+        const checkEvery = num(node.attrs?.healthCheckS, DEFAULT_HEALTH_CHECK_S);
+        const ejected = new Set<string>();
+        if (mode === 'distribute') {
+          for (const e of outs) {
+            const t = runtime.get(e.to);
+            if (!t || !t.down || t.bypassed || t.downForS < checkEvery) continue;
+            const role = roleOf(t.node);
+            const copyAlive = outs.some((o) => {
+              const alt = runtime.get(o.to);
+              return alt !== undefined && alt !== t && !alt.down && roleOf(alt.node) === role;
+            });
+            if (copyAlive) ejected.add(e.to);
+          }
+        }
+        const routable = outs.filter(
+          (e) => !ejected.has(e.to) && familyOf(runtime.get(e.to)?.node.type ?? 'custom') !== 'control',
+        );
         const splitAcross = mode === 'distribute' ? (routable.length || outs.length) : 0;
         const isSideCall = (e: GraphEdge): boolean =>
           mode === 'distribute' && routable.length > 0 && !routable.includes(e);
@@ -1428,6 +1469,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         const shareTotal = routable.reduce((sum, e) => sum + shares[outs.indexOf(e)]!, 0) || 1;
 
         outs.forEach((e, i) => {
+          if (ejected.has(e.to)) return;
           let target = runtime.get(e.to);
           if (!target) return;
 

@@ -438,6 +438,37 @@ describe('failing over, and not', () => {
   });
 });
 
+describe('a load balancer checks its backends', () => {
+  // Two copies of the same service behind a balancer. One dies at t=5. Until a
+  // health check notices, the balancer keeps sending it half the traffic; after
+  // that, the survivor takes it all.
+  const copies = (healthCheckS?: number) =>
+    graph(
+      [
+        node('web', 'client', { trafficRps: 400 }),
+        node('lb', 'load_balancer', healthCheckS === undefined ? {} : { healthCheckS }),
+        { ...node('a', 'service', { capacityRps: 1000 }), label: 'Orders A' },
+        { ...node('b', 'service', { capacityRps: 1000 }), label: 'Orders B' },
+      ],
+      [edge('web', 'lb'), edge('lb', 'a'), edge('lb', 'b')],
+    );
+  const run = (healthCheckS?: number) =>
+    runEngine(copies(healthCheckS), scenario({ horizonS: 40, outages: [{ nodeId: 'a', atS: 5 }] }));
+  const at = (result: ReturnType<typeof runEngine>, t: number) => result.ticks.find((k) => k.t === t)!;
+
+  it('keeps sending a dead copy its share until the check notices', () => {
+    expect(at(run(10), 8).successRate).toBeCloseTo(0.5, 1);
+  });
+
+  it('moves everything to the survivor once the check has noticed', () => {
+    expect(at(run(10), 20).successRate).toBeCloseTo(1, 2);
+  });
+
+  it('notices sooner when it checks more often', () => {
+    expect(at(run(2), 8).successRate).toBeCloseTo(1, 2);
+  });
+});
+
 describe('components that share a machine', () => {
   /** A worker pool with two stages drawn inside it. */
   const pipeline = (poolAttrs: NodeAttrs, parserMs = 100, chunkerMs = 20): GraphDSL => ({
