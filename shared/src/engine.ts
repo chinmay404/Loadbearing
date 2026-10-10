@@ -729,6 +729,15 @@ function findSources(graph: GraphDSL, inbound: Map<string, GraphEdge[]>): Prepar
     .map((node) => ({ node, baseRps: rateFor(node), inferred: true }));
 }
 
+/**
+ * Where traffic starts, decided exactly as this engine decides it. Exported so the
+ * request engine starts traffic in the same places rather than keeping a copy of
+ * the rules that could drift.
+ */
+export function entryPoints(graph: GraphDSL): { node: GraphNode; baseRps: number; inferred: boolean }[] {
+  return prepare(graph).sources;
+}
+
 /** What a source emits when nobody has said. Enough to be interesting, not absurd. */
 export const DEFAULT_SOURCE_RPS = 100;
 

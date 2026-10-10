@@ -378,3 +378,17 @@ Each phase is one PR, with its tests green and the tripwire unchanged.
 | M/M/1 at ρ 0.83, log-normal service | ρ 0.6, exponential override, warm-up | Noise at high ρ makes a 5% check flaky |
 | Test 7 "arrivals rise" | Amplification > 1.5 and goodput falls | The old assertion is true after one failure |
 | Open questions | Decided (section 11) | |
+
+## 14. Phase 1 result (2026-10-10)
+
+- `shared/src/des/`: `rng`, `dist`, `heap`, `stats`, `model`, `engine`; `runDes` exported.
+  Every part is a queue of `vcpu × replicas` cores holding a core for its whole own
+  work; routers pick one backend by share; calls follow `share`; wire is half the
+  round trip each way. Result is `DesResult` (own shape) until phase 3.
+- M/M/1 (ρ 0.6, 3 seeds): mean wait 1.498 / 1.516 / 1.502 ms against 1.5 ms.
+  M/M/c (c 4, 75%): 0.505 / 0.525 / 0.512 ms against Erlang-C 0.509 ms.
+- **Benchmark** (`node scripts/bench-des.mjs`): 7,000 rps × 60 s on the reference
+  topology = 420 k requests, 4.87 M events (11.6 per request), best of 3 **1.0 s**
+  (runs 1.0–1.4 s), ~4.8 M events/s, 13 MB heap. **Passes the 5 s budget.**
+- Projection for section 8: 45,000 rps × 150 s ≈ 78 M events ≈ 16 s at this rate,
+  so the event budget and scaled copies are still needed for phase 4.

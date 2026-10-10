@@ -15,6 +15,8 @@ export * from './params.js';
 export * from './cost.js';
 export * from './engine.js';
 export * from './simulate.js';
+// The request engine: follows each request, for Play. See des/engine.ts.
+export * from './des/index.js';
 export * from './compatibility.js';
 export * from './scenarios.js';
 export * from './diff.js';
