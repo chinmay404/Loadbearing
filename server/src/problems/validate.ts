@@ -1,5 +1,5 @@
 import { ARCH_NODE_TYPES, CONCEPTS } from '@loadbearing/shared';
-import type { LoadScenario, Problem, ProblemDiagram } from '@loadbearing/shared';
+import type { ArchNodeType, FlowKind, LoadScenario, Problem, ProblemDiagram } from '@loadbearing/shared';
 
 const CONCEPT_SET = new Set<string>(CONCEPTS);
 const NODE_TYPE_SET = new Set<string>(ARCH_NODE_TYPES);
@@ -16,6 +16,64 @@ export class ProblemShapeError extends Error {
 const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback);
 const strArray = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : [];
+
+const STAGES = new Set(['basics', 'step-up']);
+
+/** Beginner-sheet fields: each kept when well formed, dropped (never rejected) when not. */
+function beginnerFields(o: Record<string, unknown>): Partial<Problem> {
+  const out: Partial<Problem> = {};
+
+  const t = (o.track ?? {}) as Record<string, unknown>;
+  if (str(t.topic).trim() && STAGES.has(str(t.stage))) {
+    out.track = {
+      topic: str(t.topic).trim(),
+      stage: str(t.stage) as 'basics' | 'step-up',
+      ...(str(t.next).trim() ? { next: str(t.next).trim() } : {}),
+    };
+  }
+
+  if (str(o.learn).trim()) out.learn = str(o.learn).trim();
+
+  const hints = (Array.isArray(o.hints) ? o.hints : [])
+    .filter((h): h is Record<string, unknown> => typeof h === 'object' && h !== null && str(h.text).trim() !== '')
+    .map((h) => {
+      const g = (h.ghost ?? {}) as Record<string, unknown>;
+      const ghost =
+        NODE_TYPE_SET.has(str(g.type)) && str(g.label).trim()
+          ? {
+              type: str(g.type) as ArchNodeType,
+              label: str(g.label).trim(),
+              ...(str(g.annotation).trim() ? { annotation: str(g.annotation).trim() } : {}),
+            }
+          : undefined;
+      return { text: str(h.text).trim(), ...(ghost ? { ghost } : {}) };
+    });
+  if (hints.length) out.hints = hints;
+
+  const glossary = (Array.isArray(o.glossary) ? o.glossary : [])
+    .filter((g): g is Record<string, unknown> => typeof g === 'object' && g !== null)
+    .filter((g) => str(g.term).trim() && str(g.meaning).trim())
+    .map((g) => ({ term: str(g.term).trim(), meaning: str(g.meaning).trim() }));
+  if (glossary.length) out.glossary = glossary;
+
+  const plans = (Array.isArray(o.flowPlans) ? o.flowPlans : [])
+    .filter((p): p is Record<string, unknown> => typeof p === 'object' && p !== null && str(p.name).trim() !== '')
+    .map((p) => {
+      const reach = (Array.isArray(p.mustReach) ? p.mustReach : [])
+        .map((group) => strArray(group).filter((type) => NODE_TYPE_SET.has(type)))
+        .filter((group) => group.length > 0);
+      return {
+        name: str(p.name).trim(),
+        kind: (FLOW_KINDS.has(str(p.kind)) ? str(p.kind) : 'read') as FlowKind,
+        rps: Math.max(0, num(p.rps)),
+        plain: str(p.plain).trim(),
+        ...(reach.length ? { mustReach: reach as ArchNodeType[][] } : {}),
+      };
+    });
+  if (plans.length) out.flowPlans = plans;
+
+  return out;
+}
 
 export function validateProblem(raw: unknown): Problem {
   const problems: string[] = [];
@@ -86,6 +144,7 @@ export function validateProblem(raw: unknown): Problem {
     twists,
     scenarios,
     custom: true,
+    ...beginnerFields(o),
   };
 }
 
@@ -168,18 +227,34 @@ export function auditSeedProblem(p: Problem): string[] {
   if (!/^l[1-6]-[a-z0-9-]+$/.test(p.id)) issues.push(`${p.id}: id should look like l3-flash-sale`);
   if (!p.id.startsWith(`l${p.level}-`)) issues.push(`${p.id}: id prefix does not match level ${p.level}`);
   if (p.prompt.trim().length < 120) issues.push(`${p.id}: prompt is thin`);
-  if (p.functional.length < 3) issues.push(`${p.id}: fewer than 3 functional requirements`);
-  if (Object.keys(p.nonFunctional).length < 3) issues.push(`${p.id}: fewer than 3 non-functional numbers`);
-  if (p.constraints.length < 2) issues.push(`${p.id}: fewer than 2 constraints`);
-  if (p.concepts.length < 4) issues.push(`${p.id}: fewer than 4 rubric concepts`);
+  // A beginner sheet teaches one idea with a handful of boxes; holding it to the
+  // full bar would force exactly the clutter it exists to avoid.
+  const min = p.track
+    ? { functional: 2, numbers: 2, constraints: 1, concepts: 2, flows: 1, twists: 1, scenarios: 1 }
+    : { functional: 3, numbers: 3, constraints: 2, concepts: 4, flows: 2, twists: 2, scenarios: 2 };
+  if (p.functional.length < min.functional) issues.push(`${p.id}: fewer than ${min.functional} functional requirements`);
+  if (Object.keys(p.nonFunctional).length < min.numbers) issues.push(`${p.id}: fewer than ${min.numbers} non-functional numbers`);
+  if (p.constraints.length < min.constraints) issues.push(`${p.id}: fewer than ${min.constraints} constraints`);
+  if (p.concepts.length < min.concepts) issues.push(`${p.id}: fewer than ${min.concepts} rubric concepts`);
   for (const c of p.concepts) if (!CONCEPT_SET.has(c)) issues.push(`${p.id}: unknown concept "${c}"`);
-  if (p.expectedFlows.length < 2) issues.push(`${p.id}: fewer than 2 expected flows`);
+  if (p.expectedFlows.length < min.flows) issues.push(`${p.id}: fewer than ${min.flows} expected flows`);
   if (p.rubricHints.trim().length < 80) issues.push(`${p.id}: rubricHints too vague`);
-  if (p.twists.length < 2) issues.push(`${p.id}: fewer than 2 twists`);
-  if (p.scenarios.length < 2) issues.push(`${p.id}: fewer than 2 load scenarios`);
+  if (p.twists.length < min.twists) issues.push(`${p.id}: fewer than ${min.twists} twists`);
+  if (p.scenarios.length < min.scenarios) issues.push(`${p.id}: fewer than ${min.scenarios} load scenarios`);
   for (const s of p.scenarios) {
     if (!s.passCriteria.trim()) issues.push(`${p.id}/${s.id}: missing passCriteria`);
     if (!(s.rpsMultiplier > 0)) issues.push(`${p.id}/${s.id}: rpsMultiplier must be > 0`);
+  }
+  if (p.track) {
+    if (!p.learn?.trim()) issues.push(`${p.id}: beginner sheet needs a learn line`);
+    const hints = p.hints?.length ?? 0;
+    if (hints < 3 || hints > 5) issues.push(`${p.id}: beginner sheet needs 3-5 hints`);
+    if ((p.glossary?.length ?? 0) < 2) issues.push(`${p.id}: beginner sheet needs at least 2 glossary entries`);
+    for (const f of p.expectedFlows) {
+      if (!p.flowPlans?.some((plan) => plan.name.trim().toLowerCase() === f.trim().toLowerCase())) {
+        issues.push(`${p.id}: no flow plan for "${f}"`);
+      }
+    }
   }
   issues.push(...auditSeedDiagram(p));
   return issues;
