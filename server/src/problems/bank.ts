@@ -1616,14 +1616,16 @@ const DESIGN_PROBLEMS: Problem[] = [
         id: 'campaign-send',
         name: 'Campaign send',
         description: 'Traffic goes from baseline to 4,000 rps inside 20 seconds.',
-        rpsMultiplier: 66,
+        // The drawn traffic is already the 4,000 rps peak, so the send is ×1 of it.
+        rpsMultiplier: 1,
         passCriteria: 'The landing page keeps serving; signups either succeed or are queued, and errors are not the primary response.',
       },
       {
         id: 'sustained',
         name: 'Sustained interest',
         description: 'Traffic stays at 10x baseline for an hour after the send.',
-        rpsMultiplier: 10,
+        // 10 × the 60 rps baseline is 600 rps: 0.15 of the drawn 4,000 rps peak.
+        rpsMultiplier: 0.15,
         passCriteria: 'The tier settles into steady state within its budget and nothing is still shedding.',
       },
     ],

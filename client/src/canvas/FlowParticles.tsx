@@ -132,19 +132,35 @@ export function FlowParticles() {
     const legBetween = (a: string, b: string): Leg | null => {
       const edges = useCanvas.getState().edges;
       const fwd = edges.find((e) => e.source === a && e.target === b);
-      const back = fwd ? undefined : edges.find((e) => e.source === b && e.target === a);
-      const pts = fwd ? curveOf(fwd.id) : back ? curveOf(back.id)?.slice().reverse() : null;
+      const pts = fwd ? curveOf(fwd.id) : null;
       if (pts && pts.length > 1) return polyline(pts);
+      // Called by an earlier step rather than the one before it (API → cache → database).
       const ca = centreOf(a);
       const cb = centreOf(b);
       return ca && cb ? polyline([ca, cb]) : null;
     };
 
+    /**
+     * The last step a request can reach, by the engine's rule: each step must be called,
+     * along a connection pointing the right way, by a step already passed. A dot never
+     * crosses a gap or runs a wire backwards, because no request can.
+     */
+    const reachOf = (steps: string[]): number => {
+      const edges = useCanvas.getState().edges;
+      for (let i = 1; i < steps.length; i += 1) {
+        const earlier = new Set(steps.slice(0, i));
+        if (!edges.some((e) => e.target === steps[i] && earlier.has(e.source))) return i - 1;
+      }
+      return steps.length - 1;
+    };
+
     /** Where a dot on this flow ends, decided as it leaves so the proportions hold. */
     const plan = (flow: Flow, result: SimFlowResult | undefined): Dot | null => {
       const steps = flow.steps;
-      if (steps.length < 2) return null;
+      // No result means no claim about this flow; drawing it as served would be one.
+      if (steps.length < 2 || !result) return null;
       const nodes = useCanvas.getState().nodes;
+      const reach = reachOf(steps);
       let stop = steps.length - 1;
       let end: Dot['end'] = 'serve';
 
@@ -163,13 +179,18 @@ export function FlowParticles() {
         }
       }
       // And some share never gets served, lost where the run says it was lost.
-      if (end === 'serve' && result && result.offeredRps > 0) {
+      if (end === 'serve' && result.offeredRps > 0) {
         const loss = Math.max(0, 1 - result.completedRps / result.offeredRps);
         if (Math.random() < loss) {
+          // Lost at the part the run names — the very first step included.
           const at = result.brokenAt ? steps.indexOf(result.brokenAt) : -1;
-          stop = at > 0 ? at : steps.length - 1;
+          stop = at >= 0 ? at : reach;
           end = 'drop';
         }
+      }
+      if (stop > reach) {
+        stop = reach;
+        end = 'drop';
       }
 
       const legs: Leg[] = [];
@@ -178,7 +199,13 @@ export function FlowParticles() {
         if (!leg) return null;
         legs.push(leg);
       }
-      return legs.length ? { legs, leg: 0, d: 0, speed: SPEED * (0.88 + Math.random() * 0.24), end } : null;
+      // Turned away where it started: a zero-length leg, so it falls on the spot.
+      if (legs.length === 0) {
+        const c = centreOf(steps[0]!);
+        if (!c) return null;
+        legs.push(polyline([c, c]));
+      }
+      return { legs, leg: 0, d: 0, speed: SPEED * (0.88 + Math.random() * 0.24), end };
     };
 
     const dots: Dot[] = [];

@@ -1,5 +1,5 @@
 import { memo, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
-import { Handle, NodeResizer, Position, useStore, type NodeProps, type Node } from '@xyflow/react';
+import { Handle, NodeResizer, Position, useConnection, useStore, type NodeProps, type Node } from '@xyflow/react';
 import { familyOf, type Family } from '@loadbearing/shared';
 import { NODE_ICONS } from './icons';
 import { useCanvas, type ArchNodeData } from '../state/canvasStore';
@@ -7,6 +7,7 @@ import { usePrefs } from '../ui/prefs';
 import { fmtInt, fmtMs, gaugeModel, statusNote, type GaugeModel, type StatusNote } from './gauge';
 import { FarFace, InstrumentGauge, RackLeds, RackScreen } from './faces';
 import { UserView } from './UserView';
+import { blockedReason } from './connectRules';
 
 const MARKER_GLYPH: Record<string, string> = {
   spof: '!',
@@ -64,6 +65,17 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
   const unlockNode = useCanvas((s) => s.unlockNode);
   const acceptGhost = useCanvas((s) => s.acceptGhost);
   const rejectGhost = useCanvas((s) => s.rejectGhost);
+  const edgeKind = useCanvas((s) => s.edgeKind);
+  // While a connection is being dragged, a part that cannot take it says so.
+  const dragging = useConnection((c) =>
+    c.inProgress && c.fromNode.id !== id ? `${c.fromNode.id}|${c.fromHandle?.type ?? 'source'}` : null,
+  );
+  const cannotConnect = useMemo(() => {
+    if (!dragging) return false;
+    const [other, side] = dragging.split('|') as [string, string];
+    const [source, target] = side === 'target' ? [id, other] : [other, id];
+    return Boolean(blockedReason(useCanvas.getState().nodes, source, target, edgeKind));
+  }, [dragging, id, edgeKind]);
   // Filter outside the selector: a fresh array from a selector loops forever.
   const markup = useCanvas((s) => s.markup).filter((m) => m.nodeId === id);
   const simResult = useCanvas((s) => s.simResult);
@@ -138,6 +150,7 @@ function ArchNodeInner({ id, data, selected }: NodeProps<Node<ArchNodeData, 'arc
     selected ? 'selected' : '',
     data.ghost ? 'ghost' : '',
     data.locked ? 'locked' : '',
+    cannotConnect ? 'no-connect' : '',
   ]
     .filter(Boolean)
     .join(' ');

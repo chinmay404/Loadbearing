@@ -827,6 +827,24 @@ describe('checkConnection', () => {
     expect(checkConnection(svc, node('q', 'queue'), 'sync')).toEqual([]);
   });
 
+  it('rejects a load balancer or CDN sending requests to a database, cache or queue', () => {
+    const lb = node('lb', 'load_balancer', 'ALB');
+    const cdn = node('cdn', 'cdn', 'CloudFront');
+    for (const [from, to] of [
+      [lb, db],
+      [lb, node('redis', 'cache')],
+      [lb, node('q', 'queue')],
+      [cdn, db],
+    ] as const) {
+      expect(only(checkConnection(from, to, 'sync'), 'router-to-non-target').severity).toBe('error');
+    }
+  });
+
+  it('accepts a load balancer in front of compute and a CDN in front of object storage', () => {
+    expect(checkConnection(node('lb', 'load_balancer'), svc, 'sync')).toEqual([]);
+    expect(checkConnection(node('cdn', 'cdn'), node('s3', 'blob_store'), 'sync')).toEqual([]);
+  });
+
   it('warns about a CDN placed behind the app', () => {
     const f = only(checkConnection(svc, node('cdn', 'cdn', 'CloudFront'), 'sync'), 'cdn-behind-app');
     expect(f.severity).toBe('warning');

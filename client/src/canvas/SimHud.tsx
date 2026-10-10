@@ -71,6 +71,8 @@ export function SimHud() {
     null as (typeof result.flows)[number] | null,
   );
   const brokenFlows = result?.flows.filter((f) => f.broken) ?? [];
+  const labelOf = (id?: string) =>
+    (nodes.find((n) => n.id === id)?.data as ArchNodeData | undefined)?.label ?? id ?? '';
   const hasExternal = nodes.some(
     (n) => n.type === 'arch' && FAMILY[(n.data as ArchNodeData).archType] === 'external',
   );
@@ -192,7 +194,7 @@ export function SimHud() {
             <div className="row wrap" style={{ marginTop: 5, gap: 4 }}>
               {brokenFlows.map((f) => (
                 <span className="chip fail" key={f.flowId}>
-                  {f.name} stops at {f.brokenAt}
+                  {f.name} stops at {labelOf(f.brokenAt)}
                 </span>
               ))}
             </div>

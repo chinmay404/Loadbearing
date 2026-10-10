@@ -13,6 +13,7 @@ import {
   type Edge,
   type EdgeTypes,
   type FinalConnectionState,
+  type HandleType,
   type Node,
   type NodeTypes,
 } from '@xyflow/react';
@@ -35,6 +36,7 @@ import { EdgeTools } from './EdgeTools';
 import { NodeTools } from './NodeTools';
 import { PinBar } from './PinBar';
 import { MakeRoom } from './MakeRoom';
+import { blockedReason } from './connectRules';
 import { useCanvas } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
 
@@ -239,10 +241,28 @@ function CanvasInner({ lesson = false, dockedDetails = false, children }: Canvas
 
 
   /**
-   * Teach at the moment of the mistake. The connection is still made — being told
-   * why it is wrong beats being blocked and left guessing — but the reason surfaces
-   * immediately instead of waiting for the Checks tab.
+   * A connection that cannot work in the real world is refused while it is dragged
+   * (the target shows it cannot take it), and dropping it anyway says why. One that
+   * merely smells is made, with the reason shown.
    */
+  const isValidConnection = useCallback(
+    (c: Connection | Edge) => !blockedReason(useCanvas.getState().nodes, c.source, c.target, edgeKind),
+    [edgeKind],
+  );
+
+  const onConnectEnd = useCallback(
+    (_e: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+      if (state.isValid || !state.fromNode || !state.toNode) return;
+      const fromTarget = state.fromHandle?.type === 'target';
+      const [source, target] = fromTarget
+        ? [state.toNode.id, state.fromNode.id]
+        : [state.fromNode.id, state.toNode.id];
+      const why = blockedReason(useCanvas.getState().nodes, source, target, edgeKind);
+      if (why) setNotice(`Can't connect: ${why.message} ${why.fix}`);
+    },
+    [edgeKind, setNotice],
+  );
+
   const onConnectChecked = useCallback(
     (c: Connection) => {
       onConnect(c);
@@ -250,7 +270,7 @@ function CanvasInner({ lesson = false, dockedDetails = false, children }: Canvas
       const from = graph.nodes.find((n) => n.id === c.source);
       const to = graph.nodes.find((n) => n.id === c.target);
       if (!from || !to) return;
-      const worst = checkConnection(from, to, edgeKind).find((f) => f.severity === 'error');
+      const worst = checkConnection(from, to, edgeKind).find((f) => f.severity !== 'info');
       if (worst) setNotice(`${worst.message} — ${worst.fix}`);
     },
     [onConnect, toGraph, edgeKind, setNotice],
@@ -287,12 +307,22 @@ function CanvasInner({ lesson = false, dockedDetails = false, children }: Canvas
   }, []);
 
   const onReconnectEnd = useCallback(
-    (_e: MouseEvent | TouchEvent, edge: Edge, _handle: unknown, state: FinalConnectionState) => {
+    (_e: MouseEvent | TouchEvent, edge: Edge, moved: HandleType, state: FinalConnectionState) => {
       if (reconnected.current || state.isValid) return;
+      // Dropped on a part that cannot take it: refuse and explain, keep the connection.
+      if (state.toNode) {
+        const [source, target] =
+          moved === 'source' ? [state.toNode.id, edge.target] : [edge.source, state.toNode.id];
+        const why = blockedReason(useCanvas.getState().nodes, source, target, edgeKind);
+        if (why) {
+          setNotice(`Can't connect: ${why.message} ${why.fix}`);
+          return;
+        }
+      }
       detachEdge(edge.id);
       setNotice('Disconnected. Both components are still on the sheet — reconnect from either handle.');
     },
-    [detachEdge, setNotice],
+    [detachEdge, setNotice, edgeKind],
   );
 
   /**
@@ -375,6 +405,8 @@ function CanvasInner({ lesson = false, dockedDetails = false, children }: Canvas
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnectChecked}
+        onConnectEnd={onConnectEnd}
+        isValidConnection={isValidConnection}
         onReconnect={onReconnect}
         onReconnectStart={onReconnectStart}
         onReconnectEnd={onReconnectEnd}

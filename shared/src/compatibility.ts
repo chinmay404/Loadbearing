@@ -511,6 +511,35 @@ function ruleSyncOutOfQueue(
 }
 
 /** Rule 15 — the edge cache placed behind the thing it exists to protect. */
+/**
+ * A load balancer forwards HTTP or TCP to compute targets (instances, containers,
+ * functions), and a CDN pulls from an HTTP origin or object storage. Neither can
+ * hand a request to a database, cache or queue: there is nothing on the other end
+ * to answer it.
+ */
+function ruleRouterToNonTarget(
+  from: GraphNode,
+  to: GraphNode,
+  kind: EdgeKind,
+  edgeIds: string[],
+): TopologyFinding | undefined {
+  if (kind !== 'sync') return undefined;
+  const isLb = from.type === 'load_balancer';
+  if (!isLb && from.type !== 'cdn') return undefined;
+  const target = DATASTORE_TYPES.has(to.type) || CACHE_TYPES.has(to.type) || BUFFER_TYPES.has(to.type);
+  if (!target) return undefined;
+  return finding(
+    'error',
+    'router-to-non-target',
+    isLb
+      ? `${from.label} can only forward requests to compute — instances, containers or functions — not to ${to.label}.`
+      : `${from.label} can only pull from a web origin or object storage, not from ${to.label}.`,
+    `Put a service between them: ${from.label} → service → ${to.label}.`,
+    [from.id, to.id],
+    edgeIds,
+  );
+}
+
 function ruleCdnBehindApp(
   from: GraphNode,
   to: GraphNode,
@@ -587,7 +616,8 @@ export function checkTopology(graph: GraphDSL): TopologyFinding[] {
     const single =
       ruleClientDirectToDatastore(from, to, edge.kind, [edge.id]) ??
       ruleReplicationBetweenUnlikeStores(from, to, edge.kind, [edge.id]) ??
-      ruleSyncOutOfQueue(from, to, edge.kind, [edge.id]);
+      ruleSyncOutOfQueue(from, to, edge.kind, [edge.id]) ??
+      ruleRouterToNonTarget(from, to, edge.kind, [edge.id]);
     if (single) errors.push(single);
   }
 
@@ -1185,6 +1215,7 @@ export function checkConnection(from: GraphNode, to: GraphNode, kind: EdgeKind):
   push(ruleClientDirectToDatastore(from, to, kind, []));
   push(ruleReplicationBetweenUnlikeStores(from, to, kind, []));
   push(ruleSyncOutOfQueue(from, to, kind, []));
+  push(ruleRouterToNonTarget(from, to, kind, []));
   push(ruleCdnBehindApp(from, to, kind, []));
   push(ruleDatastoreCallsService(from, to, kind, []));
 

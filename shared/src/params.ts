@@ -47,8 +47,8 @@ export interface ParamSpec {
 
 const VCPU: ParamSpec = {
   key: 'vcpu',
-  label: 'vCPU per replica',
-  hint: 'The size of one instance. With service time this is where capacity comes from, and it is most of the bill.',
+  label: 'vCPU (instance type)',
+  hint: 'vCPUs of the instance type or task size, e.g. m7g.large = 2. Most of the bill.',
   kind: 'number',
   group: 'size',
   min: 0.25,
@@ -57,8 +57,8 @@ const VCPU: ParamSpec = {
 
 const MEMORY: ParamSpec = {
   key: 'memoryGb',
-  label: 'Memory per replica',
-  hint: 'GB of RAM. Sizes the instance and, for a cache, decides how much fits before it starts evicting.',
+  label: 'Memory (GiB)',
+  hint: 'Memory of the instance type or task size.',
   kind: 'number',
   group: 'size',
   unit: 'GB',
@@ -68,8 +68,8 @@ const MEMORY: ParamSpec = {
 
 const SERVICE_TIME: ParamSpec = {
   key: 'latencyMs',
-  label: 'Own work per request',
-  hint: 'Milliseconds of its own processing, excluding waiting on anything else. Raising it lowers capacity: the same workers are held longer.',
+  label: 'Processing time (p50)',
+  hint: 'Measured, not set: median time your code spends per request, excluding waits.',
   kind: 'number',
   group: 'behaviour',
   unit: 'ms',
@@ -78,8 +78,8 @@ const SERVICE_TIME: ParamSpec = {
 
 const CAPACITY: ParamSpec = {
   key: 'capacityRps',
-  label: 'Capacity per replica',
-  hint: 'Requests per second one replica serves. Leave empty to derive it from size and service time, which is the more honest way round.',
+  label: 'Max requests/sec per instance',
+  hint: 'Measured in a load test, not set in AWS. Leave empty to derive it from size and processing time.',
   kind: 'number',
   group: 'size',
   unit: 'rps',
@@ -88,8 +88,8 @@ const CAPACITY: ParamSpec = {
 
 const REPLICAS: ParamSpec = {
   key: 'replicas',
-  label: 'Replicas',
-  hint: 'How many copies run. Fixed unless an autoscaling range says otherwise.',
+  label: 'Desired capacity',
+  hint: 'How many instances run (ASG desired capacity, ECS desired count).',
   kind: 'number',
   group: 'scaling',
   min: 1,
@@ -98,8 +98,8 @@ const REPLICAS: ParamSpec = {
 
 const AUTOSCALE_MIN: ParamSpec = {
   key: 'autoscaleMin',
-  label: 'Autoscale floor',
-  hint: 'Never fewer than this. The floor is what meets the first minute of a spike, because anything above it arrives late.',
+  label: 'Minimum capacity',
+  hint: 'Auto Scaling minimum. This is what meets the first minute of a spike.',
   kind: 'number',
   group: 'scaling',
   min: 1,
@@ -108,8 +108,8 @@ const AUTOSCALE_MIN: ParamSpec = {
 
 const AUTOSCALE_MAX: ParamSpec = {
   key: 'autoscaleMax',
-  label: 'Autoscale ceiling',
-  hint: 'Never more than this. Reached about a minute after the load asks for it; past the ceiling, traffic sheds.',
+  label: 'Maximum capacity',
+  hint: 'Auto Scaling maximum. New instances arrive about a minute late.',
   kind: 'number',
   group: 'scaling',
   min: 1,
@@ -118,8 +118,8 @@ const AUTOSCALE_MAX: ParamSpec = {
 
 const CPU_MS: ParamSpec = {
   key: 'cpuMs',
-  label: 'CPU per request',
-  hint: 'CPU time one request burns, not its wall time: CPU% ÷ requests per second. An event loop runs out of this, not of workers.',
+  label: 'CPU time per request',
+  hint: 'Measured, not set: CPU% ÷ requests per second.',
   kind: 'number',
   group: 'behaviour',
   unit: 'ms',
@@ -129,8 +129,8 @@ const CPU_MS: ParamSpec = {
 
 const LATENCY_P99: ParamSpec = {
   key: 'latencyP99Ms',
-  label: 'Slowest 1% of own work',
-  hint: 'With own work per request (the median), this sets how spread out single requests are. Only the request engine reads it.',
+  label: 'Processing time (p99)',
+  hint: 'Measured, not set: the slowest 1% of requests.',
   kind: 'number',
   group: 'behaviour',
   unit: 'ms',
@@ -139,8 +139,8 @@ const LATENCY_P99: ParamSpec = {
 
 const CONCURRENCY: ParamSpec = {
   key: 'concurrency',
-  label: 'Requests in flight per replica',
-  hint: 'Threads, workers or connections. Derived from vCPU when empty. This is the ceiling a slow dependency eats into.',
+  label: 'Max concurrent requests per instance',
+  hint: 'Worker threads or processes per instance (e.g. Gunicorn workers). Derived from vCPU when empty.',
   kind: 'number',
   group: 'behaviour',
   min: 1,
@@ -149,8 +149,8 @@ const CONCURRENCY: ParamSpec = {
 
 const TIMEOUT: ParamSpec = {
   key: 'timeoutMs',
-  label: 'Caller gives up after',
-  hint: 'A call slower than this fails rather than waits. Left empty, the caller is patient and only shedding causes loss.',
+  label: 'Client timeout',
+  hint: 'A call slower than this fails instead of waiting.',
   kind: 'number',
   group: 'behaviour',
   unit: 'ms',
@@ -159,8 +159,8 @@ const TIMEOUT: ParamSpec = {
 
 const POOL_SIZE: ParamSpec = {
   key: 'poolSize',
-  label: 'Connections held open',
-  hint: 'The pool in front of the store. Callers needing more than this queue for a connection, not for the data.',
+  label: 'Connection pool size',
+  hint: 'Connections kept open to the store; callers beyond this wait.',
   kind: 'number',
   group: 'behaviour',
   min: 1,
@@ -169,8 +169,8 @@ const POOL_SIZE: ParamSpec = {
 
 const MAX_CONNECTIONS: ParamSpec = {
   key: 'maxConnections',
-  label: 'Connections it accepts',
-  hint: 'What the store itself allows. Fifty replicas holding twenty each exhaust a hundred without ever hitting a request limit.',
+  label: 'max_connections',
+  hint: 'The database parameter-group limit on open connections.',
   kind: 'number',
   group: 'behaviour',
   min: 1,
@@ -179,8 +179,8 @@ const MAX_CONNECTIONS: ParamSpec = {
 
 const MULTI_AZ: ParamSpec = {
   key: 'multiAz',
-  label: 'Spread across zones',
-  hint: 'A second copy in another zone survives losing one. Roughly doubles the bill for this component.',
+  label: 'Multi-AZ',
+  hint: 'A standby in a second Availability Zone. Roughly doubles the bill.',
   kind: 'toggle',
   group: 'resilience',
 };
@@ -197,16 +197,16 @@ const COST_OVERRIDE: ParamSpec = {
 
 const ELASTIC: ParamSpec = {
   key: 'elastic',
-  label: 'Runs on a provider’s capacity',
-  hint: 'You did not size this and cannot scale it — a hosted endpoint. Capacity stops being your constraint; their rate limit and their price take over.',
+  label: 'Serverless / fully managed',
+  hint: 'AWS runs the capacity; its quota and price are your limits, not instance size.',
   kind: 'toggle',
   group: 'size',
 };
 
 const RATE_LIMIT: ParamSpec = {
   key: 'rateLimitRps',
-  label: 'Their rate limit',
-  hint: 'What the provider accepts before refusing you. This, not capacity, is what stops an elastic component.',
+  label: 'Service quota (requests/sec)',
+  hint: 'Requests per second the provider accepts before throttling you.',
   kind: 'number',
   group: 'behaviour',
   unit: 'rps',
@@ -278,8 +278,8 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
     MEMORY,
     {
       key: 'storageGb',
-      label: 'Data held',
-      hint: 'GB stored. The part of the bill that grows whether or not anyone reads it.',
+      label: 'Allocated storage (GiB)',
+      hint: 'Storage provisioned for the database; billed whether or not it is read.',
       kind: 'number',
       group: 'size',
       unit: 'GB',
@@ -287,8 +287,8 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
     },
     {
       key: 'shards',
-      label: 'Shards',
-      hint: 'Partitions holding different data, so throughput multiplies. Not the same as replicas, which hold the same data.',
+      label: 'Shards (partitions)',
+      hint: 'Partitions holding different data, so throughput multiplies. Not read replicas.',
       kind: 'number',
       group: 'scaling',
       min: 1,
@@ -298,7 +298,7 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
     CPU_MS,
     LATENCY_P99,
     CAPACITY,
-    REPLICAS,
+    { ...REPLICAS, label: 'Instances (writer + read replicas)', hint: 'Copies holding the same data: one writer, the rest read replicas.' },
     MAX_CONNECTIONS,
     MULTI_AZ,
     COST_OVERRIDE,
@@ -307,8 +307,8 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
   cache: [
     {
       key: 'memoryGb',
-      label: 'Cache size',
-      hint: 'GB of working set. Too small and the hit rate you assumed never materialises.',
+      label: 'Node memory (GiB)',
+      hint: 'Memory of the cache node type, e.g. cache.r7g.large = 13 GiB.',
       kind: 'number',
       group: 'size',
       unit: 'GB',
@@ -338,7 +338,7 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
     SERVICE_TIME,
     LATENCY_P99,
     CAPACITY,
-    REPLICAS,
+    { ...REPLICAS, label: 'Nodes', hint: 'Cache nodes in the cluster (primary plus replicas).' },
     MULTI_AZ,
     COST_OVERRIDE,
   ],
@@ -346,8 +346,8 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
   messaging: [
     {
       key: 'queueDepthMax',
-      label: 'Backlog it can hold',
-      hint: 'Messages buffered before it starts refusing. Deep enough to ride out a spike, or shallow enough to notice one.',
+      label: 'Max backlog (messages)',
+      hint: 'Messages buffered before it starts refusing new ones.',
       kind: 'number',
       group: 'behaviour',
       min: 0,
@@ -355,7 +355,7 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
     },
     CAPACITY,
     SERVICE_TIME,
-    REPLICAS,
+    { ...REPLICAS, label: 'Shards / partitions', hint: 'Kinesis shards or Kafka partitions. SQS scales itself, so leave it at 1.' },
     MULTI_AZ,
     COST_OVERRIDE,
   ],
@@ -444,9 +444,41 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
   ],
 };
 
+/**
+ * Managed services whose real settings differ from their family's. AWS runs and
+ * scales these, so there is no instance count or per-instance capacity to choose —
+ * only what the service itself lets you configure.
+ */
+export const PARAMS_BY_TYPE: Partial<Record<ArchNodeType, ParamSpec[]>> = {
+  load_balancer: [
+    {
+      ...CAPACITY,
+      label: 'LCU capacity reservation',
+      hint: 'AWS scales a load balancer itself. Set this only to model capacity reserved before a known spike.',
+      group: 'scaling',
+    },
+    { ...TIMEOUT, label: 'Idle timeout', hint: 'A connection idle longer than this is closed (default 60s).' },
+    COST_OVERRIDE,
+  ],
+  api_gateway: [
+    {
+      ...CAPACITY,
+      label: 'Throttling rate limit',
+      hint: 'Steady requests/sec before callers get 429s. AWS default: 10,000 per account per Region.',
+      group: 'behaviour',
+    },
+    { ...TIMEOUT, label: 'Integration timeout', hint: 'A backend slower than this returns 504 (default 29s).' },
+    COST_OVERRIDE,
+  ],
+  cdn: [COST_OVERRIDE],
+  dns: [COST_OVERRIDE],
+  geo_router: [COST_OVERRIDE],
+  waf: [COST_OVERRIDE],
+};
+
 /** The parameters this component type offers, in inspector order. */
 export function paramsFor(type: ArchNodeType): ParamSpec[] {
-  return PARAMS_BY_FAMILY[familyOf(type)];
+  return PARAMS_BY_TYPE[type] ?? PARAMS_BY_FAMILY[familyOf(type)];
 }
 
 export const GROUP_LABEL: Record<ParamGroup, string> = {

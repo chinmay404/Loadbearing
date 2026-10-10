@@ -147,7 +147,7 @@ function RequestCard({
       {declared && !broken && (
         <div className="request-path ok">
           <span className="mono">{route(flow!.steps)}</span>
-          {result && <ResultLine result={result} />}
+          {result && <ResultLine result={result} labelOf={labelOf} />}
         </div>
       )}
 
@@ -197,12 +197,12 @@ function RequestCard({
 }
 
 /** How the request held under load. */
-function ResultLine({ result }: { result: FlowResult }) {
+function ResultLine({ result, labelOf }: { result: FlowResult; labelOf: (id: string) => string }) {
   return (
     <div style={{ marginTop: 4 }}>
       <div className="request-result mono">
         <span className={result.broken ? 'bad' : 'good'}>
-          {result.broken ? `breaks at ${result.brokenAt}` : '✓ completes'}
+          {result.broken ? `breaks at ${labelOf(result.brokenAt ?? '')}` : '✓ completes'}
         </span>
         {' · '}
         {Math.round(result.completedRps)}/{Math.round(result.offeredRps)} rps · p99 {Math.round(result.p99Ms)}ms
@@ -311,7 +311,7 @@ function FlowEditor({
         ))}
       </select>
 
-      {result && <ResultLine result={result} />}
+      {result && <ResultLine result={result} labelOf={labelOf} />}
     </div>
   );
 }

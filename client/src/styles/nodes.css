@@ -1636,3 +1636,11 @@
     animation: uv-appear 1ms linear 900ms forwards;
   }
 }
+
+/* Mid-drag: a part this connection cannot reach in the real world. */
+.node.no-connect {
+  opacity: 0.35;
+  outline: 1.5px dashed var(--fail);
+  outline-offset: 3px;
+  transition: opacity var(--d-hover) ease;
+}

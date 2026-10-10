@@ -142,3 +142,26 @@ describe('the families themselves', () => {
     for (const family of families) expect(PARAMS_BY_FAMILY[family]).toBeDefined();
   });
 });
+
+describe('managed AWS services offer only what AWS lets you set', () => {
+  it('has no instance count on a load balancer, API gateway, CDN or DNS', () => {
+    for (const type of ['load_balancer', 'api_gateway', 'cdn', 'dns'] as const) {
+      expect(keysFor(type), `${type} offers a replica count`).not.toContain('replicas');
+    }
+  });
+
+  it('names the real settings', () => {
+    const label = (type: Parameters<typeof paramsFor>[0], key: string) =>
+      paramsFor(type).find((p) => p.key === key)?.label;
+    expect(label('load_balancer', 'capacityRps')).toBe('LCU capacity reservation');
+    expect(label('api_gateway', 'capacityRps')).toBe('Throttling rate limit');
+    expect(label('service', 'autoscaleMin')).toBe('Minimum capacity');
+    expect(label('sql_db', 'maxConnections')).toBe('max_connections');
+  });
+
+  it('explains every per-type setting', () => {
+    for (const type of ['load_balancer', 'api_gateway'] as const) {
+      for (const spec of paramsFor(type)) expect(spec.hint.length).toBeGreaterThan(20);
+    }
+  });
+});
