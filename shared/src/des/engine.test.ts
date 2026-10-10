@@ -249,13 +249,24 @@ describe('a cache answers what it holds and passes the rest on', () => {
 });
 
 describe('what a service is when nobody says', () => {
-  it('is a thread pool spending 2 ms of CPU per request, and says so', () => {
-    const g = graph(
-      [node('web', 'client', { trafficRps: 10 }), node('app', 'service')],
-      [edge('web', 'app')],
-    );
-    const text = runDes(g, hold(5), { seed: 1 }).assumptions.join(' ');
+  const single = (rps: number, app: NodeAttrs) =>
+    graph([node('web', 'client', { trafficRps: rps }), node('app', 'service', app)], [edge('web', 'app')]);
+
+  it('is a thread pool limited by its workers alone, and says so', () => {
+    const text = runDes(single(10, {}), hold(5), { seed: 1 }).assumptions.join(' ');
     expect(text).toContain('thread pool');
+    expect(text).toContain('workers');
+  });
+
+  it('a thread pool with no CPU cost stated is never held up by its cores', () => {
+    // 100,000 workers at 1 ms. A guessed 2 ms of CPU on 2 default vCPU would cap it
+    // at 1,000 rps; with nothing stated, nothing caps it.
+    const result = runDes(single(3000, { concurrency: 100_000, latencyMs: 1 }), hold(), { seed: 1, warmupS: 5 });
+    expect(result.completionRatio).toBeGreaterThanOrEqual(0.99);
+  });
+
+  it('an event loop with no CPU cost stated spends 2 ms per request, and says so', () => {
+    const text = runDes(single(10, { runtime: 'event-loop' }), hold(5), { seed: 1 }).assumptions.join(' ');
     expect(text).toContain('2 ms');
   });
 });

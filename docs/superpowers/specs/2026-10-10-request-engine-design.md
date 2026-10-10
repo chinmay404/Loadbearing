@@ -1,7 +1,7 @@
 # Spec: Request-level simulation engine (DES) for Loadbearing
 
 Date: 2026-10-10
-Status: Phases 0–2 done; phase 2b next
+Status: Phases 0–2b done; phase 3 next
 Revision: 2 — review folded in (section 13 lists what changed and why)
 
 Read `docs/HOW-LOADBEARING-WORKS.md` first. Read `loadtest/RESULTS.md` second.
@@ -425,3 +425,29 @@ Each phase is one PR, with its tests green and the tripwire unchanged.
 - Checked in the running app with a throwaway account (deleted afterwards): a
   compute part's inspector shows "CPU per request" 2 and "Slowest 1% of own work"
   100 for its 40 ms of own work.
+
+## 16. Phase 2b result (2026-10-10)
+
+- `runEngine` now has the CPU limit: compute and ai get `vcpu × 1000 ÷ cpuMs` per
+  replica. An event loop has only that limit (its slots are irrelevant) and queues
+  for cores with the wait counted in CPU time (`withQueue`); `firstFailure` reads
+  "has run out of CPU". The rule is `cpuLimited()` in `des/runtime.ts`, read by both
+  engines and by the inspector.
+- **Decision taken while building it:** a thread pool is CPU-limited only when
+  `cpuMs` is **stated**. Applying the 2 ms default to every thread pool capped any
+  service with many workers and no stated size at 1,000 rps (2 default vCPU ÷ 2 ms)
+  — a limit from two numbers nobody chose, the same thing the engine already refuses
+  to do with unstated timeouts. Three scenario tests (cache death, failover both
+  ways) failed on exactly that, with their "never the bottleneck" API at 50% busy.
+  An event loop always uses the default, because CPU is its only limit. The
+  inspector shows "workers only" in an empty CPU field for a thread pool. Sections
+  5 and 6.5 are superseded on this point.
+- The tripwire did not move: no built-in blueprint states `runtime` or `cpuMs`.
+- New `des/agreement.test.ts`: for an event loop, a 4-worker thread pool and a
+  CPU-bound thread pool, the request engine keeps up at 95% of the flow engine's
+  capacity and falls behind at 105% (6,250 / 3,306 / 2,000 rps). The old flow model
+  gave the event loop 5,479 rps, which this test would have failed.
+- Still different between the engines, for test 9 to report: **datastores**. The
+  flow engine gives a store `vcpu × 8` slots held for its service time; the request
+  engine gives it `vcpu` cores with the whole service time as CPU — 8× less capacity
+  for the same drawing. Needs a decision before Play uses the request engine.

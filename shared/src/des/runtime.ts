@@ -54,6 +54,22 @@ export function cpuMsOf(node: GraphNode): number {
   return 0;
 }
 
+/**
+ * Whether this component runs out of CPU at all.
+ *
+ * An event loop always can: CPU is the only thing it holds, so without a CPU figure
+ * it would have no limit. A thread pool only once somebody states its CPU per
+ * request — otherwise its workers are its limit, as they always were, and a cap
+ * from a guessed CPU figure would be a failure caused by a default nobody chose.
+ * A store's cores are always its limit.
+ */
+export function cpuLimited(node: GraphNode): boolean {
+  const family = familyOf(node.type);
+  if (family === 'datastore') return true;
+  if (family !== 'compute' && family !== 'ai') return false;
+  return runtimeOf(node) === 'event-loop' || positive(node.attrs?.cpuMs);
+}
+
 /** The slowest 1% of own work, ms: stated, or the flow engine's idle tail multiple. */
 export function latencyP99Of(node: GraphNode): number {
   if (positive(node.attrs?.latencyP99Ms)) return node.attrs!.latencyP99Ms!;

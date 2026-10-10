@@ -17,7 +17,7 @@
 import { DEFAULT_CAPACITY, DEFAULT_CACHE_HIT_RATE, DEFAULT_LATENCY, DEFAULT_QUEUE_DEPTH_MAX } from './components.js';
 import { DEFAULT_MEMORY_GB, DEFAULT_STORAGE_GB, DEFAULT_VCPU } from './cost.js';
 import { concurrencyFor } from './engine.js';
-import { cpuMsOf, latencyP99Of } from './des/runtime.js';
+import { cpuLimited, cpuMsOf, latencyP99Of } from './des/runtime.js';
 import { familyOf } from './families.js';
 import type { ArchNodeType, NodeAttrs } from './types.js';
 
@@ -55,7 +55,8 @@ export function defaultFor(
     case 'shards':
       return 1;
     case 'cpuMs':
-      return family === 'compute' || family === 'ai' || family === 'datastore' ? cpuMsOf(node) : undefined;
+      // A thread pool with no CPU stated has no CPU limit: its workers are its limit.
+      return cpuLimited(node) ? cpuMsOf(node) : undefined;
     case 'latencyP99Ms':
       return latencyP99Of(node);
     case 'concurrency':
@@ -116,6 +117,8 @@ export function placeholderFor(
         return 'not a source';
       case 'monthlyCost':
         return 'calculated';
+      case 'cpuMs':
+        return 'workers only';
       default:
         return 'none';
     }

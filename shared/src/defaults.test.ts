@@ -28,9 +28,14 @@ describe('defaultFor', () => {
     expect(defaultFor('vm', 'concurrency', { vcpu: 1 })).toBe(8);
   });
 
-  it('gives a service 2 ms of CPU, never more than its whole service time', () => {
-    expect(defaultFor('service', 'cpuMs', { latencyMs: 40 })).toBe(2);
-    expect(defaultFor('service', 'cpuMs', { latencyMs: 0.5 })).toBe(0.5);
+  it('gives an event loop 2 ms of CPU, never more than its whole service time', () => {
+    expect(defaultFor('service', 'cpuMs', { runtime: 'event-loop', latencyMs: 40 })).toBe(2);
+    expect(defaultFor('service', 'cpuMs', { runtime: 'event-loop', latencyMs: 0.5 })).toBe(0.5);
+  });
+
+  it('gives a thread pool no CPU limit until one is stated, and says what limits it instead', () => {
+    expect(defaultFor('service', 'cpuMs', { latencyMs: 40 })).toBeUndefined();
+    expect(placeholderFor('service', 'cpuMs', { latencyMs: 40 })).toBe('workers only');
   });
 
   it('treats all of a store’s service time as CPU until told otherwise', () => {

@@ -1429,3 +1429,72 @@ describe('name resolution is off the hot path once answered', () => {
     expect(hop(result, 'app').servedRps).toBeCloseTo(2000, 0);
   });
 });
+
+describe('event loops and thread pools', () => {
+  // A service in front of a store. One core, 0.16 ms of CPU and 0.41 ms of own work
+  // per request: the measured Node handler from loadtest/RESULTS.md.
+  const stack = (rps: number, app: NodeAttrs, dbLatencyMs = 1) =>
+    graph(
+      [
+        node('web', 'client', { trafficRps: rps }),
+        node('app', 'service', { vcpu: 1, cpuMs: 0.16, latencyMs: 0.41, ...app }),
+        node('db', 'sql_db', { latencyMs: dbLatencyMs, capacityRps: 1_000_000 }),
+      ],
+      [edge('web', 'app'), edge('app', 'db')],
+    );
+
+  it('an event loop serves cores ÷ CPU per request: 1 ÷ 0.16 ms = 6,250 rps', () => {
+    const app = hop(runEngine(stack(1000, { runtime: 'event-loop' }), scenario()), 'app');
+    expect(app.capacityRps).toBeCloseTo(6250, -1);
+  });
+
+  it('an event loop is not slowed by a slow dependency, because waiting holds nothing', () => {
+    // A 50 ms database would cut 8 workers to 8 ÷ 50 ms = 160 rps. An event loop
+    // keeps its 6,250.
+    const app = hop(runEngine(stack(1000, { runtime: 'event-loop' }, 50), scenario()), 'app');
+    expect(app.capacityRps).toBeCloseTo(6250, -1);
+  });
+
+  it('an event loop past its CPU drops the excess, and says the CPU ran out', () => {
+    const result = runEngine(stack(7000, { runtime: 'event-loop' }), scenario());
+    expect(hop(result, 'app').droppedRps).toBeCloseTo(750, -1);
+    expect(result.firstFailure?.nodeId).toBe('app');
+    expect(result.firstFailure?.reason ?? '').toContain('CPU');
+  });
+
+  it('an event loop queues for CPU, so the wait is counted in CPU time', () => {
+    // 5,000 rps on one core at 0.16 ms is 80% busy: the M/M/1 response multiple is
+    // 1 / (1 − 0.8) = 5, so the wait is 0.16 × (5 − 1) = 0.64 ms on top of 0.41 ms of
+    // own work — 1.05 ms. Queueing the whole 0.41 ms would say 2.05 ms.
+    const app = hop(runEngine(stack(5000, { runtime: 'event-loop' }), scenario()), 'app');
+    expect(app.latencyMs).toBeCloseTo(1.05, 1);
+  });
+
+  it('a thread pool is held to the smaller of its workers and its CPU', () => {
+    // 64 workers held ~2.5 ms each could serve ~25,000 rps; one core at 0.5 ms of
+    // CPU serves 2,000. CPU binds.
+    const app = hop(
+      runEngine(stack(1000, { runtime: 'thread-pool', concurrency: 64, cpuMs: 0.5, latencyMs: 1 }), scenario()),
+      'app',
+    );
+    expect(app.capacityRps).toBeCloseTo(2000, -1);
+  });
+
+  it('a thread pool nobody gave a CPU cost to is held by its workers alone', () => {
+    // No cpuMs stated: a limit from a guessed CPU figure would be a default nobody
+    // chose. 100,000 workers at 1 ms carry the 3,000 rps without dropping any.
+    const g = graph(
+      [node('web', 'client', { trafficRps: 3000 }), node('api', 'service', { concurrency: 100_000, latencyMs: 1 })],
+      [edge('web', 'api')],
+    );
+    expect(hop(runEngine(g, scenario()), 'api').droppedRps).toBe(0);
+  });
+
+  it('a thread pool with few workers is still held to its workers', () => {
+    // 4 workers held for 0.41 ms of own work + 0.5 ms of wire + 1 ms of store:
+    // 4 ÷ 1.91 ms ≈ 2,090 rps, under the 6,250 its CPU would allow.
+    const app = hop(runEngine(stack(1000, { runtime: 'thread-pool', concurrency: 4 }), scenario()), 'app');
+    expect(app.capacityRps).toBeGreaterThan(1900);
+    expect(app.capacityRps).toBeLessThan(2300);
+  });
+});

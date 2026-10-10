@@ -19,7 +19,7 @@ import { TAIL_MULTIPLE_IDLE } from '../queueing.js';
 import type { GraphDSL, GraphEdge, GraphNode } from '../types.js';
 import { Z_99 } from './dist.js';
 import type { Rng } from './rng.js';
-import { cpuMsOf, DEFAULT_SERVICE_CPU_MS, latencyMsOf, latencyP99Of, runtimeOf } from './runtime.js';
+import { cpuLimited, cpuMsOf, DEFAULT_SERVICE_CPU_MS, latencyMsOf, latencyP99Of, runtimeOf } from './runtime.js';
 
 /** Test hook: replace a part's log-normal service time, by node id. */
 export type ServiceOverride = 'exponential' | 'fixed';
@@ -105,7 +105,9 @@ function buildPart(node: GraphNode, index: number, override: ServiceOverride | u
   const elastic = node.attrs?.elastic === true || runtime === 'serverless' || !COMPUTES.has(family) || !(vcpu > 0);
 
   const shards = family === 'datastore' && positive(node.attrs?.shards) ? Math.floor(node.attrs!.shards!) : 1;
-  const cores = elastic ? Infinity : Math.max(1, Math.floor(vcpu)) * replicas * shards;
+  // A thread pool nobody gave a CPU cost to is held by its workers alone: its work
+  // still takes its time, but no core is ever what it waits for.
+  const cores = elastic || !cpuLimited(node) ? Infinity : Math.max(1, Math.floor(vcpu)) * replicas * shards;
 
   let tokens = Infinity;
   if (!elastic && runtime === 'thread-pool') {
@@ -144,9 +146,16 @@ export function buildModel(graph: GraphDSL, service: Record<string, ServiceOverr
   const parts = nodes.map((node, index) => buildPart(node, index, service[node.id]));
 
   const computing = parts.filter((p) => Number.isFinite(p.cores));
-  const pooled = computing.filter((p) => (p.family === 'compute' || p.family === 'ai') && !p.node.attrs?.runtime);
+  // Compute that is not elastic: it has workers, cores, or both to run out of.
+  const isCompute = (p: Part) =>
+    (p.family === 'compute' || p.family === 'ai') && (Number.isFinite(p.tokens) || Number.isFinite(p.cores));
+  const pooled = parts.filter((p) => isCompute(p) && !p.node.attrs?.runtime);
   if (pooled.length > 0) {
     assumptions.push(`${listed(pooled)} run(s) as a thread pool, because no runtime was stated.`);
+  }
+  const workersOnly = parts.filter((p) => isCompute(p) && !Number.isFinite(p.cores));
+  if (workersOnly.length > 0) {
+    assumptions.push(`${listed(workersOnly)}: limited by workers only, because no CPU per request was stated.`);
   }
   const guessedCpu = computing.filter((p) => (p.family === 'compute' || p.family === 'ai') && !positive(p.node.attrs?.cpuMs));
   if (guessedCpu.length > 0) {

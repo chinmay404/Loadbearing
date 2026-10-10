@@ -191,8 +191,11 @@ treatment:
 | `vcpu`, `memoryGb`, `storageGb`, `workingSetGb` | Size, for cost and for cache coverage. |
 | `cacheHitRate` | Share a cache absorbs. Default 0.8, capped by memory ÷ working set. |
 | `queueDepthMax` | Backlog a buffer holds before refusing. Default 100,000. |
-| `poolSize`, `maxConnections` | Connection ceiling, held open by callers / accepted by the store. |
+| `poolSize`, `maxConnections` | Connection ceiling, held open by a pooler / accepted by the store. The smaller binds. |
 | `timeoutMs` | How long callers wait for this part before giving up. Only enforced when stated. |
+| `runtime` | `thread-pool` (default: a worker held for the whole request), `event-loop` (holds nothing while waiting; limited by CPU), `serverless`. No inspector control yet. |
+| `cpuMs` | Mean CPU per request (CPU% ÷ rps), not wall time. An event loop defaults to 2 ms (capped at `latencyMs`); a thread pool has no CPU limit until it is stated. |
+| `latencyP99Ms` | Slowest 1% of own work; with `latencyMs` it sets the request engine's spread. Default 2.5 × median. |
 | `healthCheckS` | How long a balancer takes to notice a dead backend. Default 10 s. |
 | `multiAz` | Spread across zones: doubles cost, survives a zone loss. |
 | `trafficRps` | Marks a source and its baseline rate. |
@@ -317,12 +320,18 @@ which depends on the caller.
    becomes backlog that carries to the next tick. Replication edges carry nothing.
 3. **Capacity** per part = `min(statedCapacity × replicas, slots / occupancy)`:
    - Slots = concurrency × replicas (concurrency from `vcpu × 8` when sized).
+   - **CPU** (compute and ai): `vcpu × 1000 ÷ cpuMs` per replica. An **event loop**
+     has only this limit — waiting on a dependency costs it latency, never capacity
+     — and queues for its cores, with the wait counted in CPU time. A **thread pool**
+     is held to the smaller of its slots and its CPU, but only once `cpuMs` is
+     stated. `firstFailure` says "run out of CPU" when this binds. The rule lives in
+     `des/runtime.ts`, which the request engine reads too.
    - **Occupancy** (ms a request holds a slot) = own service time × queue multiple +
      the wire + the response of every synchronous dependency, weighted by calls per
      request. A slow dependency therefore eats the caller's capacity. Occupancy is
      damped between rounds (the step halves when the direction flips) so wide
      fan-outs settle instead of oscillating.
-   - A **connection ceiling** (`maxConnections` else `poolSize`) caps capacity at
+   - A **connection ceiling** (the smaller of `maxConnections` and `poolSize`) caps capacity at
      `ceiling × 1000 / occupancyMs` (Little's law turned round).
    - A **shared machine** divides its slots among members in proportion to their
      demand; members squeezed by it are flagged `hostLimited`.

@@ -40,6 +40,8 @@ import {
   waitP99Ms,
   TAIL_MULTIPLE_IDLE,
 } from './queueing.js';
+import { DEFAULT_VCPU } from './cost.js';
+import { cpuLimited, cpuMsOf, runtimeOf } from './des/runtime.js';
 import { inferPlacement, rttMs } from './network.js';
 import { shareOut, slotsNeeded } from './pools.js';
 import type {
@@ -491,12 +493,46 @@ function defaultConcurrency(node: GraphNode): number {
 function perReplicaCapacity(node: GraphNode, occupancyMs: number): number {
   const explicit = node.attrs?.capacityRps;
   if (typeof explicit === 'number' && explicit > 0) return explicit;
+  // An event loop holds nothing while it waits, so the only thing it runs out of
+  // is CPU. Waiting on a slow dependency costs it latency, never capacity.
+  const cpu = cpuCapacityPerReplica(node);
+  if (isEventLoop(node)) return cpu;
+  return Math.min(cpu, slotCapacityPerReplica(node, occupancyMs));
+}
+
+/** Workers ÷ how long each is held: the thread-pool limit, as it always was. */
+function slotCapacityPerReplica(node: GraphNode, occupancyMs: number): number {
   if (occupancyMs <= 0) return DEFAULT_CAPACITY[node.type] ?? 500;
   const concurrency = num(node.attrs?.concurrency, concurrencyFor(node));
   const shards = Math.max(1, Math.floor(num(node.attrs?.shards, 1)));
   // Shards hold DIFFERENT data, so throughput multiplies. Replicas hold the same data
   // and are handled separately, because they buy availability rather than capacity.
   return (concurrency / (occupancyMs / 1000)) * shards;
+}
+
+/**
+ * What one replica's cores can compute per second: vCPU ÷ CPU per request.
+ *
+ * The second limit on compute, beside its workers. A thread pool holding a worker
+ * through a wait still needs a core for the part of the request that computes, so
+ * it is held to the smaller of the two — once its CPU per request is stated; an
+ * event loop has only this one, from the default if nobody said. The CPU
+ * figure and its default come from des/runtime.ts, which the request engine reads
+ * too, so the preview and the Play result run out of CPU at the same rate.
+ */
+function cpuCapacityPerReplica(node: GraphNode): number {
+  const family = familyOf(node.type);
+  if ((family !== 'compute' && family !== 'ai') || !cpuLimited(node)) return Number.POSITIVE_INFINITY;
+  if (node.attrs?.elastic === true || runtimeOf(node) === 'serverless') return Number.POSITIVE_INFINITY;
+  const vcpu = num(node.attrs?.vcpu, DEFAULT_VCPU[family]);
+  const cpuMs = cpuMsOf(node);
+  if (!(vcpu > 0) || !(cpuMs > 0)) return Number.POSITIVE_INFINITY;
+  return (vcpu * 1000) / cpuMs;
+}
+
+/** An event loop that has cores of its own to run out of. */
+function isEventLoop(node: GraphNode): boolean {
+  return runtimeOf(node) === 'event-loop' && Number.isFinite(cpuCapacityPerReplica(node));
 }
 
 /**
@@ -515,6 +551,10 @@ function perReplicaCapacity(node: GraphNode, occupancyMs: number): number {
  * channels, and a queue with 640 servers behaves nothing like a queue with ten.
  */
 function serversOf(node: GraphNode, replicas: number): number {
+  if (isEventLoop(node)) {
+    const vcpu = num(node.attrs?.vcpu, DEFAULT_VCPU[familyOf(node.type)]);
+    return Math.max(1, Math.round(vcpu * replicas));
+  }
   const concurrency = num(node.attrs?.concurrency, concurrencyFor(node));
   const shards = Math.max(1, Math.floor(num(node.attrs?.shards, 1)));
   return Math.max(1, Math.round(concurrency * replicas * shards));
@@ -920,6 +960,11 @@ interface NodeRuntime {
   hostLimited: boolean;
   /** Parallel service channels, for queueing. */
   servers: number;
+  /**
+   * What one request holds a channel for, when that is not its whole occupancy:
+   * an event loop's CPU per request. Zero means the whole occupancy, as a worker is.
+   */
+  queuedMs: number;
   /** Own service time plus everything synchronously waited on, ms. */
   occupancyMs: number;
   /**
@@ -1059,6 +1104,16 @@ const WORKER_BOUND: ReadonlySet<Family> = new Set<Family>([
  * for thirty. That cap is physically correct and also what bounds the feedback
  * loop — the spiral must be possible, but it must terminate.
  */
+/**
+ * `base` plus the wait for a free channel. A worker is held for the whole request,
+ * so the wait scales with all of it; an event loop waits only for a core, so its
+ * wait is counted in CPU time and its own waiting on others is not multiplied.
+ */
+function withQueue(r: NodeRuntime, base: number): number {
+  const multiple = responseMultiple(r.utilization, r.servers);
+  return r.queuedMs > 0 ? base + r.queuedMs * (multiple - 1) : base * multiple;
+}
+
 function computeOccupancy(prep: Prepared, runtime: Map<string, NodeRuntime>): void {
   const memo = new Map<string, number>();
 
@@ -1117,7 +1172,7 @@ function computeOccupancy(prep: Prepared, runtime: Map<string, NodeRuntime>): vo
     );
     r.occupancyMs = occupancy;
 
-    const response = occupancy * responseMultiple(r.utilization, r.servers);
+    const response = withQueue(r, occupancy);
     memo.set(nodeId, response);
     return response;
   };
@@ -1147,7 +1202,7 @@ function responseTimes(prep: Prepared, runtime: Map<string, NodeRuntime>): Map<s
       : {
           p50: r.latencyMs,
           // Service-time spread (an openly-labelled estimate) plus the true M/M/c wait.
-          p99: r.serviceMs * TAIL_MULTIPLE_IDLE + waitP99Ms(r.utilization, r.servers, r.serviceMs),
+          p99: r.serviceMs * TAIL_MULTIPLE_IDLE + waitP99Ms(r.utilization, r.servers, r.queuedMs || r.serviceMs),
         };
 
   const visit = (id: string, visiting: Set<string>): { p50: number; p99: number } => {
@@ -1374,6 +1429,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
         failFraction: 0,
         hostLimited: false,
         servers: serversOf(node, replicas),
+        queuedMs: isEventLoop(node) ? cpuMsOf(node) : 0,
         occupancyMs: serviceMs,
         occDamped: serviceMs,
         occStep: 1,
@@ -1659,7 +1715,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
       // What each component's callers will see next round.
       for (const node of prep.nodes) {
         const r = runtime.get(node.id)!;
-        r.latencyMs = r.bypassed ? 0 : r.serviceMs * responseMultiple(r.utilization, r.servers);
+        r.latencyMs = r.bypassed ? 0 : withQueue(r, r.serviceMs);
       }
       const roundResponses = responseTimes(prep, runtime);
       for (const node of prep.nodes) runtime.get(node.id)!.responseMs = roundResponses.get(node.id)?.p50 ?? 0;
@@ -1682,7 +1738,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
     // seconds on a payment provider is a four-second API to whoever called it.
     for (const node of prep.nodes) {
       const r = runtime.get(node.id)!;
-      r.latencyMs = r.bypassed ? 0 : r.serviceMs * responseMultiple(r.utilization, r.servers);
+      r.latencyMs = r.bypassed ? 0 : withQueue(r, r.serviceMs);
     }
     const responses = responseTimes(prep, runtime);
     for (const node of prep.nodes) {
@@ -1904,6 +1960,14 @@ function reasonFor(r: NodeRuntime): string {
   if (r.down && !r.bypassed) return `${r.node.label} is offline, and nothing else serves its traffic.`;
   if (r.hostLimited) {
     return `${r.node.label} shares a pool that has run out of room — the components beside it are using the machines.`;
+  }
+  // Compute that has run out of cores says so, rather than blaming its workers.
+  const cpuLimit = cpuCapacityPerReplica(r.node) * r.replicas;
+  if (r.arriving > r.capacity + EPSILON && Number.isFinite(cpuLimit) && cpuLimit <= r.capacity * (1 + 1e-9)) {
+    const cpuMs = cpuMsOf(r.node);
+    const needed = (r.arriving * cpuMs) / 1000;
+    const vcpu = num(r.node.attrs?.vcpu, DEFAULT_VCPU[r.family]) * r.replicas;
+    return `${r.node.label} has run out of CPU: ${Math.round(r.arriving)} rps × ${cpuMs} ms of CPU needs ${needed.toFixed(1)} cores, and it has ${vcpu}.`;
   }
   // Before blaming throughput: a store can be almost idle by request count and
   // still be turning callers away because it has no connection left to give.
