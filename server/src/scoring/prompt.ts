@@ -133,13 +133,41 @@ function allowedNodeTypes(): string {
   ].join(' ');
 }
 
+/** A beginner sheet's lesson, hints and words, so the grader and coach teach the same thing. */
+function renderLesson(p: Problem): string {
+  if (!p.track) return '';
+  const lines = [`What this sheet teaches: ${p.learn ?? ''}`];
+  if (p.hints?.length) {
+    lines.push(`Hints the learner can reveal, in order:\n${p.hints.map((h, i) => `  ${i + 1}. ${h.text}`).join('\n')}`);
+  }
+  if (p.glossary?.length) {
+    lines.push(`Words defined on the sheet:\n${p.glossary.map((g) => `  - ${g.term} — ${g.meaning}`).join('\n')}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+/** Goes in the user message: the system prefix must not change per sheet kind. */
+function renderBeginnerRules(p: Problem): string {
+  if (!p.track) return '';
+  return `
+BEGINNER SHEET — grade it as one
+This sheet teaches exactly one idea: "${p.learn ?? ''}"
+- Judge the design against that idea and the stated numbers. A design that gets the idea right scores
+  at least 7/10 on the dimensions it touches and at least 65 overall, even if it ignores advanced concerns.
+- Do not list advanced absences (observability, multi-region, auth hardening, idempotency, rate limiting
+  — unless this sheet teaches it) under critical_failures or missing. At most one may appear in at_10x.
+- Write every note, failure and question in plain words, and define a technical term the first time you
+  use it. socratic_questions should be easy questions about this sheet's one idea.
+`;
+}
+
 function renderProblem(p: Problem): string {
   const nf = Object.entries(p.nonFunctional)
     .map(([k, v]) => `  - ${k}: ${v}`)
     .join('\n');
-  return `PROBLEM (level ${p.level}/6, domain: ${p.domain})
+  return `PROBLEM (level ${p.level}/6${p.track ? ` — beginner sheet, ${p.track.stage}` : ''}, domain: ${p.domain})
 Title: ${p.title}
-
+${renderLesson(p)}
 ${p.prompt}
 
 Functional requirements:
@@ -342,7 +370,7 @@ than intent, say so.
     : '';
 
   const user = `${renderProblem(problem)}
-${twistBlock}
+${renderBeginnerRules(problem)}${twistBlock}
 === THE LEARNER'S DESIGN ===
 ${renderGraph(graph)}
 ${sim ? `\n${renderSim(sim)}\n` : ''}

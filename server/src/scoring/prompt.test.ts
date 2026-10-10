@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatTurn, GraphDSL, Problem } from '@loadbearing/shared';
-import { buildCritiquePrompt } from './prompt.js';
+import { buildCritiquePrompt, buildScoringPrompt } from './prompt.js';
 
 const graph: GraphDSL = {
   nodes: [
@@ -67,5 +67,40 @@ describe('buildCritiquePrompt', () => {
   it('says nothing about a conversation on the first question', () => {
     const { user } = buildCritiquePrompt(problem, graph, 'Where is the SPOF?');
     expect(user).not.toContain('THE CONVERSATION SO FAR');
+  });
+});
+
+describe('beginner sheets', () => {
+  const beginner: Problem = {
+    ...problem,
+    level: 1,
+    track: { topic: 'photo-upload', stage: 'basics' },
+    learn: 'Photos belong in object storage, not on the app server.',
+    hints: [{ text: 'Where do the photo files live?' }],
+    glossary: [{ term: 'object storage', meaning: 'a cheap place to keep files' }],
+  };
+
+  it('tells the grader to judge the one idea, in plain words', () => {
+    const { user } = buildScoringPrompt({ problem: beginner, graph });
+    expect(user).toContain('BEGINNER SHEET');
+    expect(user).toContain('Photos belong in object storage, not on the app server.');
+    expect(user).toContain('at least 65 overall');
+  });
+
+  it('keeps the system prompt byte-identical, so the cached prefix still hits', () => {
+    expect(buildScoringPrompt({ problem: beginner, graph }).system).toBe(
+      buildScoringPrompt({ problem, graph }).system,
+    );
+  });
+
+  it('says nothing about beginners on an ordinary sheet', () => {
+    expect(buildScoringPrompt({ problem, graph }).user).not.toContain('BEGINNER SHEET');
+  });
+
+  it('gives the coach the sheet’s lesson, hints and words', () => {
+    const { user } = buildCritiquePrompt(beginner, graph, 'Where do I start?');
+    expect(user).toContain('What this sheet teaches: Photos belong in object storage');
+    expect(user).toContain('Where do the photo files live?');
+    expect(user).toContain('object storage — a cheap place to keep files');
   });
 });
