@@ -438,6 +438,45 @@ export interface ProblemDiagram extends BlueprintLike {
   caption: string;
 }
 
+/** Where a beginner sheet sits on the "Start here" ladder. */
+export interface ProblemTrack {
+  /** One of the ladder topics, e.g. 'photo-upload'. */
+  topic: string;
+  stage: 'basics' | 'step-up';
+  /** The sheet to open after this one. */
+  next?: string;
+}
+
+/** One hint on a beginner sheet, revealed one at a time. */
+export interface ProblemHint {
+  text: string;
+  /** "Show me": the one component this hint is about, placed as a ghost. */
+  ghost?: { type: ArchNodeType; label: string; annotation?: string };
+}
+
+export interface GlossaryEntry {
+  term: string;
+  meaning: string;
+}
+
+/**
+ * One request the design must handle, filled in for the learner so declaring a
+ * flow is a confirmation rather than five unexplained decisions.
+ */
+export interface FlowPlan {
+  /** Matches an `expectedFlows` entry, so coverage still counts. */
+  name: string;
+  kind: FlowKind;
+  rps: number;
+  /** One sentence a beginner can read: what this request is. */
+  plain: string;
+  /**
+   * How to recognise this request's path in a drawing: each inner list is "the path
+   * passes through one of these types". Absent = any path from where traffic starts.
+   */
+  mustReach?: ArchNodeType[][];
+}
+
 export interface Problem {
   id: string;
   title: string;
@@ -466,6 +505,14 @@ export interface Problem {
   /** Load scenarios the simulator can run against the user's design. */
   scenarios: LoadScenario[];
   custom?: boolean;
+  /** Present only on "Start here" sheets. */
+  track?: ProblemTrack;
+  /** One line: what this sheet teaches. */
+  learn?: string;
+  hints?: ProblemHint[];
+  glossary?: GlossaryEntry[];
+  /** Pre-filled requests; derived from `expectedFlows` when absent. */
+  flowPlans?: FlowPlan[];
 }
 
 /** Machine-checkable thresholds a design must clear for a scenario to pass. */
@@ -505,7 +552,7 @@ export interface LoadScenario {
 
 export type ProblemSummary = Pick<
   Problem,
-  'id' | 'title' | 'level' | 'domain' | 'concepts' | 'custom' | 'kind'
+  'id' | 'title' | 'level' | 'domain' | 'concepts' | 'custom' | 'kind' | 'track'
 >;
 
 export const DIMENSION_KEYS = [

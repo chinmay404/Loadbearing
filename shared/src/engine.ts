@@ -778,6 +778,14 @@ export function entryPoints(graph: GraphDSL): { node: GraphNode; baseRps: number
   return prepare(graph).sources;
 }
 
+/**
+ * Every request path from where traffic starts, walked exactly as the engine walks
+ * them. Exported so a flow can be read off the drawing instead of typed in.
+ */
+export function requestPaths(graph: GraphDSL): PathReport[] {
+  return prepare(graph).paths;
+}
+
 /** What a source emits when nobody has said. Enough to be interesting, not absurd. */
 export const DEFAULT_SOURCE_RPS = 100;
 

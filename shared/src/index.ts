@@ -19,6 +19,7 @@ export * from './simulate.js';
 export * from './des/index.js';
 export * from './compatibility.js';
 export * from './scenarios.js';
+export * from './flowPlans.js';
 export * from './diff.js';
 export * from './blueprints.js';
 export * from './diagram.js';
