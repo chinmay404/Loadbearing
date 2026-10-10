@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import { useApp } from '../state/appStore';
 import { useCanvas, type ArchNodeData } from '../state/canvasStore';
+import { Markdown } from '../ui/Markdown';
 
 // Questions a beginner can ask before they know the vocabulary. The coach
 // explains and then names the next step, so "what next?" always has an answer.
@@ -105,12 +106,6 @@ export function AskPanel() {
 
   return (
     <div className="col" style={{ height: '100%' }}>
-      <p className="faint" style={{ fontSize: 12, marginTop: 0 }}>
-        Your teacher: it explains ideas in plain words, looks at what you drew, and tells you the next
-        step — often as a ghost box you can accept with one click. Ask what any word means. Select
-        components on the canvas to ask about them specifically.
-      </p>
-
       {selectedNodes.length > 0 && (
         <div className="row wrap" style={{ gap: 3, marginBottom: 8 }}>
           <span className="stencil">asking about</span>
@@ -147,7 +142,10 @@ export function AskPanel() {
       <div className="chat-log grow" style={{ overflow: 'auto' }}>
         {log.map((m, i) => (
           <div className={`msg ${m.role}`} key={i}>
-            {m.text}
+            {/* The coach writes Markdown — paragraphs, bold terms, bullet steps — so its
+                answers are rendered, not shown as one dense block. Your own question stays
+                exactly as you typed it. */}
+            {m.role === 'ai' ? <Markdown source={m.text} /> : m.text}
           </div>
         ))}
         {busy && (

@@ -57,6 +57,15 @@ describe('buildCritiquePrompt', () => {
     expect(system).not.toContain('not allowed to reveal');
   });
 
+  it('writes simple Markdown the panel renders: short paragraphs, bold terms, bullet steps', () => {
+    const { system } = buildCritiquePrompt(problem, graph, 'Where do I start?');
+
+    expect(system).toContain('Format the answer as simple Markdown');
+    expect(system).toContain('**Next step:**');
+    // The old rule produced one dense block of text with nothing to scan.
+    expect(system).not.toContain('Plain text only');
+  });
+
   it('may put the next component on the canvas without being asked, one at a time', () => {
     const { system } = buildCritiquePrompt(problem, graph, 'Explain what I drew');
 

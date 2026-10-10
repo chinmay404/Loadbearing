@@ -1279,3 +1279,8 @@ ol.connect-steps > li > p {
 .request-card .request-path { margin: 4px 0 6px; font-size: 12.5px; }
 .request-card .request-path.ok .mono { color: var(--pass); }
 .request-card .warn-text { margin: 0 0 4px; font-size: 12px; color: var(--load); }
+
+/* Rendered coach answers: Markdown sets its own spacing, so the bubble stops preserving raw whitespace. */
+.msg.ai { white-space: normal; }
+.msg.ai .md ul,
+.msg.ai .md ol { margin: 4px 0 6px; padding-left: 18px; }
