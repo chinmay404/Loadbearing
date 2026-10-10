@@ -1274,3 +1274,8 @@ ol.connect-steps > li > p {
 .brief-hints li { margin-bottom: 5px; }
 .brief-hints .link-btn { margin-left: 6px; }
 .brief-next { margin-top: 12px; }
+
+/* ------------------------------------------------------- request cards ---- */
+.request-card .request-path { margin: 4px 0 6px; font-size: 12.5px; }
+.request-card .request-path.ok .mono { color: var(--pass); }
+.request-card .warn-text { margin: 0 0 4px; font-size: 12px; color: var(--load); }
