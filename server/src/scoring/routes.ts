@@ -241,9 +241,10 @@ scoringRoutes.post('/critique', requireUser, async (c) => {
   );
   const critique = validateCritique(raw, graph);
 
-  // The coach hints; it does not build. Whatever the model wanted, an empty
-  // canvas gets no ghost components, and a question never earns more than one.
-  critique.suggested_additions = graph.nodes.length === 0 ? [] : critique.suggested_additions.slice(0, 1);
+  // The coach teaches one step at a time: whatever the model wanted, an answer
+  // never puts more than one ghost component down — including the first box on
+  // an empty canvas, which is where a beginner most needs to be shown.
+  critique.suggested_additions = critique.suggested_additions.slice(0, 1);
   if (graph.nodes.length === 0) critique.canvas_markup = [];
 
   // What the learner was pointing at is part of what they asked, so it is stored

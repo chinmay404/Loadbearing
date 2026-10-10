@@ -581,7 +581,8 @@ pipeline (`server/src/scoring`):
 
 Other model-backed endpoints: **Ask** (`/chat`, a coach that knows the sheet),
 **Attack** (`/attacks`, adversarial scenarios against the design), **Critique**
-(`/critique`, free-form), **Socratic** (`/socratic`, grades a learner's free-text
+(`/critique`, free-form; a teacher that explains in plain words and names the next
+step, with at most one ghost component per answer), **Socratic** (`/socratic`, grades a learner's free-text
 explanation). Providers: Anthropic, any OpenAI-compatible endpoint, or an offline
 fake (`LlmProvider`). Each user brings their own key in Settings; responses are
 cached (`llm_cache`). Drawing, simulating and checks never need a model.

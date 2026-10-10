@@ -45,6 +45,25 @@ describe('buildCritiquePrompt', () => {
     expect(system).toContain('one continuing conversation');
   });
 
+  it('teaches rather than quizzes: explains first, then says what to do next', () => {
+    const { system } = buildCritiquePrompt(problem, graph, 'Where do I start?');
+
+    expect(system).toContain('patient teacher');
+    expect(system).toContain('plain words');
+    expect(system).toContain('NEXT STEP');
+    // The old coach was forbidden from naming components and answered questions
+    // with questions. A beginner learns nothing from that.
+    expect(system).not.toContain('NEVER enumerate');
+    expect(system).not.toContain('not allowed to reveal');
+  });
+
+  it('may put the next component on the canvas without being asked, one at a time', () => {
+    const { system } = buildCritiquePrompt(problem, graph, 'Explain what I drew');
+
+    expect(system).toContain('suggested_additions: at most ONE');
+    expect(system).not.toContain('only when the learner EXPLICITLY asked');
+  });
+
   it('says nothing about a conversation on the first question', () => {
     const { user } = buildCritiquePrompt(problem, graph, 'Where is the SPOF?');
     expect(user).not.toContain('THE CONVERSATION SO FAR');

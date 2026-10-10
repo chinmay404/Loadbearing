@@ -3,12 +3,14 @@ import { api, ApiError } from '../lib/api';
 import { useApp } from '../state/appStore';
 import { useCanvas, type ArchNodeData } from '../state/canvasStore';
 
+// Questions a beginner can ask before they know the vocabulary. The coach
+// explains and then names the next step, so "what next?" always has an answer.
 const STARTERS = [
-  'Where is the single point of failure in what I drew?',
-  'Is anything here overengineered for these constraints?',
-  'What happens to my write path if the database fails over?',
-  'Which component saturates first as traffic grows?',
-  'How would you make this idempotent end to end?',
+  'Explain this problem to me in simple words.',
+  'Where do I start?',
+  'Explain what I drew. What is good, and what is missing?',
+  'What is a flow, and which ones do I need here?',
+  'What should I do next?',
 ];
 
 export function AskPanel() {
@@ -104,9 +106,9 @@ export function AskPanel() {
   return (
     <div className="col" style={{ height: '100%' }}>
       <p className="faint" style={{ fontSize: 12, marginTop: 0 }}>
-        A coach, not an answer machine: it sharpens your thinking about what you drew, and only proposes
-        a component when you explicitly ask what to add. Select components on the canvas to ask about
-        them specifically.
+        Your teacher: it explains ideas in plain words, looks at what you drew, and tells you the next
+        step — often as a ghost box you can accept with one click. Ask what any word means. Select
+        components on the canvas to ask about them specifically.
       </p>
 
       {selectedNodes.length > 0 && (
@@ -160,7 +162,7 @@ export function AskPanel() {
         <textarea
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Ask about your design…"
+          placeholder="Ask anything — “what does cache mean?”, “what next?”…"
           rows={2}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {

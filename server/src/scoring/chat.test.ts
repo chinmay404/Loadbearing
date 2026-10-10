@@ -149,6 +149,28 @@ describe('the coaching conversation', () => {
     expect(((await res.json()) as { turns: ChatTurn[] }).turns).toEqual([]);
   });
 
+  it('can show the first component on an empty canvas, but never more than one', async () => {
+    const ghost = (label: string) => ({ type: 'service', label, annotation: '', kind: 'sync', why: 'start here' });
+    (globalThis as unknown as { __FAKE_LLM_RESPONSE?: string }).__FAKE_LLM_RESPONSE = JSON.stringify({
+      answer: 'Start with the thing every request reaches first.',
+      canvas_markup: [],
+      suggested_additions: [ghost('App server'), ghost('Database'), ghost('Cache')],
+    });
+
+    const res = await app.request('/api/critique', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({
+        problemId: PROBLEM,
+        graph: { nodes: [], edges: [], stickies: [], flows: [] },
+        question: 'Where do I start?',
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { suggested_additions: { label: string }[] };
+    expect(body.suggested_additions.map((s) => s.label)).toEqual(['App server']);
+  });
+
   it('needs an account at all', async () => {
     const res = await app.request(`/api/chat/${PROBLEM}`);
     expect(res.status).toBe(401);
