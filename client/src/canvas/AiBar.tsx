@@ -22,13 +22,13 @@ export function AiBar() {
       {ghosts.length > 0 && (
         <>
           <span className="stencil" style={{ alignSelf: 'center', padding: '0 4px' }}>
-            {ghosts.length} AI proposal{ghosts.length > 1 ? 's' : ''}
+            {ghosts.length} suggested
           </span>
-          <button onClick={acceptAllGhosts} title="Accept every pending proposal">
-            Accept all
+          <button onClick={acceptAllGhosts} title="Accept every suggested component">
+            Accept
           </button>
-          <button onClick={rejectAllGhosts} title="Remove every pending proposal">
-            Dismiss all
+          <button className="ghost" onClick={rejectAllGhosts} title="Remove every suggested component">
+            Dismiss
           </button>
         </>
       )}
@@ -36,11 +36,11 @@ export function AiBar() {
         <>
           {ghosts.length > 0 && <span className="sep" />}
           <button
-            className="danger on"
+            className="ghost"
             onClick={revertAiChanges}
             title={`Remove the ${acceptedAlive.length} AI component${acceptedAlive.length > 1 ? 's' : ''} you accepted and put the drawing back how you had it`}
           >
-            Revert AI changes ({acceptedAlive.length})
+            Undo AI ({acceptedAlive.length})
           </button>
         </>
       )}

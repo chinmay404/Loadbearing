@@ -50,11 +50,7 @@ export function ProjectsPanel() {
   return (
     <div className="sheet" style={{ maxWidth: 860 }}>
       <h1>Projects</h1>
-      <p className="lede">
-        A system you are designing for real, drawn across as many views as it needs — the request path,
-        the ingest pipeline, the data layer. No rubric and no score here; the structural checks and the
-        capacity model still run, and one export covers every view at once for a coding agent.
-      </p>
+      <p className="lede">A real system, drawn across several views and exported together. No score.</p>
 
       {creating ? (
         <div className="card">
@@ -99,10 +95,7 @@ export function ProjectsPanel() {
         <div className="empty-state">
           <div>
             <h3>No projects yet</h3>
-            <p style={{ fontSize: 12.5, maxWidth: 320 }}>
-              Practice problems live under <em>Problems</em>. A project is for a system you actually own —
-              several diagrams of one thing, exported together.
-            </p>
+            <p style={{ fontSize: 12.5, maxWidth: 320 }}>For a system you actually own. Practice lives under <em>Problems</em>.</p>
           </div>
         </div>
       )}

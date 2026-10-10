@@ -79,9 +79,8 @@ export function TokensPanel() {
     <div className="card">
       <h4>API tokens</h4>
       <p className="muted" style={{ fontSize: 12.5 }}>
-        A token lets something outside this browser act as your account — the MCP server, a script, an
-        agent on another machine. It carries the same rights you have, so give one out only where you
-        would give out your password, and revoke it the moment you stop needing it.
+        Lets an MCP server, script or agent act as your account. Treat it like a password and revoke it
+        when done.
       </p>
 
       <div className="row" style={{ marginTop: 8 }}>
@@ -99,8 +98,8 @@ export function TokensPanel() {
 
       {fresh && (
         <div className="banner warnb" style={{ marginTop: 10 }}>
-          <strong>Copy this now.</strong> It is not stored anywhere and cannot be shown again — only its
-          hash is kept, so if you lose it, revoke it and mint another.
+          <strong>Copy this now.</strong> It cannot be shown again; if you lose it, revoke it and mint
+          another.
           <pre className="token-secret mono">{fresh.secret}</pre>
           <button
             onClick={() => {
@@ -215,22 +214,19 @@ function ConnectSteps({ secret, entry }: { secret: string | null; entry: string 
 
       {chosen.hosted && local && (
         <div className="banner warnb">
-          <strong>That address is only reachable from this machine.</strong> A hosted chatbot runs on
-          somebody else's servers and cannot see your localhost — put your deployed address in the field
-          above and these steps will update.
+          <strong>That address is only reachable from this machine.</strong> Use your deployed address
+          for a hosted chatbot.
         </div>
       )}
 
       {!secret && client !== 'claude-connector' && (
         <div className="banner info">
-          Mint a token above and these steps will fill in with it. A token already minted cannot be shown
-          again, so the snippets below say <span className="mono">lb_YOUR_TOKEN</span> until you make one.
+          Mint a token above to fill in <span className="mono">lb_YOUR_TOKEN</span> below.
         </div>
       )}
       {client === 'claude-connector' && (
         <div className="banner info">
-          No token needed here — Claude signs in through Loadbearing and mints its own, which then appears
-          in the list above like any other.
+          No token needed — Claude signs in and mints its own.
         </div>
       )}
 

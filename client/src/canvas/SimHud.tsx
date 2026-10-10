@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { simulate } from '@loadbearing/shared';
-import { useCanvas } from '../state/canvasStore';
+import { FAMILY, simulate } from '@loadbearing/shared';
+import { useCanvas, type ArchNodeData } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
 import { api, ApiError } from '../lib/api';
 import { IconStop } from '../ui/UiIcons';
@@ -71,6 +71,9 @@ export function SimHud() {
     null as (typeof result.flows)[number] | null,
   );
   const brokenFlows = result?.flows.filter((f) => f.broken) ?? [];
+  const hasExternal = nodes.some(
+    (n) => n.type === 'arch' && FAMILY[(n.data as ArchNodeData).archType] === 'external',
+  );
 
   return (
     <div className="instrument">
@@ -93,31 +96,23 @@ export function SimHud() {
           />
         </div>
 
-        <div className="readout">
-          <span className="stencil">3rd-party</span>
-          <b>+{config.thirdPartyLatencyMs}ms</b>
-          <input
-            type="range"
-            min={0}
-            max={5000}
-            step={100}
-            value={config.thirdPartyLatencyMs}
-            onChange={(e) => setConfig({ thirdPartyLatencyMs: Number(e.target.value) })}
-            style={{ width: 96 }}
-            aria-label="Extra third-party latency"
-          />
-        </div>
-
-        <button
-          onClick={() => void verifyOnServer()}
-          disabled={verifying}
-          title="Recompute every component's numbers on the server and replace the live estimate with the authoritative result"
-        >
-          {verifying ? <span className="spinner" /> : null} Verify on server
-        </button>
-        <span className={`chip ${simSource === 'server' ? 'pass' : ''}`} title={simSource === 'server' ? 'These numbers came from the backend engine.' : 'Computed in the browser for a smooth slider; identical engine.'}>
-          {simSource === 'server' ? 'server-computed' : 'live estimate'}
-        </span>
+        {/* Only meaningful when the sheet has an external part. */}
+        {(hasExternal || config.thirdPartyLatencyMs > 0) && (
+          <div className="readout">
+            <span className="stencil">3rd-party</span>
+            <b>+{config.thirdPartyLatencyMs}ms</b>
+            <input
+              type="range"
+              min={0}
+              max={5000}
+              step={100}
+              value={config.thirdPartyLatencyMs}
+              onChange={(e) => setConfig({ thirdPartyLatencyMs: Number(e.target.value) })}
+              style={{ width: 96 }}
+              aria-label="Extra third-party latency"
+            />
+          </div>
+        )}
 
         {result && (
           <>
@@ -129,7 +124,7 @@ export function SimHud() {
             </div>
             {worst && (
               <div className="readout">
-                <span className="stencil">worst p99</span>
+                <span className="stencil">p99</span>
                 <b style={{ color: worst.p99Ms > 1000 ? 'var(--load)' : undefined }}>{Math.round(worst.p99Ms)}ms</b>
               </div>
             )}
@@ -140,7 +135,6 @@ export function SimHud() {
 
         {problem && problem.scenarios.length > 0 && (
           <div className="row" style={{ gap: 3 }}>
-            <span className="stencil">scenarios</span>
             {problem.scenarios.map((sc) => (
               <button
                 key={sc.id}
@@ -173,6 +167,20 @@ export function SimHud() {
             )}
           </div>
         )}
+
+        <button
+          className="ghost"
+          onClick={() => void verifyOnServer()}
+          disabled={verifying}
+          title={
+            simSource === 'server'
+              ? 'These numbers came from the backend engine.'
+              : 'Computed in the browser for a smooth slider. Recompute on the server for a result you can defend.'
+          }
+        >
+          {verifying ? <span className="spinner" /> : null}
+          {simSource === 'server' ? 'Verified' : 'Verify'}
+        </button>
       </div>
 
       {result?.timeline && <TimelineStrip timeline={result.timeline} />}
@@ -191,7 +199,7 @@ export function SimHud() {
           )}
           {result.findings.length > 0 && (
             <details className="disclose" style={{ marginTop: 0 }}>
-              <summary>{result.findings.length} findings from the capacity model</summary>
+              <summary>{result.findings.length} findings</summary>
               <ul className="list-reset" style={{ fontSize: 12, marginTop: 3 }}>
                 {result.findings.map((f, i) => (
                   <li key={i} className="muted">

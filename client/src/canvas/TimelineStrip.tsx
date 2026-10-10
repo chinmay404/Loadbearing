@@ -64,7 +64,7 @@ export function TimelineStrip({ timeline }: { timeline: SimTimeline }) {
   return (
     <div className="timeline">
       <div className="row timeline-head">
-        <span className="stencil">the run · {horizonS}s</span>
+        <span className="stencil">{horizonS}s run</span>
         {first && (
           <button
             className="chip fail"
@@ -132,20 +132,15 @@ export function TimelineStrip({ timeline }: { timeline: SimTimeline }) {
         </g>
       </svg>
 
-      <div className="row timeline-foot">
-        <span className="stencil">
-          offered peaks at {Math.round(geometry.peak)} rps · p99 peaks at{' '}
-          {Math.round(geometry.peakLatency)}ms
-        </span>
-        <span className="grow" />
-        {timeline.failures.length > 1 && (
+      {timeline.failures.length > 1 && (
+        <div className="row timeline-foot">
           <span className="stencil">
             {timeline.failures.length} components lost traffic:{' '}
             {timeline.failures.slice(0, 4).map((f) => label(f.nodeId)).join(', ')}
             {timeline.failures.length > 4 ? '…' : ''}
           </span>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

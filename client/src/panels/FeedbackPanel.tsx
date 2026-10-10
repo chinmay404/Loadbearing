@@ -37,9 +37,7 @@ export function FeedbackPanel() {
         <div>
           <span className="spinner" style={{ width: 18, height: 18 }} />
           <h3 style={{ marginTop: 12 }}>The reviewer is reading your drawing</h3>
-          <p style={{ fontSize: 12.5, maxWidth: 260 }}>
-            Components, connections, annotations, flows and the capacity model. Ten to forty seconds.
-          </p>
+          <p style={{ fontSize: 12.5, maxWidth: 260 }}>Usually 10–40 seconds.</p>
         </div>
       </div>
     );
@@ -50,10 +48,7 @@ export function FeedbackPanel() {
       <div className="empty-state">
         <div>
           <h3>Nothing reviewed yet</h3>
-          <p style={{ fontSize: 12.5, maxWidth: 270 }}>
-            Draw the design, declare your flows, then run load to catch the obvious problems yourself.
-            Submit when you are ready to be argued with.
-          </p>
+          <p style={{ fontSize: 12.5, maxWidth: 270 }}>Submit your design when it holds up under load.</p>
         </div>
       </div>
     );
@@ -210,8 +205,7 @@ export function FeedbackPanel() {
                 <span className="v faint">n/a</span>
               </div>
               <div className="notes faint">
-                Not assessed this round. Smaller models sometimes drop a dimension — resubmit, or use a
-                stronger model for the full rubric.
+                Not assessed this round — resubmit.
               </div>
             </div>
           );
@@ -535,9 +529,6 @@ function ReferencesUsed({ score }: { score: ScoreResult }) {
         Grounded in {score.references.length} references
         {score.references_used.length > 0 ? ` · ${score.references_used.length} cited` : ''}
       </summary>
-      <p className="stencil" style={{ marginTop: 6 }}>
-        established practice retrieved for this problem and put in front of the grader before it judged
-      </p>
       {ordered.map((r) => (
         <div key={r.id} style={{ marginTop: 7 }}>
           <div className="row wrap" style={{ gap: 4 }}>

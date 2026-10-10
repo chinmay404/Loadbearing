@@ -169,8 +169,7 @@ function SkuPicker({
             ))}
           </select>
           <p className="faint" style={{ fontSize: 11, marginTop: 4 }}>
-            Picking one fills in the fields below from what the provider documents. They stay
-            editable — the numbers are a starting point, not a lock.
+            Fills in the fields below; they stay editable.
           </p>
         </>
       )}
@@ -381,8 +380,7 @@ export function InspectorPanel() {
     <div>
       {selected.length === 0 && !selectedEdge && (
         <p className="faint" style={{ fontSize: 12, marginTop: 0 }}>
-          Select a component to tune its capacity, replicas and latency — those numbers drive the load
-          simulator and the grader sees them too.
+          Select a component to tune its capacity, replicas and latency.
         </p>
       )}
 
@@ -395,9 +393,6 @@ export function InspectorPanel() {
             placeholder="HTTP/JSON · at-least-once · gRPC stream"
             onBlur={(e) => setEdgeLabel(selectedEdge.id, e.target.value)}
           />
-          <p className="faint" style={{ fontSize: 11, marginTop: 6 }}>
-            Change its type with the toolbar buttons while it is selected.
-          </p>
           <EdgeParams edge={selectedEdge} onChange={setEdgeAttrs} />
         </div>
       )}
@@ -465,14 +460,8 @@ export function InspectorPanel() {
         <div className="card">
           <h4>Chaos — break something</h4>
           <p className="faint" style={{ fontSize: 11.5 }}>
-            Kill a component and watch which flows survive. Redundant siblings absorb the traffic; single
-            instances break the flow. That is what a SPOF feels like.
-          </p>
-          <p className="faint" style={{ fontSize: 11.5 }}>
-            Slowing one down is usually worse than killing it, and it is the failure most designs are
-            unprepared for: a dead dependency fails fast and a slow one holds a worker until the caller
-            gives up. <b>Slow</b> makes a component ten times its own service time — a bad query plan, a
-            saturated disk — twenty seconds into the run, so you can see the before.
+            Kill a part to see which flows survive. <b>Slow</b> makes it 10× slower after 20s — often worse
+            than dead.
           </p>
           <div className="row wrap" style={{ gap: 4 }}>
             {archNodes.map((n) => {

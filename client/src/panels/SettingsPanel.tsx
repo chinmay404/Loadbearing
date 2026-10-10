@@ -79,8 +79,7 @@ export function SettingsPanel() {
     <div className="sheet" style={{ maxWidth: 660 }}>
       <h1>Grader model</h1>
       <p className="faint" style={{ fontSize: 12.5, marginTop: -8 }}>
-        Loadbearing talks to whichever model you park here. The key is stored locally in your SQLite file and
-        never leaves your machine except in calls to the provider you chose.
+        The key is stored locally and only sent to the provider you choose.
       </p>
 
       {msg && <div className={`banner ${msg.kind === 'error' ? 'error' : 'info'}`}>{msg.text}</div>}
@@ -140,8 +139,7 @@ export function SettingsPanel() {
           />
           {view?.usingHouseKey && (
             <p className="stencil" style={{ marginTop: 4 }}>
-              you are borrowing this instance&apos;s key — save your own to bill your reviews to your own
-              account and pick the model that goes with it
+              Using this instance&apos;s key. Save your own to bill reviews to your account.
             </p>
           )}
         </div>
@@ -161,17 +159,15 @@ export function SettingsPanel() {
       <div className="card">
         <h4>What the grader costs</h4>
         <p className="muted" style={{ fontSize: 12.5 }}>
-          One review sends your diagram, the problem and the rubric — roughly 3–6k input tokens and up to
-          2k output. That is a fraction of a cent on most providers. The load simulator, mastery tracking
-          and the design reference cost nothing: they run locally.
+          About 3–6k input and 2k output tokens per review — a fraction of a cent. Everything else runs
+          locally for free.
         </p>
       </div>
 
       <div className="card">
         <h4>Keeping the key out of the database</h4>
         <p className="muted" style={{ fontSize: 12.5 }}>
-          If you would rather not store a key at all, set it in the environment before starting the
-          server and it takes precedence over anything saved here:
+          Or set it in the environment before starting the server; it overrides anything saved here:
         </p>
         <pre className="config-block mono">
 {`LOADBEARING_PROVIDER=openai-compatible

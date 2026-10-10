@@ -82,7 +82,7 @@ export function Dashboard() {
       <div className="card" style={{ marginTop: 12 }}>
         <h4>All concepts</h4>
         <p className="faint" style={{ fontSize: 11.5 }}>
-          Brighter = stronger. Hollow = never assessed. Hover for the score.
+          Brighter = stronger · hollow = not assessed
         </p>
         <div className="heat">
           {mastery.map((m) => (

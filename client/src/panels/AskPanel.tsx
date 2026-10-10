@@ -118,9 +118,9 @@ export function AskPanel() {
       )}
 
       {log.length === 0 && (
-        <div className="col" style={{ gap: 5 }}>
+        <div className="starters">
           {STARTERS.map((s) => (
-            <button key={s} style={{ textAlign: 'left', fontSize: 12 }} onClick={() => void ask(s)}>
+            <button key={s} className="ghost" onClick={() => void ask(s)}>
               {s}
             </button>
           ))}
@@ -128,12 +128,8 @@ export function AskPanel() {
       )}
 
       {log.length > 0 && (
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-          <span className="stencil">
-            {log.filter((m) => m.role === 'me').length} question
-            {log.filter((m) => m.role === 'me').length === 1 ? '' : 's'} on this sheet
-          </span>
-          <button style={{ fontSize: 11 }} onClick={() => void startOver()} disabled={busy}>
+        <div className="row" style={{ justifyContent: 'flex-end', marginBottom: 4 }}>
+          <button className="ghost" style={{ fontSize: 11.5 }} onClick={() => void startOver()} disabled={busy}>
             Start over
           </button>
         </div>
@@ -150,7 +146,7 @@ export function AskPanel() {
         ))}
         {busy && (
           <div className="msg ai">
-            <span className="spinner" /> thinking about your design…
+            <span className="spinner" /> thinking…
           </div>
         )}
         <div ref={bottom} />
@@ -160,7 +156,7 @@ export function AskPanel() {
         <textarea
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Ask anything — “what does cache mean?”, “what next?”…"
+          placeholder="Ask anything…"
           rows={2}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {

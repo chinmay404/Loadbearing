@@ -3,7 +3,6 @@ import { api } from '../lib/api';
 import { useApp, type View } from '../state/appStore';
 import { usePrefs } from './prefs';
 import {
-  IconCompose,
   IconDrafting,
   IconFolder,
   IconGauge,
@@ -20,9 +19,8 @@ import {
 
 const NAV: { view: View; label: string; Icon: (p: { size?: number }) => JSX.Element; also?: View[] }[] = [
   { view: 'learn', label: 'Learn', Icon: IconLearn, also: ['lesson'] },
-  { view: 'problems', label: 'Problems', Icon: IconSheets },
+  { view: 'problems', label: 'Problems', Icon: IconSheets, also: ['compose'] },
   { view: 'workspace', label: 'Drawing board', Icon: IconDrafting },
-  { view: 'compose', label: 'Compose', Icon: IconCompose },
   { view: 'projects', label: 'Projects', Icon: IconFolder, also: ['project'] },
   { view: 'dashboard', label: 'Progress', Icon: IconGauge },
   { view: 'notebook', label: 'Notes', Icon: IconNote },
@@ -126,12 +124,11 @@ export function TopBar() {
         </button>
       )}
 
-      <span
-        className={`link-state ${serverUp ? 'up' : ''}`}
-        title={serverUp ? 'Connected to the Loadbearing server' : 'The server is not answering'}
-      >
-        {serverUp ? 'Connected' : 'Offline'}
-      </span>
+      {!serverUp && (
+        <span className="link-state" title="The server is not answering">
+          Offline
+        </span>
+      )}
 
       <button
         className="icon-btn ghost theme-btn"

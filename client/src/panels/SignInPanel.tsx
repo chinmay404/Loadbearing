@@ -60,8 +60,7 @@ export function SignInPanel() {
           </div>
           <h1>Learn architecture by building it.</h1>
           <p className="lede">
-            Draw a system, push real traffic through it and watch exactly where it breaks. Then fix it — and have
-            the fix argued with.
+            Draw a system, push traffic through it, and see where it breaks.
           </p>
 
           <div className="seg" role="tablist" aria-label="Account">

@@ -177,8 +177,15 @@
   overflow: hidden;
   cursor: text;
 }
+/* Shown on hover or selection; keeps its space so nothing jumps. */
 .n-annot.empty {
   color: var(--muted);
+  opacity: 0;
+  transition: opacity var(--d-hover) ease;
+}
+.react-flow__node:hover .n-annot.empty,
+.react-flow__node.selected .n-annot.empty,
+.n-annot.empty:focus-visible {
   opacity: 0.8;
 }
 .n-annot-edit {

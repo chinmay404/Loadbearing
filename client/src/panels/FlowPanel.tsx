@@ -69,11 +69,7 @@ export function FlowPanel() {
 
   return (
     <div>
-      <h4 style={{ marginTop: 0 }}>Requests your system must handle</h4>
-      <p className="faint" style={{ fontSize: 12, marginTop: 0 }}>
-        A request path is the route one kind of request takes through your boxes. Draw arrows from the user
-        onward and the path is found for you; the load test pushes traffic down these paths.
-      </p>
+      <h4 style={{ marginTop: 0 }}>Requests</h4>
 
       {plans.map((plan) => {
         const flow = byPlan.get(plan.name);
@@ -99,8 +95,8 @@ export function FlowPanel() {
         </div>
       ))}
 
-      <button onClick={() => addFlow()} style={{ marginTop: 6 }}>
-        + Add a flow by hand
+      <button className="ghost" onClick={() => addFlow()} style={{ marginTop: 2 }}>
+        + Add a flow
       </button>
     </div>
   );
@@ -141,7 +137,8 @@ function RequestCard({
           {flow?.kind ?? plan.kind} · {flow?.rps ?? plan.rps}/s
         </span>
       </div>
-      {plan.plain && (
+      {/* Help text only while the path is unset. */}
+      {plan.plain && (!declared || broken) && (
         <p className="faint" style={{ fontSize: 12, margin: '4px 0 6px' }}>
           {plan.plain}
         </p>
@@ -150,7 +147,7 @@ function RequestCard({
       {declared && !broken && (
         <div className="request-path ok">
           <span className="mono">{route(flow!.steps)}</span>
-          {result && <ResultChips result={result} />}
+          {result && <ResultLine result={result} />}
         </div>
       )}
 
@@ -189,8 +186,8 @@ function RequestCard({
 
       {flow && (
         <details open={handOpen} onToggle={(e) => setHandOpen((e.target as HTMLDetailsElement).open)}>
-          <summary className="faint" style={{ fontSize: 12 }}>
-            Edit by hand
+          <summary className="faint" style={{ fontSize: 11.5 }}>
+            Edit
           </summary>
           {handOpen && <FlowEditor flow={flow} archNodes={archNodes} labelOf={labelOf} result={result} lockName />}
         </details>
@@ -199,17 +196,16 @@ function RequestCard({
   );
 }
 
-function ResultChips({ result }: { result: FlowResult }) {
+/** How the request held under load. */
+function ResultLine({ result }: { result: FlowResult }) {
   return (
-    <div style={{ marginTop: 8 }}>
-      <div className="row wrap" style={{ gap: 4 }}>
-        <span className={`chip ${result.broken ? 'bad' : 'good'}`}>
-          {result.broken ? `breaks at ${result.brokenAt}` : 'completes'}
+    <div style={{ marginTop: 4 }}>
+      <div className="request-result mono">
+        <span className={result.broken ? 'bad' : 'good'}>
+          {result.broken ? `breaks at ${result.brokenAt}` : '✓ completes'}
         </span>
-        <span className="chip">
-          {Math.round(result.completedRps)}/{Math.round(result.offeredRps)} rps
-        </span>
-        <span className="chip spec">p99 {Math.round(result.p99Ms)}ms</span>
+        {' · '}
+        {Math.round(result.completedRps)}/{Math.round(result.offeredRps)} rps · p99 {Math.round(result.p99Ms)}ms
       </div>
       {result.notes.length > 0 && (
         <ul className="list-reset faint" style={{ fontSize: 11.5, marginTop: 5 }}>
@@ -315,7 +311,7 @@ function FlowEditor({
         ))}
       </select>
 
-      {result && <ResultChips result={result} />}
+      {result && <ResultLine result={result} />}
     </div>
   );
 }

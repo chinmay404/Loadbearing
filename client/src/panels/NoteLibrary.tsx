@@ -106,15 +106,12 @@ export function NoteLibrary() {
   return (
     <div className="sheet">
       <h1>Note library</h1>
-      <p className="lede">
-        Every note you have written, wherever you wrote it. Searching covers titles and
-        bodies both, because the thing you remember about a note is rarely its heading.
-      </p>
+      <p className="lede">Every note you have written, searchable by title and body.</p>
 
       {notes !== null && total === 0 && (
         <div className="banner info">
-          Nothing written yet. Notes live under the <span className="mono">Notes</span> tab on any
-          sheet or project — they sit beside the drawing rather than on it, and nothing grades them.
+          Nothing written yet. Add notes from the <span className="mono">Notes</span> tab on any sheet or
+          project.
         </div>
       )}
 

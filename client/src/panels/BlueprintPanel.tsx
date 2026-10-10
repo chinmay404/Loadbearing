@@ -46,9 +46,6 @@ export function BlueprintPanel() {
       <MyTemplates />
 
       <span className="section-label">Built-in blueprints</span>
-      <p className="stencil" style={{ marginTop: 0 }}>
-        starting positions, not answers — drop one and take it apart
-      </p>
 
       <div className="filter-row">
         <button className={family === 'all' ? 'on' : ''} onClick={() => setFamily('all')}>

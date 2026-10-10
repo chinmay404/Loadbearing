@@ -90,7 +90,7 @@ export function Palette() {
         );
       })}
       <p className="faint" style={{ fontSize: 11, marginTop: 12 }}>
-        Click or drag to place. Drag between handles to connect.
+        Click or drag to place.
       </p>
       </>
       )}
@@ -159,8 +159,7 @@ function MyObjects() {
   if (!objects || objects.length === 0) {
     return (
       <p className="stencil" style={{ marginTop: 0, marginBottom: 10 }}>
-        tip: tune a component, then <em>save as my own object</em> to keep it as your own type — a
-        layout-aware chunker, your standard gateway
+        Tune a component, then <em>save as my own object</em> to reuse it.
       </p>
     );
   }

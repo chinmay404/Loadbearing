@@ -21,8 +21,7 @@ export function HistoryPanel() {
   if (attempts.length === 0) {
     return (
       <p className="faint" style={{ fontSize: 12 }}>
-        No attempts on this problem yet. Your scores and the design you submitted are kept locally so you
-        can compare rounds.
+        No attempts yet.
       </p>
     );
   }
@@ -69,7 +68,7 @@ export function HistoryPanel() {
                   </summary>
                   {lines.length === 0 ? (
                     <p className="faint" style={{ fontSize: 11.5 }}>
-                      Identical design — the score moved on grading alone.
+                      Same design; only the grading changed.
                     </p>
                   ) : (
                     <ul className="list-reset mono" style={{ fontSize: 11, marginTop: 4 }}>

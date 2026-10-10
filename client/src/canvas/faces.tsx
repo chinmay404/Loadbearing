@@ -134,7 +134,7 @@ function TankGauge({ m }: { m: GaugeModel }) {
           <span>busy</span>
           <b className="mono">{m.live ? pct(m.utilization) : '—'}</b>
         </div>
-        {t.poolSize !== null ? (
+        {t.poolSize !== null && (
           <>
             <div className="g-row">
               <span>connections</span>
@@ -148,11 +148,6 @@ function TankGauge({ m }: { m: GaugeModel }) {
               ))}
             </div>
           </>
-        ) : (
-          <div className="g-row">
-            <span>connections</span>
-            <b className="mono faint">not set</b>
-          </div>
         )}
       </div>
     </div>

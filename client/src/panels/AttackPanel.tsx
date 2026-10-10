@@ -73,9 +73,7 @@ export function AttackPanel() {
   return (
     <div>
       <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
-        The problem's own scenarios are guesses about what <em>a</em> design might get wrong. These are
-        aimed at the one you drew. The coach picks what to do and says what it expects to break; the
-        engine runs it and says what actually did.
+        Failures aimed at the design you drew. The coach predicts what breaks; the engine shows what did.
       </p>
 
       <button className="primary" onClick={() => void devise()} disabled={busy || !problem}>

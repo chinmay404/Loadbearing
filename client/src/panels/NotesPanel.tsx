@@ -123,8 +123,7 @@ export function NotesPanel({
 
       {notes.length === 0 && (
         <p className="muted" style={{ fontSize: 12 }}>
-          Somewhere to keep the numbers you worked out, the decisions you made and why, and the
-          questions still open. Not on the canvas, and not graded.
+          Numbers, decisions and open questions. Not graded.
         </p>
       )}
 

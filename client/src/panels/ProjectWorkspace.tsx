@@ -213,8 +213,7 @@ export function ProjectWorkspace() {
                 </button>
               </div>
               <p className="stencil" style={{ marginTop: 6 }}>
-                the whole-project brief for a coding agent is on the project page — it covers every view
-                at once
+                The whole-project brief is on the project page.
               </p>
             </>
           )}

@@ -89,13 +89,8 @@ export function ScanPanel() {
     return (
       <div style={{ fontSize: 12 }}>
         <p style={{ marginTop: 0 }}>
-          Show Loadbearing your code, and it will tell you what is actually in it — what gets deployed,
-          every address it answers on, what it stores things in, and what would go wrong if it were
-          public tomorrow.
-        </p>
-        <p className="faint">
-          It will <strong>not</strong> draw the architecture for you. You get a list of your app’s own
-          parts; everything around them is yours to design.
+          Scan your code to list what it deploys, the addresses it answers on, where it stores data and what
+          is exposed. It does not draw the design for you.
         </p>
         <SetupGuide />
       </div>
@@ -122,10 +117,7 @@ export function ScanPanel() {
       </label>
 
       {!scan && (
-        <p className="faint">
-          Pick a scan to see what it found. Nothing is drawn for you — you add the parts your code has,
-          and design everything around them yourself.
-        </p>
+        <p className="faint">Pick a scan to see what it found.</p>
       )}
 
       {scan && (
@@ -354,17 +346,9 @@ function SetupGuide() {
 
       <h4 style={{ margin: '14px 0 6px', fontSize: 12 }}>What happens to your code</h4>
       <ul className="faint" style={{ paddingLeft: 16, margin: 0 }}>
-        <li>
-          Every secret value is replaced before anything is sent. A key written into your source keeps
-          its line and loses its value, so it still shows up as something to fix while the key itself
-          stays on your machine.
-        </li>
-        <li>Your files are read once and thrown away. At most five lines are kept per finding, as proof.</li>
-        <li>
-          Private keys, certificates and credential files are never sent, and the server refuses them
-          even if something tries.
-        </li>
-        <li>Nothing is drawn for you. You add your app’s own parts; the design around them is yours.</li>
+        <li>Secret values are blanked before anything is sent; the line is still flagged.</li>
+        <li>Files are read once and discarded. At most five lines are kept per finding.</li>
+        <li>Private keys, certificates and credential files are never sent, and the server refuses them.</li>
       </ul>
 
       {notice && (

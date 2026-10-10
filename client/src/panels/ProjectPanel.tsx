@@ -51,17 +51,14 @@ export function ProjectPanel() {
       {project.summary ? (
         <p className="lede">{project.summary}</p>
       ) : (
-        <p className="lede faint">
-          No summary yet. What this system does and what constrains it goes into the export — worth
-          writing.
-        </p>
+        <p className="lede faint">No summary yet. It goes into the export.</p>
       )}
 
       <SummaryEditor project={project} onSaved={load} />
 
       <span className="section-label">Views · {project.canvases.length}</span>
       <p className="stencil" style={{ marginTop: 0 }}>
-        one system, several drawings — a component named the same way in two views is the same component
+        Same name in two views = same component
       </p>
 
       {project.canvases.map((c) => (
@@ -139,15 +136,14 @@ export function ProjectPanel() {
       <NotesPanel
         scope="project"
         scopeId={project.id}
-        blurb="decisions, numbers and open questions that outlive any single view — also on the board, under Notes"
+        blurb="shared across every view"
       />
 
       <span className="section-label">Hand the whole system over</span>
       <div className="card">
         <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-          One build specification covering every view: components with their sizing, request paths in
-          order, the components shared between views, invariants from your connection kinds, the gaps the
-          rule engine found, and the graphs as JSON.
+          One build spec for every view: sizing, request paths, shared components, gaps and the graphs as
+          JSON.
         </p>
         <div className="row wrap" style={{ gap: 4 }}>
           <button

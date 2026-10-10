@@ -175,7 +175,7 @@ export function QuickAdd() {
       >
         {insertingIntoEdge && (
           <div className="stencil" style={{ padding: '6px 11px', borderBottom: '1px solid var(--rule)' }}>
-            inserting into the selected connection — it will be rewired through the component you pick
+            Inserting into the selected connection
           </div>
         )}
         <input

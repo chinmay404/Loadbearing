@@ -118,8 +118,7 @@ export function EdgeTools() {
       </div>
 
       <p className="stencil" style={{ margin: 0 }}>
-        drag the dashed dot on the line to bend it, drag a bend to move it, double-click a bend to remove
-        it · drag either end onto another component to re-point it, or onto empty paper to disconnect
+        Drag the dot to bend · drag an end to re-point
       </p>
     </div>
   );

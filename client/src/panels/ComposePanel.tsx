@@ -32,7 +32,6 @@ export function ComposePanel() {
   const openProblem = useApp((s) => s.openProblem);
   const setProblems = useApp((s) => s.setProblems);
   const setError = useApp((s) => s.setError);
-  const setView = useApp((s) => s.setView);
 
   const [brief, setBrief] = useState('');
   const [scale, setScale] = useState('');
@@ -43,6 +42,20 @@ export function ComposePanel() {
   const [harder, setHarder] = useState(false);
   const [busy, setBusy] = useState(false);
   const [group, setGroup] = useState<string>(CONCEPT_GROUPS[0]);
+
+  const surprise = async () => {
+    try {
+      setBusy(true);
+      const problem = await api.generateProblem({});
+      setProblems(await api.problems());
+      openProblem(problem);
+    } catch (e) {
+      const err = e as ApiError;
+      setError({ message: err.message, hint: err.hint });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const toggle = (id: string) =>
     setFocus((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]));
@@ -69,150 +82,138 @@ export function ComposePanel() {
     }
   };
 
+  const short = 40 - brief.trim().length;
+  const own = mode === 'own';
+
   return (
-    <div className="sheet" style={{ maxWidth: 860 }}>
-      <h1>Compose a sheet</h1>
-      <p className="lede">
-        Describe a scenario and the constraints you are actually under. You get back a problem sheet with
-        real numbers, a rubric, twists and load scenarios — then you draw it and have it reviewed. Use it
-        for a system you own, or to invent a drill on a topic you want to practise.
-      </p>
+    <div className="sheet compose" style={{ maxWidth: 720 }}>
+      <h1>New problem</h1>
+      <p className="lede">Describe a system. You get a sheet with real numbers, a rubric and load scenarios.</p>
 
       <div className="filter-row">
-        <button className={mode === 'exercise' ? 'on' : ''} onClick={() => setMode('exercise')}>
+        <button className={!own ? 'on' : ''} onClick={() => setMode('exercise')}>
           Training drill
         </button>
-        <button className={mode === 'own' ? 'on' : ''} onClick={() => setMode('own')}>
+        <button className={own ? 'on' : ''} onClick={() => setMode('own')}>
           A system I own
         </button>
       </div>
 
-      <div className="card">
-        <label>Scenario — what the system does, and what hurts about it</label>
-        <textarea
-          rows={5}
-          value={brief}
-          onChange={(e) => setBrief(e.target.value)}
-          placeholder="Describe it the way you would to a new teammate. Include the part that keeps going wrong — that is usually the real design problem."
-        />
-        <div className="row wrap" style={{ gap: 4, marginTop: 7 }}>
-          <span className="stencil">start from an example</span>
-          {EXAMPLES.map((ex) => (
-            <button
-              key={ex.label}
-              onClick={() => {
-                setBrief(ex.brief);
-                setScale(ex.scale);
-                setConstraints(ex.constraints);
-              }}
-            >
-              {ex.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="card">
-        <label>Scale and traffic — any numbers you know</label>
-        <textarea
-          rows={2}
-          value={scale}
-          onChange={(e) => setScale(e.target.value)}
-          placeholder="900 writes/sec at peak, 40M rows, p99 under 250ms, 99.95% availability"
-        />
-        <p className="stencil" style={{ marginTop: 4 }}>
-          numbers you give are kept exactly; anything missing is inferred conservatively
-        </p>
-      </div>
-
-      <div className="card">
-        <label>Hard constraints — these decide what counts as overengineering</label>
-        <textarea
-          rows={2}
-          value={constraints}
-          onChange={(e) => setConstraints(e.target.value)}
-          placeholder="Team of 5, no SRE, $6k/mo, PCI, single region, existing stack is Postgres + Node"
-        />
-      </div>
-
-      <div className="card">
-        <div className="row" style={{ alignItems: 'flex-start' }}>
-          <div className="grow">
-            <label>Concepts the answer must demonstrate (optional)</label>
-            <div className="filter-row" style={{ marginBottom: 6 }}>
-              {CONCEPT_GROUPS.map((g) => (
-                <button key={g} className={group === g ? 'on' : ''} onClick={() => setGroup(g)}>
-                  {g}
-                </button>
-              ))}
-            </div>
-            <div className="row wrap" style={{ gap: 3 }}>
-              {CONCEPT_CARDS.filter((c) => c.group === group).map((c) => (
-                <button
-                  key={c.id}
-                  className={focus.includes(c.id) ? 'on' : ''}
-                  title={`${c.summary}\n\nRed flag: ${c.redFlags}`}
-                  onClick={() => toggle(c.id)}
-                  style={{ fontSize: 11 }}
-                >
-                  {c.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        {focus.length > 0 && (
-          <div className="row wrap" style={{ gap: 3, marginTop: 8 }}>
-            <span className="stencil">chosen</span>
-            {focus.map((f) => (
-              <span className="chip spec" key={f}>
-                {f}
-              </span>
+      <div className="card compose-form">
+        <div className="field">
+          <label htmlFor="compose-brief">Scenario</label>
+          <textarea
+            id="compose-brief"
+            rows={5}
+            value={brief}
+            onChange={(e) => setBrief(e.target.value)}
+            placeholder={
+              own
+                ? 'What it does, and the part that keeps going wrong — that is usually the real design problem.'
+                : 'What the system does, and what hurts about it.'
+            }
+          />
+          <div className="row wrap examples">
+            <span className="stencil">try</span>
+            {EXAMPLES.map((ex) => (
+              <button
+                key={ex.label}
+                className="link-btn"
+                onClick={() => {
+                  setBrief(ex.brief);
+                  setScale(ex.scale);
+                  setConstraints(ex.constraints);
+                }}
+              >
+                {ex.label}
+              </button>
             ))}
-            <button className="ghost" onClick={() => setFocus([])}>
-              clear
-            </button>
           </div>
-        )}
-      </div>
+        </div>
 
-      <div className="card">
-        <div className="row wrap">
-          <div>
-            <label>Difficulty</label>
-            <div className="filter-row" style={{ marginBottom: 0 }}>
-              {[1, 2, 3, 4, 5, 6].map((l) => (
-                <button key={l} className={level === l ? 'on' : ''} onClick={() => setLevel(l)}>
-                  L{l}
-                </button>
-              ))}
-            </div>
+        <div className="field">
+          <label htmlFor="compose-scale">
+            Scale
+          </label>
+          <textarea
+            id="compose-scale"
+            rows={2}
+            value={scale}
+            onChange={(e) => setScale(e.target.value)}
+            placeholder="900 writes/sec at peak, 40M rows, p99 under 250ms, 99.95% availability"
+          />
+        </div>
+
+        <div className="field">
+          <label htmlFor="compose-constraints">
+            Constraints
+          </label>
+          <textarea
+            id="compose-constraints"
+            rows={2}
+            value={constraints}
+            onChange={(e) => setConstraints(e.target.value)}
+            placeholder="Team of 5, no SRE, $6k/mo, PCI, single region, Postgres + Node"
+          />
+        </div>
+
+        <div className="row wrap" style={{ gap: 12 }}>
+          <span className="stencil">Level</span>
+          <div className="filter-row" style={{ marginBottom: 0 }} role="group" aria-label="Difficulty">
+            {[1, 2, 3, 4, 5, 6].map((l) => (
+              <button key={l} className={level === l ? 'on' : ''} onClick={() => setLevel(l)}>
+                L{l}
+              </button>
+            ))}
           </div>
-          <span className="grow" />
-          <label className="row" style={{ textTransform: 'none', margin: 0, gap: 6 }}>
-            <input
-              type="checkbox"
-              checked={harder}
-              onChange={(e) => setHarder(e.target.checked)}
-              style={{ width: 'auto' }}
-            />
-            <span style={{ fontSize: 12, color: 'var(--graphite)' }}>
-              Add a constraint that forces a real trade-off
-            </span>
+          <label className="row check">
+            <input type="checkbox" checked={harder} onChange={(e) => setHarder(e.target.checked)} />
+            Force a real trade-off
           </label>
         </div>
+
+        <details className="disclose">
+          <summary>Focus concepts{focus.length > 0 ? ` · ${focus.length} chosen` : ''}</summary>
+          <div className="filter-row" style={{ margin: '8px 0 6px' }}>
+            {CONCEPT_GROUPS.map((g) => (
+              <button key={g} className={group === g ? 'on' : ''} onClick={() => setGroup(g)}>
+                {g}
+              </button>
+            ))}
+          </div>
+          <div className="row wrap" style={{ gap: 3 }}>
+            {CONCEPT_CARDS.filter((c) => c.group === group).map((c) => (
+              <button
+                key={c.id}
+                className={focus.includes(c.id) ? 'on' : ''}
+                title={`${c.summary}\n\nRed flag: ${c.redFlags}`}
+                onClick={() => toggle(c.id)}
+                style={{ fontSize: 11.5 }}
+              >
+                {c.name}
+              </button>
+            ))}
+            {focus.length > 0 && (
+              <button className="ghost" onClick={() => setFocus([])}>
+                Clear
+              </button>
+            )}
+          </div>
+        </details>
       </div>
 
-      <div className="row" style={{ marginTop: 10 }}>
-        <button className="primary" onClick={() => void build()} disabled={busy || brief.trim().length < 40}>
+      <div className="row" style={{ marginTop: 12 }}>
+        <button className="primary" onClick={() => void build()} disabled={busy || short > 0}>
           {busy ? <span className="spinner" /> : <IconPlus size={15} />}
-          {busy ? 'Composing the sheet' : 'Build the sheet'}
+          {busy ? 'Building' : 'Build the sheet'}
         </button>
-        <button className="ghost" onClick={() => setView('problems')}>
-          Back to the index
-        </button>
+        {brief.trim().length > 0 && short > 0 && (
+          <span className="stencil">{short} more characters</span>
+        )}
         <span className="grow" />
-        <span className="stencil">{brief.trim().length} characters · minimum 40</span>
+        <button className="ghost" onClick={() => void surprise()} disabled={busy} title="Generate a problem at random">
+          Surprise me
+        </button>
       </div>
     </div>
   );

@@ -281,7 +281,7 @@ export function RefDesignModal({ problem, onClose }: { problem: Problem; onClose
                   <h3 style={{ margin: 0 }}>Drafting the reference…</h3>
                 </div>
                 <p style={{ fontSize: 11.5, marginTop: 6 }}>
-                  The first time for a problem takes ~20s — after that it is instant.
+                  About 20 seconds the first time.
                 </p>
               </div>
             </div>
