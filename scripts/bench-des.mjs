@@ -5,10 +5,11 @@
 //   npm run build:shared && node scripts/bench-des.mjs
 //
 // The topology and service times are loadtest/engine/compare.mjs's measured
-// stack. Phase 1 holds a core for a part's whole service time (the CPU/wait split
-// is phase 2), so the parts are given enough cores not to saturate: this measures
-// how fast events are handled, not where the stack breaks. The cache is drawn as
-// a 20% call through to Postgres, which is what its 80% hit rate amounts to.
+// stack. At 7,000 rps that stack is past its knee (~6,250 rps of Node CPU), and
+// until phase 3 bounds the queues an overloaded part queues without limit, so the
+// parts are given enough cores not to saturate: this measures how fast events are
+// handled, not where the stack breaks (des/reality.test.ts does that). The cache
+// is drawn as a 20% call through to Postgres, which is what its 80% hit rate is.
 
 import { runDes } from '../shared/dist/index.js';
 

@@ -195,6 +195,25 @@ export interface NodeAttrs {
   /** How long a caller waits for this component before giving up, ms. */
   timeoutMs?: number;
   /**
+   * How this component runs its requests. A thread pool holds a worker for the
+   * whole request, waits included, so a slow dependency eats its capacity. An event
+   * loop (any async runtime: Node, Go, Netty) holds nothing while it waits, so its
+   * limit is CPU time per request. Serverless runs each request on its own
+   * instance. Read by the request engine; one plain Node process is `vcpu: 1`.
+   */
+  runtime?: 'event-loop' | 'thread-pool' | 'serverless';
+  /**
+   * CPU time one request spends on this component, ms, on average — not its wall
+   * time. Measured as CPU% ÷ requests per second. The rest of the service time is
+   * waiting that holds no core.
+   */
+  cpuMs?: number;
+  /**
+   * The slowest 1% of this component's own service time, ms. With the median
+   * (service time) it sets how spread out single requests are.
+   */
+  latencyP99Ms?: number;
+  /**
    * How often a load balancer checks that its backends are alive, seconds. A dead
    * backend keeps getting its share of traffic until a check notices; after that,
    * its copies take the load.

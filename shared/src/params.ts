@@ -116,6 +116,27 @@ const AUTOSCALE_MAX: ParamSpec = {
   step: 1,
 };
 
+const CPU_MS: ParamSpec = {
+  key: 'cpuMs',
+  label: 'CPU per request',
+  hint: 'CPU time one request burns, not its wall time: CPU% ÷ requests per second. An event loop runs out of this, not of workers.',
+  kind: 'number',
+  group: 'behaviour',
+  unit: 'ms',
+  min: 0.01,
+  step: 0.01,
+};
+
+const LATENCY_P99: ParamSpec = {
+  key: 'latencyP99Ms',
+  label: 'Slowest 1% of own work',
+  hint: 'With own work per request (the median), this sets how spread out single requests are. Only the request engine reads it.',
+  kind: 'number',
+  group: 'behaviour',
+  unit: 'ms',
+  min: 0.01,
+};
+
 const CONCURRENCY: ParamSpec = {
   key: 'concurrency',
   label: 'Requests in flight per replica',
@@ -222,13 +243,15 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
     },
   ],
 
-  routing: [CAPACITY, SERVICE_TIME, REPLICAS, POOL_SIZE, COST_OVERRIDE],
+  routing: [CAPACITY, SERVICE_TIME, LATENCY_P99, REPLICAS, POOL_SIZE, COST_OVERRIDE],
 
   compute: [
     ELASTIC,
     VCPU,
     MEMORY,
     SERVICE_TIME,
+    CPU_MS,
+    LATENCY_P99,
     CAPACITY,
     REPLICAS,
     AUTOSCALE_MIN,
@@ -272,6 +295,8 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
       step: 1,
     },
     SERVICE_TIME,
+    CPU_MS,
+    LATENCY_P99,
     CAPACITY,
     REPLICAS,
     MAX_CONNECTIONS,
@@ -311,6 +336,7 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
       step: 0.05,
     },
     SERVICE_TIME,
+    LATENCY_P99,
     CAPACITY,
     REPLICAS,
     MULTI_AZ,
@@ -336,6 +362,7 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
 
   external: [
     SERVICE_TIME,
+    LATENCY_P99,
     {
       key: 'rateLimitRps',
       label: 'Their rate limit',
@@ -363,6 +390,8 @@ export const PARAMS_BY_FAMILY: Record<Family, ParamSpec[]> = {
     ELASTIC,
     RATE_LIMIT,
     SERVICE_TIME,
+    CPU_MS,
+    LATENCY_P99,
     {
       key: 'tokensPerRequest',
       label: 'Tokens per request',

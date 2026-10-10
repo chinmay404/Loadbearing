@@ -95,6 +95,15 @@ describe('sizing, so capacity and cost come from one statement', () => {
     expect(external, 'you do not scale a third party').not.toContain('autoscaleMax');
   });
 
+  it('asks compute and datastores for CPU per request, which is what an event loop runs out of', () => {
+    for (const type of ['service', 'sql_db'] as const) expect(keysFor(type)).toContain('cpuMs');
+    expect(keysFor('payment_gateway'), 'you do not see a third party’s CPU').not.toContain('cpuMs');
+  });
+
+  it('asks the things that serve for their slowest 1%, beside their median', () => {
+    for (const type of ['service', 'sql_db', 'cache'] as const) expect(keysFor(type)).toContain('latencyP99Ms');
+  });
+
   it('asks a model for tokens and token price, which is how inference is billed', () => {
     expect(keysFor('llm')).toContain('tokensPerRequest');
     expect(keysFor('llm')).toContain('pricePer1kTokens');

@@ -17,6 +17,7 @@
 import { DEFAULT_CAPACITY, DEFAULT_CACHE_HIT_RATE, DEFAULT_LATENCY, DEFAULT_QUEUE_DEPTH_MAX } from './components.js';
 import { DEFAULT_MEMORY_GB, DEFAULT_STORAGE_GB, DEFAULT_VCPU } from './cost.js';
 import { concurrencyFor } from './engine.js';
+import { cpuMsOf, latencyP99Of } from './des/runtime.js';
 import { familyOf } from './families.js';
 import type { ArchNodeType, NodeAttrs } from './types.js';
 
@@ -53,6 +54,10 @@ export function defaultFor(
       return family === 'datastore' ? DEFAULT_STORAGE_GB : undefined;
     case 'shards':
       return 1;
+    case 'cpuMs':
+      return family === 'compute' || family === 'ai' || family === 'datastore' ? cpuMsOf(node) : undefined;
+    case 'latencyP99Ms':
+      return latencyP99Of(node);
     case 'concurrency':
       // Derived: from vCPU once sized, from the catalogue until then.
       return Math.round(concurrencyFor(node));

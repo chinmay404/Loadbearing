@@ -1,7 +1,7 @@
 # Spec: Request-level simulation engine (DES) for Loadbearing
 
 Date: 2026-10-10
-Status: Phase 0 and Phase 1 in progress; later phases ready to implement
+Status: Phases 0–2 done; phase 2b next
 Revision: 2 — review folded in (section 13 lists what changed and why)
 
 Read `docs/HOW-LOADBEARING-WORKS.md` first. Read `loadtest/RESULTS.md` second.
@@ -392,3 +392,36 @@ Each phase is one PR, with its tests green and the tripwire unchanged.
   (runs 1.0–1.4 s), ~4.8 M events/s, 13 MB heap. **Passes the 5 s budget.**
 - Projection for section 8: 45,000 rps × 150 s ≈ 78 M events ≈ 16 s at this rate,
   so the event budget and scaled copies are still needed for phase 4.
+
+## 15. Phase 2 result (2026-10-10)
+
+- `NodeAttrs` gains `runtime`, `cpuMs` (a **mean**, as CPU% ÷ rps measures it) and
+  `latencyP99Ms`. Defaults live in `des/runtime.ts`, read by both the engine and the
+  inspector. `cpuMs` and `latencyP99Ms` are inspector fields; `runtime` has no
+  control yet (`ParamKind` has no choice-of-values kind) and is set in JSON, sheets
+  or MCP until phase 4.
+- A visit: token (thread-pool worker or store connection) → half the CPU on a core
+  → the non-CPU rest, holding no core → calls → the other half → token back. One
+  log-normal factor per visit scales wall and CPU; CPU is normalised so it averages
+  `cpuMs`. Routers, caches and outside services take time and hold no core (v1).
+  A fractional vCPU is one core at that speed.
+- Until phase 3, overload shows as `completionRatio` < 0.99 (completions ÷ arrivals
+  after warm-up), because queues are unbounded and nothing times out.
+- Test 4 (event loop): keeps up at 6,200, behind at 6,400; CPU utilisation =
+  rps × 0.16 ms (0.928 at 5,800). Test 5 (4-slot thread pool): keeps up at 3,200,
+  behind at 3,400 with the core at 53%. Test 6: exactly 200 rps through 10
+  connections either way round; 500 with no limit. Cache: misses = 1 − effective
+  hit rate, coverage cap respected.
+- **Test 8 (reality baseline) passes:** keeps up at 6,000, behind from 6,400 (real
+  ~7,000; ~10% low, as section 1.1 predicts from 0.16 ms); Node at 100% CPU is the
+  busiest part; p99 at 3,000 rps 4.16 ms against 5.4 ms measured. Postgres is next
+  at 78–86% busy, because its whole 0.65 ms is taken as CPU — a measured `cpuMs`
+  for it would move that.
+- Note: drawn as a thread pool with 8 slots, the same stack also keeps up at 3,000
+  rps: 8 ÷ ~0.9 ms of holding is above the 6,250 CPU limit, so CPU binds either way
+  here. The baseline checks that the limit is Node CPU; tests 4 and 5 are what
+  separate the runtimes.
+- Benchmark: 7,000 rps × 60 s, 5.87 M events (14.0 per request), best 0.82 s.
+- Checked in the running app with a throwaway account (deleted afterwards): a
+  compute part's inspector shows "CPU per request" 2 and "Slowest 1% of own work"
+  100 for its 40 ms of own work.

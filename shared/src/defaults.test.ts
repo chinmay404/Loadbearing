@@ -28,6 +28,19 @@ describe('defaultFor', () => {
     expect(defaultFor('vm', 'concurrency', { vcpu: 1 })).toBe(8);
   });
 
+  it('gives a service 2 ms of CPU, never more than its whole service time', () => {
+    expect(defaultFor('service', 'cpuMs', { latencyMs: 40 })).toBe(2);
+    expect(defaultFor('service', 'cpuMs', { latencyMs: 0.5 })).toBe(0.5);
+  });
+
+  it('treats all of a store’s service time as CPU until told otherwise', () => {
+    expect(defaultFor('sql_db', 'cpuMs', { latencyMs: 3 })).toBe(3);
+  });
+
+  it('puts the slowest 1% at the engine’s idle tail multiple of the median', () => {
+    expect(defaultFor('service', 'latencyP99Ms', { latencyMs: 10 })).toBe(25);
+  });
+
   it('says nothing rather than inventing a number where there is no default', () => {
     // An unset ceiling is not "some number" — it is a component that does not
     // autoscale, and claiming otherwise would be a lie in a box.

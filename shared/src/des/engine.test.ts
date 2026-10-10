@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { erlangC } from '../queueing.js';
 import type { ArchNodeType, GraphDSL, GraphEdge, GraphNode, NodeAttrs } from '../types.js';
 import { runDes } from './engine.js';
-import type { Scenario } from '../engine.js';
+import { effectiveHitRate, type Scenario } from '../engine.js';
 
 const node = (id: string, type: ArchNodeType, attrs: NodeAttrs = {}): GraphNode => ({
   id,
@@ -135,5 +135,127 @@ describe('requests go where the drawing says', () => {
     );
     const result = runDes(g, scenario(10), { seed: 1, service: { db: 'fixed' } });
     expect(result.meanResponseMs).toBeCloseTo(80, 0);
+  });
+});
+
+// ------------------------------------------------------------- phase 2 ---
+// Compute runtimes, connection limits and caches. "Starts dropping" is measured as
+// completions falling below 99% of arrivals over a hold: until bounded queues and
+// timeouts arrive (phase 3), an overloaded part grows its queue instead of
+// refusing, so what it cannot finish shows up as completions falling behind.
+
+const hold = (horizonS = 30): Scenario => scenario(horizonS);
+const at = (result: ReturnType<typeof runDes>, id: string) => result.parts.find((p) => p.nodeId === id)!;
+
+/** A service in front of a fast store: one core, 0.16 ms of CPU, a 1 ms call. */
+const serviceAndStore = (rps: number, app: NodeAttrs) =>
+  graph(
+    [
+      node('web', 'client', { trafficRps: rps }),
+      node('app', 'service', { vcpu: 1, cpuMs: 0.16, latencyMs: 0.16, ...app }),
+      node('db', 'sql_db', { vcpu: 64, latencyMs: 1 }),
+    ],
+    [edge('web', 'app', { placement: 'same-host' }), edge('app', 'db', { placement: 'same-host' })],
+  );
+
+describe('an event loop is limited by CPU, not by waiting', () => {
+  // 1 core ÷ 0.16 ms = 6,250 rps. Holding anything through the 1 ms call would cap
+  // it near 1 ÷ 1.2 ms ≈ 830 rps instead.
+  const run = (rps: number) =>
+    runDes(serviceAndStore(rps, { runtime: 'event-loop' }), hold(), { seed: 1, warmupS: 5 });
+
+  it('keeps up at 5,800 rps', () => {
+    expect(run(5800).completionRatio).toBeGreaterThanOrEqual(0.99);
+  });
+
+  it('falls behind by 6,600 rps, with its one core full', () => {
+    const result = run(6600);
+    expect(result.completionRatio).toBeLessThan(0.99);
+    expect(at(result, 'app').utilization).toBeGreaterThan(0.97);
+  });
+});
+
+describe('a thread pool holds its slots through every wait', () => {
+  // 4 slots, each held ~1.21 ms (0.16 CPU + 0.05 wire + 1 ms call): 4 ÷ 1.21 ms ≈ 3,300
+  // rps, well under the 6,250 its one core could do. Fixed times keep it hand-checkable.
+  const exactTimes = { service: { app: 'fixed', db: 'fixed' } as const };
+  const run = (rps: number, runtime: 'thread-pool' | 'event-loop') =>
+    runDes(serviceAndStore(rps, { runtime, concurrency: 4 }), hold(), { seed: 1, warmupS: 5, ...exactTimes });
+
+  it('keeps up at 3,000 rps', () => {
+    expect(run(3000, 'thread-pool').completionRatio).toBeGreaterThanOrEqual(0.99);
+  });
+
+  it('falls behind by 3,800 rps with its core barely half used: slots, not CPU', () => {
+    const result = run(3800, 'thread-pool');
+    expect(result.completionRatio).toBeLessThan(0.99);
+    expect(at(result, 'app').utilization).toBeLessThan(0.7);
+  });
+
+  it('the same part as an event loop carries 3,800 rps easily', () => {
+    expect(run(3800, 'event-loop').completionRatio).toBeGreaterThanOrEqual(0.99);
+  });
+});
+
+describe('a store gives out only the connections it has', () => {
+  // 500 rps each holding a connection for 50 ms needs 25. Ten allow 10 ÷ 50 ms = 200 rps.
+  const store = (attrs: NodeAttrs) =>
+    graph(
+      [node('web', 'client', { trafficRps: 500 }), node('db', 'sql_db', { vcpu: 64, latencyMs: 50, ...attrs })],
+      [edge('web', 'db')],
+    );
+  const served = (attrs: NodeAttrs) =>
+    at(runDes(store(attrs), hold(), { seed: 1, warmupS: 5, service: { db: 'fixed' } }), 'db').servedRps;
+
+  it('serves 200 rps through a pool of 10 in front of a 100-connection store', () => {
+    expect(served({ poolSize: 10, maxConnections: 100 })).toBeCloseTo(200, -1);
+  });
+
+  it('takes the smaller limit whichever side states it', () => {
+    expect(served({ poolSize: 100, maxConnections: 10 })).toBeCloseTo(200, -1);
+  });
+
+  it('serves everything when no limit is stated', () => {
+    expect(served({})).toBeGreaterThan(480);
+  });
+});
+
+describe('a cache answers what it holds and passes the rest on', () => {
+  const cached = (attrs: NodeAttrs) =>
+    graph(
+      [
+        node('web', 'client', { trafficRps: 1000 }),
+        node('kv', 'cache', attrs),
+        node('db', 'sql_db', { vcpu: 64, latencyMs: 1 }),
+      ],
+      [edge('web', 'kv'), edge('kv', 'db')],
+    );
+  const missRate = (attrs: NodeAttrs) => {
+    const result = runDes(cached(attrs), hold(), { seed: 1 });
+    return at(result, 'db').arrivals / at(result, 'kv').arrivals;
+  };
+
+  it('sends the misses on: 80% hits leave a fifth for the database', () => {
+    expect(missRate({ cacheHitRate: 0.8 })).toBeCloseTo(0.2, 1);
+  });
+
+  it('cannot hit more than its memory allows', () => {
+    // 1 GB of cache for 16 GB of working set covers √(1/16) = 25%, whatever was typed.
+    const attrs = { cacheHitRate: 0.95, memoryGb: 1, workingSetGb: 16 };
+    const expected = 1 - effectiveHitRate(node('kv', 'cache', attrs));
+    expect(expected).toBeGreaterThan(0.5);
+    expect(missRate(attrs)).toBeCloseTo(expected, 1);
+  });
+});
+
+describe('what a service is when nobody says', () => {
+  it('is a thread pool spending 2 ms of CPU per request, and says so', () => {
+    const g = graph(
+      [node('web', 'client', { trafficRps: 10 }), node('app', 'service')],
+      [edge('web', 'app')],
+    );
+    const text = runDes(g, hold(5), { seed: 1 }).assumptions.join(' ');
+    expect(text).toContain('thread pool');
+    expect(text).toContain('2 ms');
   });
 });

@@ -618,7 +618,7 @@ function pastPatience(r: NodeRuntime): boolean {
  * the smaller one binds: ten pooled connections in front of a hundred-connection
  * Postgres give callers ten. Taking whichever was stated first used the hundred.
  */
-function connectionCeiling(node: GraphNode): number | undefined {
+export function connectionCeiling(node: GraphNode): number | undefined {
   const stated = [node.attrs?.maxConnections, node.attrs?.poolSize].filter(
     (v): v is number => typeof v === 'number' && v > 0,
   );
