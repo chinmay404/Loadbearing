@@ -611,6 +611,20 @@ function pastPatience(r: NodeRuntime): boolean {
   return (stated ? r.responseMs : r.latencyMs) > patience;
 }
 
+/**
+ * The connections a store can actually give its callers.
+ *
+ * A pooler in front of a store and the store's own limit are both ceilings, and
+ * the smaller one binds: ten pooled connections in front of a hundred-connection
+ * Postgres give callers ten. Taking whichever was stated first used the hundred.
+ */
+function connectionCeiling(node: GraphNode): number | undefined {
+  const stated = [node.attrs?.maxConnections, node.attrs?.poolSize].filter(
+    (v): v is number => typeof v === 'number' && v > 0,
+  );
+  return stated.length > 0 ? Math.min(...stated) : undefined;
+}
+
 /** How long a caller waits for this component before giving up, ms — stated, or the family's default. */
 export function patienceFor(node: GraphNode): number {
   return num(node.attrs?.timeoutMs, defaultTimeoutFor(node, familyOf(node.type)));
@@ -1597,7 +1611,7 @@ export function runEngine(graph: GraphDSL, scenario: Scenario): EngineResult {
       // invisible until occupancy existed to measure the holding time.
       for (const node of prep.nodes) {
         const r = runtime.get(node.id)!;
-        const ceiling = r.node.attrs?.maxConnections ?? r.node.attrs?.poolSize;
+        const ceiling = connectionCeiling(r.node);
         if (typeof ceiling !== 'number' || ceiling <= 0 || r.down) continue;
         // What the ceiling sustains (Little's law turned round), not what it admitted
         // this round: clamping to admitted made every part with a stated limit read
@@ -1884,7 +1898,7 @@ function reasonFor(r: NodeRuntime): string {
   }
   // Before blaming throughput: a store can be almost idle by request count and
   // still be turning callers away because it has no connection left to give.
-  const ceiling = r.node.attrs?.maxConnections ?? r.node.attrs?.poolSize;
+  const ceiling = connectionCeiling(r.node);
   if (typeof ceiling === 'number' && ceiling > 0) {
     const needed = slotsNeeded({ arrivingRps: r.arriving, occupancyMs: r.occupancyMs });
     if (needed > ceiling) {

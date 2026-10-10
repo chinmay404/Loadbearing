@@ -1185,6 +1185,24 @@ describe('connection pools run out', () => {
     expect(db.state).toBe('ok');
   });
 
+  it('the smaller of a pool and a connection limit is the one that binds', () => {
+    // A pooler holding 10 connections in front of a store that accepts 100: callers
+    // get 10, whatever the store would allow. 10 × (1000 / 50ms) = 200 rps, as with
+    // a bare limit of 10 — and the reverse order must agree.
+    const withPool = (poolSize: number, maxConnections: number) =>
+      graph(
+        [
+          node('web', 'client', { trafficRps: 500 }),
+          node('api', 'service', { capacityRps: 100_000, latencyMs: 1 }),
+          node('db', 'sql_db', { latencyMs: 50, capacityRps: 100_000, poolSize, maxConnections }),
+        ],
+        [edge('web', 'api'), edge('api', 'db')],
+      );
+    expect(hop(runEngine(withPool(10, 100), scenario()), 'db').servedRps).toBeCloseTo(200, -1);
+    expect(hop(runEngine(withPool(100, 10), scenario()), 'db').servedRps).toBeCloseTo(200, -1);
+    expect(runEngine(withPool(10, 100), scenario()).firstFailure?.reason ?? '').toContain('has 10 connections');
+  });
+
   it('says the connections ran out, not that the store was too slow', () => {
     const result = runEngine(withCeiling(10), scenario());
     expect(result.firstFailure?.reason ?? '').toContain('connection');
