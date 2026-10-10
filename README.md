@@ -11,6 +11,9 @@ npm run dev
 
 Then open http://localhost:5173. The server runs on 127.0.0.1:8787.
 
+For a full description of the data model, the engine, the cost model, the checks,
+the course and the platform, read [docs/HOW-LOADBEARING-WORKS.md](docs/HOW-LOADBEARING-WORKS.md).
+
 Create an account (username and password — no email, nothing to verify), then open **Grader model**
 and add your own API key. To try the UI without a model at all, pick "Offline stub".
 
