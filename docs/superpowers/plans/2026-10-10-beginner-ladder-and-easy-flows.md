@@ -833,6 +833,18 @@ Other rules:
 | `l1-start-short-links-basics` | A short link is a tiny lookup: save a code once, read it on every click. | `make a short link` (write, 10, [[sql_db]]); `open a short link` (read, 300, [[sql_db]]) | User→Link server(service)→Links DB(sql_db) | — | `shared-on-social` ×2 |
 | `l1-start-short-links-step-up` | Serve hot links from a cache, and count clicks in the background so redirects stay fast. | `open a short link` (read, 2000, [[cache]]); `count a click` (async, 2000, [[queue],[worker]]) | User→Load balancer→Link server (`replicas: 6`)→Link cache(cache)→Links DB; Link server→Click queue(queue, async)→Click counter(worker, `replicas: 8`)→Links DB | basics design with Link server `replicas: 6` | `goes-viral` ×1.5 |
 
+**Settled during execution:** `ladder.test.ts` and the rulings in the ledger are the record. These rows changed from the table above:
+
+| Sheet | What changed |
+|---|---|
+| Photo Step up | User → CDN → App server (CDN `cacheHitRate: 0.9`, because a CDN absorbs nothing in this engine until its hit rate is set; a hint tells the learner). One scenario, `viral-photo` ×1.2. |
+| AI basics | 6 questions a second. |
+| Product Step up | App server `replicas: 10`. |
+| Stay-up Step up | Both servers also wired to the replica. `database-lost` kills `sql_db` under the default gate. |
+| Background-work Step up | 200 sign-ups a second, 2 workers, and `email-down` kills `email_provider`. Its Basics answer is allowed to pass (`NAIVE_PASSES`), because queue backlog is not gated. |
+| Short-links Basics | 150 opens a second. |
+| Short-links Step up | Load balancer, link server `replicas: 10` and a cache. Click counting was dropped. |
+
 `track.next` values:
 - Each Basics sheet points to its Step up.
 - Each Step up points to the existing problem:

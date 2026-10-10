@@ -5,6 +5,7 @@
 import type { Problem } from '@loadbearing/shared';
 import { COL, diagram, ROW } from './diagrams.js';
 import { LABS } from './labs.js';
+import { STARTER_SHEETS } from './starter.js';
 
 const DESIGN_PROBLEMS: Problem[] = [
   // ------------------------------------------------------------------ L1 ----
@@ -2208,6 +2209,6 @@ const DESIGN_PROBLEMS: Problem[] = [
  * differs is only where you start: a design problem starts empty, a lab starts with
  * the architecture in its `diagram` already on the canvas.
  */
-export const PROBLEM_BANK: Problem[] = [...DESIGN_PROBLEMS, ...LABS];
+export const PROBLEM_BANK: Problem[] = [...STARTER_SHEETS, ...DESIGN_PROBLEMS, ...LABS];
 
 export const PROBLEM_BY_ID: Record<string, Problem> = Object.fromEntries(PROBLEM_BANK.map(p => [p.id, p]));

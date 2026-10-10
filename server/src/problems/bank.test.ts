@@ -4,14 +4,14 @@ import { PROBLEM_BANK, PROBLEM_BY_ID } from './bank.js';
 import { auditSeedProblem, validateProblem } from './validate.js';
 
 describe('problem bank', () => {
-  it('has 44 sheets with unique ids and the intended level spread', () => {
-    expect(PROBLEM_BANK).toHaveLength(44);
-    expect(new Set(PROBLEM_BANK.map((p) => p.id)).size).toBe(44);
+  it('has 56 sheets with unique ids and the intended level spread', () => {
+    expect(PROBLEM_BANK).toHaveLength(56);
+    expect(new Set(PROBLEM_BANK.map((p) => p.id)).size).toBe(56);
     const byLevel = PROBLEM_BANK.reduce<Record<number, number>>((acc, p) => {
       acc[p.level] = (acc[p.level] ?? 0) + 1;
       return acc;
     }, {});
-    expect(byLevel).toEqual({ 1: 7, 2: 6, 3: 7, 4: 9, 5: 8, 6: 7 });
+    expect(byLevel).toEqual({ 1: 19, 2: 6, 3: 7, 4: 9, 5: 8, 6: 7 });
   });
 
   it('carries 9 labs, every one of them at a different starting point', () => {
