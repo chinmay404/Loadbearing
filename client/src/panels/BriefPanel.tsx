@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { DESIGN_CHECKLIST, evaluateAllScenarios, type Problem } from '@loadbearing/shared';
+import { api } from '../lib/api';
 import { useApp } from '../state/appStore';
 import { useCanvas } from '../state/canvasStore';
 import { ArchDiagram } from '../ui/ArchDiagram';
@@ -27,6 +28,12 @@ export function BriefPanel() {
   const setSimRunning = useCanvas((s) => s.setSimRunning);
   const [storyOpen, setStoryOpen] = useState(false);
   const [openGoal, setOpenGoal] = useState<string | null>(null);
+  const hintsShown = useApp((s) => (s.problem ? s.hintsShown[s.problem.id] ?? 0 : 0));
+  const showHint = useApp((s) => s.showHint);
+  const setLeftTab = useApp((s) => s.setLeftTab);
+  const openProblem = useApp((s) => s.openProblem);
+  const addGhosts = useCanvas((s) => s.addGhosts);
+  const [openTerm, setOpenTerm] = useState<string | null>(null);
 
   // Live pass/fail per scenario — deterministic and free, recomputed as you draw.
   const gates = useMemo(() => {
@@ -40,6 +47,8 @@ export function BriefPanel() {
   }, [problem, nodes, edges, flows, toGraph]);
 
   if (!problem) return null;
+  // A Start here sheet: its lesson, words and hints come first, and its story is short enough to show whole.
+  const beginner = Boolean(problem.track);
   const checked = flows.length > 0;
   const passCount = [...gates.values()].filter((g) => g.pass).length;
   const emptySheet = nodes.filter((n) => n.type === 'arch').length === 0;
@@ -72,6 +81,92 @@ export function BriefPanel() {
         <div className="banner warnb">
           <strong>Twist in play.</strong> {twist}
         </div>
+      )}
+
+      {beginner && problem.learn && (
+        <p className="brief-learn">
+          <span className="stencil">what you'll learn</span>
+          {problem.learn}
+        </p>
+      )}
+
+      {beginner && (
+        <>
+          <section className="brief-story">
+            <h4>The situation</h4>
+            <p>{problem.prompt}</p>
+          </section>
+
+          {problem.glossary && problem.glossary.length > 0 && (
+            <section className="brief-words">
+              <h4>Words used here</h4>
+              <div className="row wrap" style={{ gap: 4 }}>
+                {problem.glossary.map((g) => (
+                  <button
+                    key={g.term}
+                    className={`chip${openTerm === g.term ? ' on' : ''}`}
+                    onClick={() => setOpenTerm(openTerm === g.term ? null : g.term)}
+                    aria-expanded={openTerm === g.term}
+                  >
+                    {g.term}
+                  </button>
+                ))}
+              </div>
+              {openTerm && (
+                <p className="brief-word-meaning">
+                  <b>{openTerm}</b> — {problem.glossary.find((g) => g.term === openTerm)?.meaning}
+                </p>
+              )}
+            </section>
+          )}
+
+          {problem.hints && problem.hints.length > 0 && (
+            <section className="brief-hints">
+              <h4>Hints</h4>
+              {hintsShown > 0 && (
+                <ol>
+                  {problem.hints.slice(0, hintsShown).map((h, i) => (
+                    <li key={i}>
+                      {h.text}
+                      {h.ghost && (
+                        <button
+                          className="link-btn"
+                          onClick={() =>
+                            addGhosts([
+                              {
+                                type: h.ghost!.type,
+                                label: h.ghost!.label,
+                                annotation: h.ghost!.annotation ?? '',
+                                kind: 'sync',
+                                why: h.text,
+                              },
+                            ])
+                          }
+                        >
+                          Show me
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {hintsShown < problem.hints.length ? (
+                <button onClick={() => showHint(problem.id)}>
+                  {hintsShown === 0 ? 'Give me a hint' : 'Next hint'} ({hintsShown}/{problem.hints.length})
+                </button>
+              ) : (
+                <span className="faint" style={{ fontSize: 12 }}>
+                  That's every hint. Ask the coach if you are stuck.
+                </span>
+              )}
+            </section>
+          )}
+
+          <section className="brief-list">
+            <h4>Requests to handle</h4>
+            <button onClick={() => setLeftTab('flows')}>Set them up in Flows →</button>
+          </section>
+        </>
       )}
 
       {problem.scenarios.length > 0 && (
@@ -135,18 +230,20 @@ export function BriefPanel() {
         </section>
       )}
 
-      <section className="brief-story">
-        <h4>The situation</h4>
-        <p>{lead}</p>
-        {rest && (
-          <>
-            {storyOpen && <p>{rest}</p>}
-            <button className="link-btn" onClick={() => setStoryOpen(!storyOpen)}>
-              {storyOpen ? 'Show less' : 'Read the full story'}
-            </button>
-          </>
-        )}
-      </section>
+      {!beginner && (
+        <section className="brief-story">
+          <h4>The situation</h4>
+          <p>{lead}</p>
+          {rest && (
+            <>
+              {storyOpen && <p>{rest}</p>}
+              <button className="link-btn" onClick={() => setStoryOpen(!storyOpen)}>
+                {storyOpen ? 'Show less' : 'Read the full story'}
+              </button>
+            </>
+          )}
+        </section>
+      )}
 
       {problem.diagram && (
         <section>
@@ -193,16 +290,18 @@ export function BriefPanel() {
         </ul>
       </section>
 
-      <section className="brief-list">
-        <h4>Flows to declare</h4>
-        <div className="row wrap" style={{ gap: 4 }}>
-          {problem.expectedFlows.map((f) => (
-            <span className="chip spec" key={f}>
-              {f}
-            </span>
-          ))}
-        </div>
-      </section>
+      {!beginner && (
+        <section className="brief-list">
+          <h4>Flows to declare</h4>
+          <div className="row wrap" style={{ gap: 4 }}>
+            {problem.expectedFlows.map((f) => (
+              <span className="chip spec" key={f}>
+                {f}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
 
       {score === null && (
         <details className="disclose">
@@ -216,6 +315,14 @@ export function BriefPanel() {
             ))}
           </ol>
         </details>
+      )}
+
+      {problem.track?.next && (
+        <section className="brief-next">
+          <button className="primary" onClick={() => void api.problem(problem.track!.next!).then(openProblem)}>
+            Next sheet →
+          </button>
+        </section>
       )}
     </div>
   );

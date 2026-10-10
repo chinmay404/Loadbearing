@@ -62,6 +62,9 @@ interface AppState {
    */
   chat: ChatTurn[];
   chatFor: string | null;
+  /** How many hints are revealed, per sheet — so leaving the Brief does not hide them again. */
+  hintsShown: Record<string, number>;
+  showHint: (problemId: string) => void;
   /**
    * The attacks devised for the sheet on screen, for exactly the reason the chat
    * above lives here: the panel unmounts on every tab change, and each run costs
@@ -131,6 +134,7 @@ export const useApp = create<AppState>((set) => ({
   customObjectsVersion: 0,
   chat: [],
   chatFor: null,
+  hintsShown: {},
   attacks: null,
   attacksFor: null,
 
@@ -196,6 +200,8 @@ export const useApp = create<AppState>((set) => ({
   bumpCustomObjects: () => set((s) => ({ customObjectsVersion: s.customObjectsVersion + 1 })),
 
   setChat: (chatFor, chat) => set({ chatFor, chat }),
+  showHint: (problemId) =>
+    set((s) => ({ hintsShown: { ...s.hintsShown, [problemId]: (s.hintsShown[problemId] ?? 0) + 1 } })),
   setAttacks: (attacksFor, attacks) => set({ attacksFor, attacks }),
   appendChat: (turn) => set((s) => ({ chat: [...s.chat, turn] })),
 
@@ -230,6 +236,7 @@ export const useApp = create<AppState>((set) => ({
       error: null,
       chat: [],
       chatFor: null,
+      hintsShown: {},
       attacks: null,
       attacksFor: null,
     }),

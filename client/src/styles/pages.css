@@ -1266,3 +1266,11 @@ ol.connect-steps > li > p {
   .ladder-row { grid-template-columns: 1fr 1fr; }
   .ladder-topic, .ladder-next { grid-column: 1 / -1; }
 }
+
+/* -------------------------------------------------------- beginner brief ---- */
+.brief-learn { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 10px; font-size: var(--t-13); }
+.brief-word-meaning { font-size: 12.5px; margin: 6px 0 0; }
+.brief-hints ol { margin: 0 0 8px; padding-left: 18px; font-size: 12.5px; }
+.brief-hints li { margin-bottom: 5px; }
+.brief-hints .link-btn { margin-left: 6px; }
+.brief-next { margin-top: 12px; }
