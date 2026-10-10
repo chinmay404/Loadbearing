@@ -57,6 +57,15 @@ describe('matchPath', () => {
     expect(m).toEqual({ status: 'found', path: ['u', 'app', 'q', 'w'] });
   });
 
+  it('starts background work where the request hands it off, so it does not count as new traffic', () => {
+    const handoff: GraphDSL = {
+      ...photo,
+      edges: photo.edges.map((e) => (e.from === 'app' && e.to === 'q' ? { ...e, kind: 'async' as const } : e)),
+    };
+    const m = matchPath({ name: 'thumb', kind: 'async', rps: 20, plain: '', mustReach: [['queue'], ['worker']] }, handoff);
+    expect(m).toEqual({ status: 'found', path: ['app', 'q', 'w'] });
+  });
+
   it('says none when nothing drawn reaches it', () => {
     const m = matchPath({ name: 'view', kind: 'read', rps: 20, plain: '', mustReach: [['cdn']] }, photo);
     expect(m).toEqual({ status: 'none' });

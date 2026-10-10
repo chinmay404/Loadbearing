@@ -81,7 +81,7 @@ export function matchPath(plan: FlowPlan, graph: GraphDSL): PathMatch {
       end = Math.max(end, at);
     }
     if (!ok) continue;
-    const steps = groups.length ? path.slice(0, end + 1) : path;
+    const steps = handOff(plan, groups.length ? path.slice(0, end + 1) : path, graph);
     if (!fits.some((f) => same(f, steps))) fits.push(steps);
   }
   if (fits.length === 0) return { status: 'none' };
@@ -91,6 +91,20 @@ export function matchPath(plan: FlowPlan, graph: GraphDSL): PathMatch {
   return best.length === 1
     ? { status: 'found', path: best[0]! }
     : { status: 'choose', paths: best.slice(0, MAX_CHOICES) };
+}
+
+/**
+ * Background work starts where the request hands it off. Every flow that starts at
+ * the user is traffic the user sends, so an email flow walked from the user would
+ * double the signup load in the simulator; started at the component that enqueues
+ * it, it carries exactly the requests that reach that component.
+ */
+function handOff(plan: FlowPlan, steps: string[], graph: GraphDSL): string[] {
+  if (plan.kind !== 'async') return steps;
+  const at = steps.findIndex((id, i) =>
+    i < steps.length - 1 && graph.edges.some((e) => e.from === id && e.to === steps[i + 1] && e.kind === 'async'),
+  );
+  return at > 0 ? steps.slice(at) : steps;
 }
 
 /**
