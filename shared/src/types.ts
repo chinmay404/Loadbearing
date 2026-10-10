@@ -552,7 +552,7 @@ export interface LoadScenario {
 
 export type ProblemSummary = Pick<
   Problem,
-  'id' | 'title' | 'level' | 'domain' | 'concepts' | 'custom' | 'kind' | 'track'
+  'id' | 'title' | 'level' | 'domain' | 'concepts' | 'custom' | 'kind' | 'track' | 'learn'
 >;
 
 export const DIMENSION_KEYS = [

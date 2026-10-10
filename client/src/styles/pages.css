@@ -1249,3 +1249,20 @@ ol.connect-steps > li > p {
     transition: none;
   }
 }
+
+/* ----------------------------------------------------------- start here ---- */
+/* The beginner ladder: a topic, its two sheets, and where it leads. */
+.ladder { display: flex; flex-direction: column; gap: 8px; }
+.ladder-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 1fr auto;
+  gap: 8px;
+  align-items: stretch;
+}
+.ladder-topic { align-self: center; font-weight: 600; }
+.ladder-step { display: flex; flex-direction: column; gap: 3px; text-align: left; position: relative; }
+.ladder-next { align-self: center; white-space: nowrap; }
+@media (max-width: 720px) {
+  .ladder-row { grid-template-columns: 1fr 1fr; }
+  .ladder-topic, .ladder-next { grid-column: 1 / -1; }
+}

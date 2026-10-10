@@ -3,6 +3,7 @@ import type { MasteryEntry, ProblemSummary } from '@loadbearing/shared';
 import { api, ApiError } from '../lib/api';
 import { useApp } from '../state/appStore';
 import { IconPlus, IconTarget } from '../ui/UiIcons';
+import { startHereRows } from './startHere';
 
 const LEVEL_NAME: Record<number, string> = {
   1: 'Fundamentals',
@@ -94,7 +95,9 @@ export function ProblemBrowser() {
   const shown = problems.filter(
     (p) => (level === 'all' || p.level === level) && (kind === 'all' || (p.kind ?? 'design') === kind),
   );
-  const byLevel = [1, 2, 3, 4, 5, 6].map((l) => ({ l, items: shown.filter((p) => p.level === l) }));
+  // Ladder sheets live in Start here, not repeated in the L1 tier.
+  const byLevel = [1, 2, 3, 4, 5, 6].map((l) => ({ l, items: shown.filter((p) => p.level === l && !p.track) }));
+  const ladder = (level === 'all' || level === 1) && kind !== 'lab' ? startHereRows(problems) : [];
   const labCount = problems.filter((p) => p.kind === 'lab').length;
 
   // The level filter applies here too, so filtering to L4 does not leave an L1 sheet
@@ -113,6 +116,7 @@ export function ProblemBrowser() {
         <div className="grow">
           <h1>Problem index</h1>
           <p className="lede">
+            New to this? Start at the top: each Start here sheet teaches one idea with a few boxes.
             Draw the design, declare the flows, run load against it, then have it reviewed. Levels climb
             from single-service fundamentals to multi-region, exactly-once billing and AI systems.
           </p>
@@ -267,6 +271,46 @@ export function ProblemBrowser() {
                 touched={touched}
                 onOpen={() => void open(problem.id)}
               />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* The beginner ladder: a topic, its two sheets, and the full problem it leads to. */}
+      {ladder.length > 0 && (
+        <div className="tier start-here">
+          <div className="tier-head">
+            <span className="lvl l1">★</span>
+            <h3>Start here</h3>
+            <span className="count">one idea per sheet — Basics, then Step up</span>
+          </div>
+          <div className="ladder">
+            {ladder.map((row) => (
+              <div className="ladder-row" key={row.topic}>
+                <div className="ladder-topic">{row.title}</div>
+                {[row.basics, row.stepUp].map((p, i) => {
+                  if (!p) return <span key={i} />;
+                  const best = done[p.id];
+                  return (
+                    <button key={p.id} className="plate ladder-step" onClick={() => void open(p.id)} disabled={busy === p.id}>
+                      {best !== undefined && (
+                        <span className={`best ${best >= 80 ? 'hi' : best >= 60 ? 'mid' : 'lo'}`} title={`Your best score: ${best}/100`}>
+                          {best}
+                        </span>
+                      )}
+                      <span className="stencil">{i === 0 ? 'Basics' : 'Step up'}</span>
+                      <span className="t">{p.learn ?? p.title}</span>
+                    </button>
+                  );
+                })}
+                {row.next ? (
+                  <button className="link-btn ladder-next" onClick={() => void open(row.next!.id)}>
+                    then → {row.next.title}
+                  </button>
+                ) : (
+                  <span />
+                )}
+              </div>
             ))}
           </div>
         </div>
