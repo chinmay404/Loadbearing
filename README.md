@@ -23,7 +23,10 @@ and add your own API key. To try the UI without a model at all, pick "Offline st
    you are actually under — team size, budget, compliance, the numbers you know — and turns it into a
    problem with a rubric, twists and load scenarios. Use it to drill a topic, or to have a system you
    really run reviewed against its real numbers.
-1. **Pick a problem.** 25 hand-written problems across six levels — from caching a read-heavy API up
+1. **Pick a problem.** New to architecture? Start with the **Start here** ladder: twelve beginner
+   sheets on six topics (photo upload, AI chat, product page, staying up, background work, short
+   links), each teaching one idea with a few boxes, a plain-language brief, a glossary and hints you
+   reveal one at a time — first Basics, then a Step up. Then 44 hand-written problems across six levels — from caching a read-heavy API up
    to multi-region active-active data, exactly-once billing, cell-based tenant isolation and AI
    systems (RAG with eval gates, agent sandboxing, LLM cost control). Each one carries real numbers
    (RPS, data size, p99 budget), hard constraints (team size, monthly budget, existing stack) and the
@@ -34,8 +37,9 @@ and add your own API key. To try the UI without a model at all, pick "Offline st
    annotations, and a box labelled "Cache" with no strategy earns nothing. Sticky notes and a
    freehand pen are there for the reasoning that does not fit in a box.
 3. **Declare your flows.** A flow is one request's journey: `Client → ALB → API → Redis → Postgres`,
-   with a baseline RPS and a kind (read/write/async/admin). This is what turns a box diagram into a
-   design, and it is graded step by step.
+   with a baseline RPS and a kind (read/write/async/admin). Each request the sheet asks for arrives
+   filled in, and its path is read off the arrows you drew — you confirm it with one click, or edit it
+   by hand. This is what turns a box diagram into a design, and it is graded step by step.
 4. **Run load before you submit.** A deterministic capacity model pushes your flows through your
    components: utilization, queueing latency, drops, queue depth, monthly cost. Drag the load slider
    to 50×. Kill a component and watch flows re-route through redundant siblings — or break. Kill the

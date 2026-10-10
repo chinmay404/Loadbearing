@@ -521,6 +521,14 @@ Progress is recorded only when the server's judge agrees.
   non-functional numbers (peak rps, p99, availability…), constraints (team, budget,
   stack), concepts, expected flows, rubric hints, twists, scenarios, and an optional
   authored diagram of "the system today".
+- **Start here** (`starter.ts`): twelve beginner sheets, two per topic (Basics, then
+  Step up), all level 1 and marked with `track: { topic, stage, next }`. They carry a
+  one-line `learn`, `hints` (revealed one at a time, optionally with a ghost part),
+  a `glossary`, and `flowPlans` (each request's name, kind, rate and the part types
+  its path must reach). They pass a lighter seed audit, and the grader gets a
+  BEGINNER SHEET block telling it to judge only the one idea. `ladder.test.ts` holds
+  the answer key: each intended design passes its gates, and (where the engine can
+  express it) each Basics answer fails its Step up.
 - **Labs** (`labs.ts`): 7 sheets that arrive with a working, flawed architecture
   already placed (e.g. *The One-Box Storefront*: app, images and Postgres on one
   machine; *Analytics on the Primary*; *One Shard Is On Fire*; *Two Regions, One
@@ -735,7 +743,11 @@ infrastructure PRs; the canvas as a digital twin with drift detection.
 
 - **Part / node**: one component on the canvas.
 - **Connection / edge**: a typed link between parts.
-- **Flow / journey**: one request's ordered path with a baseline rate.
+- **Flow / journey**: one request's ordered path with a baseline rate. The Flows tab
+  sets them up from `shared/src/flowPlans.ts`: `plansFor` (the sheet's requests,
+  authored or guessed from `expectedFlows`), `matchPath` (finds the path in the drawn
+  arrows; background work starts where the request hands it off) and `isPathBroken`
+  (the simulator's own connectivity rule).
 - **Gate**: a machine-checked pass condition on a run.
 - **Scenario**: a traffic shape plus kills and slowdowns.
 - **Machine**: a boundary whose contents share its CPU and its outage.
