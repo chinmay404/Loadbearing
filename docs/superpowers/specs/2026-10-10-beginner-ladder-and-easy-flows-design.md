@@ -37,7 +37,7 @@ existing id rule `^l[1-6]-` still holds.
 | product-page | A product page is read from a database through an app server | Reads outgrow the database: add cache-aside with a TTL, and update the cache when a price changes | `l1-read-heavy-product-api` |
 | stay-up | One server dies: two servers behind a load balancer | The database dies: add a replica and fail over to it | `l2-autoscaled-campaign-tier` |
 | background-work | Send the welcome email from a queue and a worker so signup does not wait | The email provider fails: add retries with backoff and a failed-jobs (dead-letter) queue | `l1-signup-email-verification` |
-| short-links | Create a short link and redirect it, stored in one database | Millions of clicks: redirect from a cache and count clicks asynchronously | `l2-url-shortener-50k-rps` |
+| short-links | Create a short link and redirect it, stored in one database | Thousands of clicks a second: redirect from a cache, several link servers behind a load balancer (click counting is its twist — a counter worker would see every redirect in this engine) | `l2-url-shortener-50k-rps` |
 
 ### Writing rules for these sheets
 

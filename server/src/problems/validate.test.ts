@@ -174,7 +174,9 @@ describe('beginner fields', () => {
     expect(p.track).toBeUndefined();
     expect(p.hints).toEqual([{ text: 'ok' }]);
     expect(p.glossary).toBeUndefined();
-    expect(p.flowPlans).toEqual([{ name: 'upload a photo', kind: 'read', rps: 0, plain: 'p', mustReach: [['cdn']] }]);
+    // A bad kind is guessed from the name and a bad rate falls back to the default: a
+    // plan at 0 rps would declare a flow that sends nothing and passes every gate.
+    expect(p.flowPlans).toEqual([{ name: 'upload a photo', kind: 'write', rps: 100, plain: 'p', mustReach: [['cdn']] }]);
   });
 });
 

@@ -6,7 +6,7 @@
 // are the path. This turns "declare a flow" into "confirm the path we found".
 
 import { requestPaths } from './engine.js';
-import type { FlowKind, FlowPlan, GraphDSL, Problem } from './types.js';
+import type { ArchNodeType, FlowKind, FlowPlan, GraphDSL, Problem } from './types.js';
 
 /** What an underived plan assumes, and what a new flow defaults to anyway. */
 export const DEFAULT_PLAN_RPS = 100;
@@ -15,8 +15,9 @@ const MAX_CHOICES = 4;
 
 const KIND_WORDS: [FlowKind, RegExp][] = [
   ['admin', /\badmin/],
-  ['async', /\b(job|jobs|worker|background|generation|export|nightly|process|processing|resize|fan-?out|digest|reindex)/],
-  ['write', /(upload|writ|creat|updat|delet|checkout|pay|send|import|post|submit|reserv|charge|register|sign ?up|shorten)/],
+  ['async', /\b(job|jobs|worker|background|generation|export|nightly|process|processing|resize|fan-?out|digest|reindex|email|notify|notification|ingest)/],
+  // Whole words, so "display" is not "pay" and "view posts" is not "post".
+  ['write', /\b(upload\w*|writ\w*|creat\w*|updat\w*|delet\w*|checkout|pay|payment|send|import\w*|post|submit\w*|reserve|charge\w*|register\w*|sign ?up|shorten\w*)\b/],
 ];
 
 export function guessFlowKind(name: string): FlowKind {
@@ -84,6 +85,12 @@ export function matchPath(plan: FlowPlan, graph: GraphDSL): PathMatch {
     const steps = handOff(plan, groups.length ? path.slice(0, end + 1) : path, graph);
     if (!fits.some((f) => same(f, steps))) fits.push(steps);
   }
+  if (fits.length === 0 && groups.length > 0) {
+    for (const steps of withSideCalls(groups, graph)) {
+      const cut = handOff(plan, steps, graph);
+      if (!fits.some((f) => same(f, cut))) fits.push(cut);
+    }
+  }
   if (fits.length === 0) return { status: 'none' };
   if (groups.length === 0) return { status: 'choose', paths: fits.slice(0, MAX_CHOICES) };
   const shortest = Math.min(...fits.map((f) => f.length));
@@ -91,6 +98,45 @@ export function matchPath(plan: FlowPlan, graph: GraphDSL): PathMatch {
   return best.length === 1
     ? { status: 'found', path: best[0]! }
     : { status: 'choose', paths: best.slice(0, MAX_CHOICES) };
+}
+
+/**
+ * Paths that reach a group through a side call rather than straight down one branch.
+ *
+ * Cache-aside is drawn as the app server calling the cache AND the database, which
+ * the engine walks as two separate paths, so no single one passes through both. A
+ * request still visits both — each is called by a step it already passed — so a
+ * missing group is appended when an earlier step calls a component of that type.
+ * The groups must then appear in order, or the path tells the wrong story.
+ */
+function withSideCalls(groups: ArchNodeType[][], graph: GraphDSL): string[][] {
+  const typeOf = new Map(graph.nodes.map((n) => [n.id, n.type]));
+  const out: string[][] = [];
+  for (const path of candidatePaths(graph)) {
+    const steps = [...path];
+    let ok = true;
+    for (const group of groups) {
+      if (steps.some((id) => group.includes(typeOf.get(id)!))) continue;
+      const side = graph.edges.find((e) => steps.includes(e.from) && !steps.includes(e.to) && group.includes(typeOf.get(e.to)!));
+      if (!side) {
+        ok = false;
+        break;
+      }
+      steps.push(side.to);
+    }
+    if (!ok) continue;
+    const at = groups.map((group) => steps.findIndex((id) => group.includes(typeOf.get(id)!)));
+    if (at.some((i, k) => k > 0 && i <= at[k - 1]!)) continue;
+    const cut = steps.slice(0, Math.max(1, ...at) + 1);
+    if (!out.some((p) => same(p, cut))) out.push(cut);
+  }
+  return out;
+}
+
+/** True when the steps still pass through one type from every group the request needs. */
+export function meetsPlan(plan: FlowPlan, steps: string[], graph: GraphDSL): boolean {
+  const typeOf = new Map(graph.nodes.map((n) => [n.id, n.type]));
+  return (plan.mustReach ?? []).every((group) => steps.some((id) => group.includes(typeOf.get(id)!)));
 }
 
 /**

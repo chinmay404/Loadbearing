@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GraphDSL, GraphNode } from './types.js';
-import { guessFlowKind, isPathBroken, matchPath, plansFor, sameFlowName } from './flowPlans.js';
+import { guessFlowKind, isPathBroken, matchPath, meetsPlan, plansFor, sameFlowName } from './flowPlans.js';
 
 const node = (id: string, type: GraphNode['type']): GraphNode => ({ id, type, label: id, annotation: '' });
 const graph = (nodes: GraphNode[], edges: [string, string][]): GraphDSL => ({
@@ -20,6 +20,10 @@ describe('guessFlowKind', () => {
     ['admin refund', 'admin'],
     ['product detail read', 'read'],
     ['feed page', 'read'],
+    ['verification email send', 'async'],
+    ['click event ingest', 'async'],
+    ['display a product', 'read'],
+    ['view posts', 'read'],
   ])('%s → %s', (name, kind) => {
     expect(guessFlowKind(name)).toBe(kind);
   });
@@ -64,6 +68,16 @@ describe('matchPath', () => {
     };
     const m = matchPath({ name: 'thumb', kind: 'async', rps: 20, plain: '', mustReach: [['queue'], ['worker']] }, handoff);
     expect(m).toEqual({ status: 'found', path: ['app', 'q', 'w'] });
+  });
+
+  it('recognises cache-aside: the app server calls the cache and the database side by side', () => {
+    const aside = graph(
+      [node('u', 'client'), node('app', 'service'), node('c', 'cache'), node('db', 'sql_db')],
+      [['u', 'app'], ['app', 'c'], ['app', 'db']],
+    );
+    const m = matchPath({ name: 'view', kind: 'read', rps: 50, plain: '', mustReach: [['cache'], ['sql_db']] }, aside);
+    expect(m).toEqual({ status: 'found', path: ['u', 'app', 'c', 'db'] });
+    if (m.status === 'found') expect(isPathBroken(m.path, aside)).toBe(false);
   });
 
   it('says none when nothing drawn reaches it', () => {
@@ -116,6 +130,27 @@ describe('isPathBroken', () => {
 
   it('an empty flow is not broken, just empty', () => {
     expect(isPathBroken([], g)).toBe(false);
+  });
+});
+
+describe('meetsPlan', () => {
+  const g = graph(
+    [node('u', 'client'), node('app', 'service'), node('store', 'blob_store')],
+    [['u', 'app'], ['app', 'store']],
+  );
+  const plan = { name: 'upload', kind: 'write' as const, rps: 20, plain: '', mustReach: [['blob_store' as const]] };
+
+  it('accepts steps that still reach what the request needs', () => {
+    expect(meetsPlan(plan, ['u', 'app', 'store'], g)).toBe(true);
+  });
+
+  it('rejects steps cut short when the box at the end was deleted', () => {
+    // Deleting a box strips it from the flow, leaving a connected but useless path.
+    expect(meetsPlan(plan, ['u', 'app'], g)).toBe(false);
+  });
+
+  it('accepts any steps for a plan with no mustReach', () => {
+    expect(meetsPlan({ ...plan, mustReach: undefined }, ['u', 'app'], g)).toBe(true);
   });
 });
 

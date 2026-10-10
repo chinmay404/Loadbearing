@@ -3,8 +3,8 @@ import type { Node } from '@xyflow/react';
 import {
   isPathBroken,
   matchPath,
+  meetsPlan,
   plansFor,
-  sameFlowName,
   type Flow,
   type FlowKind,
   type FlowPlan,
@@ -14,6 +14,7 @@ import {
 } from '@loadbearing/shared';
 import { FLOW_KINDS, useCanvas, type ArchNodeData } from '../state/canvasStore';
 import { useApp } from '../state/appStore';
+import { assignFlows } from './requestFlows';
 
 const KIND_HINT: Record<FlowKind, string> = {
   read: 'A read path — cacheable, latency-sensitive, usually the highest volume.',
@@ -53,9 +54,11 @@ export function FlowPanel() {
   const plans = useMemo(() => (problem ? plansFor(problem) : []), [problem]);
   const resultFor = (flow?: Flow) => (flow ? sim?.flows.find((r) => r.flowId === flow.id) : undefined);
 
+  const { byPlan, extra } = assignFlows(plans, flows);
+
   /** Declare (or re-point) the flow for a plan. Values the learner already edited are kept. */
   const usePath = (plan: FlowPlan, steps: string[]) => {
-    const existing = flows.find((f) => sameFlowName(f.name, plan.name));
+    const existing = byPlan.get(plan.name);
     const id = existing?.id ?? addFlow();
     updateFlow(id, {
       name: plan.name,
@@ -63,8 +66,6 @@ export function FlowPanel() {
       ...(existing ? {} : { kind: plan.kind, rps: plan.rps, description: plan.plain }),
     });
   };
-
-  const extra = flows.filter((f) => !plans.some((p) => sameFlowName(p.name, f.name)));
 
   return (
     <div>
@@ -75,7 +76,7 @@ export function FlowPanel() {
       </p>
 
       {plans.map((plan) => {
-        const flow = flows.find((f) => sameFlowName(f.name, plan.name));
+        const flow = byPlan.get(plan.name);
         return (
           <RequestCard
             key={plan.name}
@@ -127,7 +128,10 @@ function RequestCard({
   const [handOpen, setHandOpen] = useState(false);
   const route = (steps: string[]) => steps.map(labelOf).join(' → ');
   const declared = Boolean(flow && flow.steps.length > 0);
-  const broken = declared && isPathBroken(flow!.steps, graph);
+  // Changed when an arrow or a middle box went, and also when the first or last box
+  // went: deleting a box strips it from the steps, leaving a connected path that no
+  // longer reaches what this request needs.
+  const broken = declared && (isPathBroken(flow!.steps, graph) || !meetsPlan(plan, flow!.steps, graph));
 
   return (
     <div className="card request-card">
@@ -188,7 +192,7 @@ function RequestCard({
           <summary className="faint" style={{ fontSize: 12 }}>
             Edit by hand
           </summary>
-          {handOpen && <FlowEditor flow={flow} archNodes={archNodes} labelOf={labelOf} result={result} />}
+          {handOpen && <FlowEditor flow={flow} archNodes={archNodes} labelOf={labelOf} result={result} lockName />}
         </details>
       )}
     </div>
@@ -224,11 +228,14 @@ function FlowEditor({
   archNodes,
   labelOf,
   result,
+  lockName = false,
 }: {
   flow: Flow;
   archNodes: ArchNode[];
   labelOf: (id: string) => string;
   result?: FlowResult;
+  /** Inside a request card the name is what ties the flow to the card, so it is fixed. */
+  lockName?: boolean;
 }) {
   const updateFlow = useCanvas((s) => s.updateFlow);
   const removeFlow = useCanvas((s) => s.removeFlow);
@@ -242,6 +249,8 @@ function FlowEditor({
           value={flow.name}
           onChange={(e) => updateFlow(flow.id, { name: e.target.value })}
           placeholder="checkout write path"
+          readOnly={lockName}
+          title={lockName ? 'This flow belongs to the request above, so its name is fixed' : undefined}
         />
         <button className="ghost" onClick={() => removeFlow(flow.id)} title="Delete flow">
           ✕

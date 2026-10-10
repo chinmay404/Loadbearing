@@ -1,4 +1,4 @@
-import { ARCH_NODE_TYPES, CONCEPTS } from '@loadbearing/shared';
+import { ARCH_NODE_TYPES, CONCEPTS, DEFAULT_PLAN_RPS, guessFlowKind } from '@loadbearing/shared';
 import type { ArchNodeType, FlowKind, LoadScenario, Problem, ProblemDiagram } from '@loadbearing/shared';
 
 const CONCEPT_SET = new Set<string>(CONCEPTS);
@@ -62,10 +62,13 @@ function beginnerFields(o: Record<string, unknown>): Partial<Problem> {
       const reach = (Array.isArray(p.mustReach) ? p.mustReach : [])
         .map((group) => strArray(group).filter((type) => NODE_TYPE_SET.has(type)))
         .filter((group) => group.length > 0);
+      const name = str(p.name).trim();
+      // A plan at 0 rps declares a flow that sends nothing and passes every gate, so a
+      // bad rate falls back to the default and a bad kind is guessed from the name.
       return {
-        name: str(p.name).trim(),
-        kind: (FLOW_KINDS.has(str(p.kind)) ? str(p.kind) : 'read') as FlowKind,
-        rps: Math.max(0, num(p.rps)),
+        name,
+        kind: FLOW_KINDS.has(str(p.kind)) ? (str(p.kind) as FlowKind) : guessFlowKind(name),
+        rps: num(p.rps) > 0 ? num(p.rps) : DEFAULT_PLAN_RPS,
         plain: str(p.plain).trim(),
         ...(reach.length ? { mustReach: reach as ArchNodeType[][] } : {}),
       };
